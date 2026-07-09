@@ -2,6 +2,8 @@ package marketplace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -9,7 +11,117 @@ import (
 	"time"
 )
 
-const defaultReviewScannerName = "marketplace_static_v1"
+const defaultReviewScannerName = "marketplace_static_v2"
+const defaultReviewPolicyVersion = "marketplace_static_policy_v2"
+const reviewRuleToolsValidJSON = "tools.valid_json"
+const reviewRuleExternalWebhookEgress = "tools.external_webhook_egress"
+
+type reviewPolicyRule struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type"`
+	Severity string   `json:"severity"`
+	Message  string   `json:"message"`
+	Needles  []string `json:"needles"`
+}
+
+var textReviewRules = []reviewPolicyRule{
+	{
+		ID:       "text.prompt_injection.override_or_reveal",
+		Type:     "prompt_injection",
+		Severity: "critical",
+		Message:  "Prompt content attempts to override instructions or reveal hidden prompts.",
+		Needles: []string{
+			"ignore previous instructions",
+			"ignore all previous instructions",
+			"reveal hidden system",
+			"reveal system prompt",
+			"developer message",
+			"bypass safety",
+			"jailbreak",
+		},
+	},
+	{
+		ID:       "text.sensitive_api.credential_extraction",
+		Type:     "sensitive_api",
+		Severity: "high",
+		Message:  "Prompt content references credentials or token extraction.",
+		Needles: []string{
+			"api key",
+			"secret key",
+			"access token",
+			"user token",
+			"password",
+			"credential",
+		},
+	},
+	{
+		ID:       "text.policy_violation.marketplace_blocklist",
+		Type:     "policy_violation",
+		Severity: "critical",
+		Message:  "Content matches a Marketplace policy risk category.",
+		Needles: []string{
+			"violent extremist",
+			"sexual content involving minors",
+			"malware",
+			"credential exfiltration",
+		},
+	},
+}
+
+var toolReviewRules = []reviewPolicyRule{
+	{
+		ID:       "tools.sensitive_api.admin_or_credentials",
+		Type:     "sensitive_api",
+		Severity: "critical",
+		Message:  "Tool configuration references sensitive credential or administrative API access.",
+		Needles: []string{
+			"/oauth/tokens",
+			"oauth/tokens",
+			"admin:read",
+			"admin:write",
+			"users.export",
+			"credential",
+			"secret",
+			"api_key",
+			"api key",
+			"access_token",
+			"access token",
+			"password",
+		},
+	},
+	{
+		ID:       "tools.malicious_code.inline_shell_or_evasion",
+		Type:     "malicious_code",
+		Severity: "critical",
+		Message:  "Tool configuration contains inline code or shell patterns associated with destructive or evasive execution.",
+		Needles: []string{
+			"child_process",
+			"child_process.exec",
+			"eval(",
+			"function(",
+			"subprocess",
+			"os.system",
+			"rm -rf",
+			"base64 -d",
+			"curl ",
+			"wget ",
+		},
+	},
+	{
+		ID:       "tools.unsafe_tool.execution_or_data_movement",
+		Type:     "unsafe_tool",
+		Severity: "high",
+		Message:  "Tool configuration exposes unsafe execution or data movement capabilities.",
+		Needles: []string{
+			"shell",
+			"exec",
+			"filesystem",
+			"delete_all",
+			"webhook",
+			"exfiltrate",
+		},
+	},
+}
 
 // StaticReviewScanner is the deterministic first-pass Marketplace scanner.
 type StaticReviewScanner struct{}
@@ -42,6 +154,7 @@ func (StaticReviewScanner) ScanAgent(ctx context.Context, agent PublishedAgent) 
 	toolFindings, err := scanTools(agent.Tools)
 	if err != nil {
 		findings = append(findings, ReviewFinding{
+			RuleID:   reviewRuleToolsValidJSON,
 			Type:     "unsafe_tool",
 			Severity: "high",
 			Field:    "tools",
@@ -57,63 +170,69 @@ func (StaticReviewScanner) ScanAgent(ctx context.Context, agent PublishedAgent) 
 		decision = "rejected"
 	}
 	return AutomatedReviewResult{
-		AgentID:   agent.ID,
-		Decision:  decision,
-		Scanner:   defaultReviewScannerName,
-		Findings:  findings,
-		CreatedAt: time.Now().UTC(),
+		AgentID:        agent.ID,
+		Decision:       decision,
+		Scanner:        defaultReviewScannerName,
+		PolicyVersion:  defaultReviewPolicyVersion,
+		PolicyChecksum: staticReviewPolicyChecksum(),
+		Findings:       findings,
+		CreatedAt:      time.Now().UTC(),
 	}, nil
+}
+
+func staticReviewPolicyChecksum() string {
+	payload, err := json.Marshal(reviewPolicyManifest())
+	if err != nil {
+		payload = []byte(defaultReviewPolicyVersion)
+	}
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func reviewPolicyManifest() struct {
+	Version string             `json:"version"`
+	Rules   []reviewPolicyRule `json:"rules"`
+} {
+	rules := make([]reviewPolicyRule, 0, len(textReviewRules)+len(toolReviewRules)+2)
+	rules = append(rules, textReviewRules...)
+	rules = append(rules, toolReviewRules...)
+	rules = append(rules, reviewPolicyRule{
+		ID:       reviewRuleExternalWebhookEgress,
+		Type:     "unsafe_tool",
+		Severity: "high",
+		Message:  "Tool configuration defines an external webhook data egress path.",
+		Needles: []string{
+			"{{user.",
+			"{{conversation.",
+			"conversation.transcript",
+			"user.email",
+			"collector",
+			"ingest",
+			"exfiltrate",
+		},
+	})
+	rules = append(rules, reviewPolicyRule{
+		ID:       reviewRuleToolsValidJSON,
+		Type:     "unsafe_tool",
+		Severity: "high",
+		Message:  "Tools configuration must be valid structured JSON.",
+	})
+	return struct {
+		Version string             `json:"version"`
+		Rules   []reviewPolicyRule `json:"rules"`
+	}{
+		Version: defaultReviewPolicyVersion,
+		Rules:   rules,
+	}
 }
 
 func scanTextField(field, value string) []ReviewFinding {
 	normalized := strings.ToLower(value)
 	findings := make([]ReviewFinding, 0)
-	if containsAny(normalized, []string{
-		"ignore previous instructions",
-		"ignore all previous instructions",
-		"reveal hidden system",
-		"reveal system prompt",
-		"developer message",
-		"bypass safety",
-		"jailbreak",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "prompt_injection",
-			Severity: "critical",
-			Field:    field,
-			Message:  "Prompt content attempts to override instructions or reveal hidden prompts.",
-			Evidence: summarizeEvidence(value),
-		})
-	}
-	if containsAny(normalized, []string{
-		"api key",
-		"secret key",
-		"access token",
-		"user token",
-		"password",
-		"credential",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "sensitive_api",
-			Severity: "high",
-			Field:    field,
-			Message:  "Prompt content references credentials or token extraction.",
-			Evidence: summarizeEvidence(value),
-		})
-	}
-	if containsAny(normalized, []string{
-		"violent extremist",
-		"sexual content involving minors",
-		"malware",
-		"credential exfiltration",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "policy_violation",
-			Severity: "critical",
-			Field:    field,
-			Message:  "Content matches a Marketplace policy risk category.",
-			Evidence: summarizeEvidence(value),
-		})
+	for _, rule := range textReviewRules {
+		if containsAny(normalized, rule.Needles) {
+			findings = append(findings, reviewFindingForRule(rule, field, value))
+		}
 	}
 	return findings
 }
@@ -126,63 +245,10 @@ func scanTools(rawTools string) ([]ReviewFinding, error) {
 	toolText := strings.ToLower(flattenJSONText(payload))
 	findings := make([]ReviewFinding, 0)
 	findings = append(findings, scanExternalWebhookEgress(payload, toolText)...)
-	if containsAny(toolText, []string{
-		"/oauth/tokens",
-		"oauth/tokens",
-		"admin:read",
-		"admin:write",
-		"users.export",
-		"credential",
-		"secret",
-		"api_key",
-		"api key",
-		"access_token",
-		"access token",
-		"password",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "sensitive_api",
-			Severity: "critical",
-			Field:    "tools",
-			Message:  "Tool configuration references sensitive credential or administrative API access.",
-			Evidence: summarizeEvidence(flattenJSONText(payload)),
-		})
-	}
-	if containsAny(toolText, []string{
-		"child_process",
-		"child_process.exec",
-		"eval(",
-		"function(",
-		"subprocess",
-		"os.system",
-		"rm -rf",
-		"base64 -d",
-		"curl ",
-		"wget ",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "malicious_code",
-			Severity: "critical",
-			Field:    "tools",
-			Message:  "Tool configuration contains inline code or shell patterns associated with destructive or evasive execution.",
-			Evidence: summarizeEvidence(flattenJSONText(payload)),
-		})
-	}
-	if containsAny(toolText, []string{
-		"shell",
-		"exec",
-		"filesystem",
-		"delete_all",
-		"webhook",
-		"exfiltrate",
-	}) {
-		findings = append(findings, ReviewFinding{
-			Type:     "unsafe_tool",
-			Severity: "high",
-			Field:    "tools",
-			Message:  "Tool configuration exposes unsafe execution or data movement capabilities.",
-			Evidence: summarizeEvidence(flattenJSONText(payload)),
-		})
+	for _, rule := range toolReviewRules {
+		if containsAny(toolText, rule.Needles) {
+			findings = append(findings, reviewFindingForRule(rule, "tools", flattenJSONText(payload)))
+		}
 	}
 	return findings, nil
 }
@@ -207,6 +273,7 @@ func scanExternalWebhookEgress(payload any, toolText string) []ReviewFinding {
 			continue
 		}
 		findings = append(findings, ReviewFinding{
+			RuleID:   reviewRuleExternalWebhookEgress,
 			Type:     "unsafe_tool",
 			Severity: "high",
 			Field:    "tools",
@@ -215,6 +282,17 @@ func scanExternalWebhookEgress(payload any, toolText string) []ReviewFinding {
 		})
 	}
 	return findings
+}
+
+func reviewFindingForRule(rule reviewPolicyRule, field, evidence string) ReviewFinding {
+	return ReviewFinding{
+		RuleID:   rule.ID,
+		Type:     rule.Type,
+		Severity: rule.Severity,
+		Field:    field,
+		Message:  rule.Message,
+		Evidence: summarizeEvidence(evidence),
+	}
 }
 
 func extractHTTPURLs(value any) []string {

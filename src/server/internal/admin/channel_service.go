@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ func (s *Service) CreateChannel(ctx context.Context, actor auth.Session, input C
 	if err := validateChannelProvider(input.Provider); err != nil {
 		return nil, err
 	}
+	if err := validateChannelBaseURL(input.BaseURL); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(actor.OrganizationID) == "" {
 		return nil, fmt.Errorf("organization id is required")
 	}
@@ -80,9 +84,46 @@ func validateChannelProvider(provider string) error {
 		return fmt.Errorf("unsupported channel provider: %s", provider)
 	}
 	if spec.Status != relaychannel.ProviderStatusSupported {
-		return fmt.Errorf("channel provider %s is not implemented yet", spec.ID)
+		return fmt.Errorf("channel provider %s is not configurable", spec.ID)
 	}
 	return nil
+}
+
+func validateChannelBaseURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid channel base URL: %w", err)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("channel base URL must include a host")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("channel base URL must not include credentials")
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("channel base URL must include a host")
+	}
+	if ip := net.ParseIP(host); ip != nil && isUnsafeChannelBaseIP(ip) {
+		return fmt.Errorf("channel base URL must not target local or private network addresses")
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("channel base URL must use https")
+	}
+	return nil
+}
+
+func isUnsafeChannelBaseIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast()
 }
 
 // ListChannelProviders returns the canonical provider catalog from the Relay
@@ -92,12 +133,16 @@ func (s *Service) ListChannelProviders(ctx context.Context) ([]ChannelProviderIn
 	specs := relaychannel.SupportedProviders()
 	providers := make([]ChannelProviderInfo, 0, len(specs))
 	for _, spec := range specs {
+		runtimeReady := spec.Status == relaychannel.ProviderStatusSupported
 		providers = append(providers, ChannelProviderInfo{
 			ID:             spec.ID,
 			DisplayName:    spec.DisplayName,
 			Kind:           string(spec.Kind),
 			Status:         string(spec.Status),
 			DefaultBaseURL: spec.DefaultBaseURL,
+			Configurable:   runtimeReady,
+			Installable:    runtimeReady,
+			RuntimeReady:   runtimeReady,
 		})
 	}
 	return providers, nil
@@ -110,6 +155,11 @@ func (s *Service) UpdateChannel(ctx context.Context, actor auth.Session, id stri
 	}
 	if strings.TrimSpace(actor.OrganizationID) == "" {
 		return nil, fmt.Errorf("organization id is required")
+	}
+	if input.BaseURL != nil {
+		if err := validateChannelBaseURL(*input.BaseURL); err != nil {
+			return nil, err
+		}
 	}
 
 	result, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, input)

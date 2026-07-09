@@ -31,8 +31,9 @@ type Store interface {
 	DeleteUser(ctx context.Context, userID string) error
 
 	// Review queue (D-17)
-	ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error)
+	ListPendingReviews(ctx context.Context, status string) ([]*marketplace.PublishedAgent, error)
 	ApproveAgent(ctx context.Context, id string) error
+	ClaimReview(ctx context.Context, id string, reviewerID string) error
 	RejectAgent(ctx context.Context, id string, reason string) error
 	RequestAgentChanges(ctx context.Context, id string, reason string) error
 }
@@ -156,12 +157,20 @@ func (s *SQLStore) DeleteUser(ctx context.Context, userID string) error {
 
 // --- Review Queue ---
 
-func (s *SQLStore) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
-	return marketplace.NewSQLStore(s.db).ListPendingReviews(ctx, 20, 0)
+func (s *SQLStore) ListPendingReviews(ctx context.Context, status string) ([]*marketplace.PublishedAgent, error) {
+	return marketplace.NewSQLStore(s.db).ListReviewQueue(ctx, status, 20, 0)
 }
 
 func (s *SQLStore) ApproveAgent(ctx context.Context, id string) error {
 	return marketplace.NewSQLStore(s.db).ApproveAgent(ctx, id, "")
+}
+
+func (s *SQLStore) ClaimReview(ctx context.Context, id string, reviewerID string) error {
+	return marketplace.NewGovernanceService(marketplace.NewSQLStore(s.db)).AssignReview(ctx, marketplace.GovernanceAction{
+		ActorUserID: reviewerID,
+		AgentID:     id,
+		Reason:      "claimed for review",
+	})
 }
 
 func (s *SQLStore) RejectAgent(ctx context.Context, id string, reason string) error {

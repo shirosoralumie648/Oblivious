@@ -35,6 +35,9 @@ type ChannelProviderInfo struct {
 	Kind           string `json:"kind"`
 	Status         string `json:"status"`
 	DefaultBaseURL string `json:"defaultBaseURL"`
+	Configurable   bool   `json:"configurable"`
+	Installable    bool   `json:"installable"`
+	RuntimeReady   bool   `json:"runtimeReady"`
 }
 
 // ModelInventoryEntry is the admin model inventory row aggregated from relay

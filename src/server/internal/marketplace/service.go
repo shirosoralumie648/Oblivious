@@ -328,9 +328,13 @@ func (s *Service) EnforceReviewSLAs(ctx context.Context, options ReviewSLAEnforc
 	if offset < 0 {
 		offset = 0
 	}
-	agents, err := s.store.ListPendingReviews(ctx, limit, offset)
-	if err != nil {
-		return ReviewSLAEnforcementResult{}, err
+	agents := make([]*PublishedAgent, 0)
+	for _, status := range []string{AgentStatusPendingReview, AgentStatusAppealPending} {
+		queueAgents, err := s.store.ListReviewQueue(ctx, status, limit, offset)
+		if err != nil {
+			return ReviewSLAEnforcementResult{}, err
+		}
+		agents = append(agents, queueAgents...)
 	}
 	s.addReviewSLAs(agents)
 
@@ -362,7 +366,7 @@ func (s *Service) EnforceReviewSLAs(ctx context.Context, options ReviewSLAEnforc
 }
 
 func AddReviewSLA(agent *PublishedAgent, now time.Time) {
-	if agent == nil || agent.Status != "pending_review" {
+	if agent == nil || (agent.Status != AgentStatusPendingReview && agent.Status != AgentStatusAppealPending) {
 		return
 	}
 	submittedAt := agent.CreatedAt
@@ -447,6 +451,7 @@ func reviewSLAAlertEvent(agent *PublishedAgent) (observability.AlertEvent, bool)
 		Fields: map[string]any{
 			"agentID":                agent.ID,
 			"agentName":              agentName,
+			"reviewStatus":           agent.Status,
 			"organizationID":         agent.OrganizationID,
 			"manualDeadlineAt":       agent.ReviewSLA.ManualDeadlineAt.Format(time.RFC3339),
 			"manualSlaHours":         agent.ReviewSLA.ManualSlaHours,

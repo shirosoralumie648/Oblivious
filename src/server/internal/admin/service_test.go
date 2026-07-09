@@ -180,6 +180,37 @@ func TestValidateChannelProviderUsesRelayProviderCatalog(t *testing.T) {
 			t.Fatalf("supported native provider %q should be valid: %v", provider, err)
 		}
 	}
+
+	for _, provider := range []string{"azure-openai", "perplexity", "cohere"} {
+		err := validateChannelProvider(provider)
+		if err == nil || !strings.Contains(err.Error(), "not configurable") {
+			t.Fatalf("planned provider %q should not be configurable, got %v", provider, err)
+		}
+	}
+}
+
+func TestListChannelProvidersMarksPlannedProvidersNotConfigurable(t *testing.T) {
+	service := NewService(nil)
+
+	providers, err := service.ListChannelProviders(context.Background())
+	if err != nil {
+		t.Fatalf("ListChannelProviders returned error: %v", err)
+	}
+
+	byID := map[string]ChannelProviderInfo{}
+	for _, provider := range providers {
+		byID[provider.ID] = provider
+	}
+	for _, provider := range []string{"openai", "deepseek", "claude", "gemini"} {
+		if !byID[provider].Configurable || !byID[provider].Installable || !byID[provider].RuntimeReady {
+			t.Fatalf("supported provider %q should be configurable, installable, and runtime-ready: %+v", provider, byID[provider])
+		}
+	}
+	for _, provider := range []string{"azure-openai", "perplexity", "cohere"} {
+		if byID[provider].Configurable || byID[provider].Installable || byID[provider].RuntimeReady {
+			t.Fatalf("planned provider %q must not be configurable, installable, or runtime-ready: %+v", provider, byID[provider])
+		}
+	}
 }
 
 func TestListChannelRuntimeStatsFromRelayPool(t *testing.T) {
@@ -503,6 +534,69 @@ func TestServiceRedactsChannelAPIKeyFromAuditChanges(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsUnsafeChannelBaseURLBeforePersisting(t *testing.T) {
+	unsafeUpdateURL := "http://169.254.169.254/latest/meta-data"
+	tests := []struct {
+		name        string
+		createURL   string
+		updateURL   *string
+		wantSnippet string
+	}{
+		{
+			name:        "loopback create",
+			createURL:   "http://127.0.0.1:8080/v1",
+			wantSnippet: "channel base URL must not target local or private network addresses",
+		},
+		{
+			name:        "private create",
+			createURL:   "http://10.0.0.8:8080/v1",
+			wantSnippet: "channel base URL must not target local or private network addresses",
+		},
+		{
+			name:        "metadata update",
+			updateURL:   &unsafeUpdateURL,
+			wantSnippet: "channel base URL must not target local or private network addresses",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &relayConfigApplyStore{}
+			var applied []RelayConfigChange
+			service := NewService(store, WithRelayConfigApplier(func(ctx context.Context, change RelayConfigChange) error {
+				applied = append(applied, change)
+				return nil
+			}))
+			actor := testAdminActor()
+			request := httptest.NewRequest("POST", "/api/v1/admin/channels", nil)
+
+			var err error
+			if tt.updateURL != nil {
+				_, err = service.UpdateChannel(context.Background(), actor, "ch_1", ChannelUpdateRequest{BaseURL: tt.updateURL}, request)
+			} else {
+				_, err = service.CreateChannel(context.Background(), actor, ChannelCreateRequest{
+					Name:     "Unsafe OpenAI",
+					Provider: "openai",
+					BaseURL:  tt.createURL,
+				}, request)
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantSnippet) {
+				t.Fatalf("expected unsafe base URL error containing %q, got %v", tt.wantSnippet, err)
+			}
+			if store.createdChannelCalled || store.updatedChannelCalled {
+				t.Fatalf("unsafe base URL should not reach store, create=%v update=%v", store.createdChannelCalled, store.updatedChannelCalled)
+			}
+			if len(applied) != 0 {
+				t.Fatalf("unsafe base URL should not apply relay config, got %#v", applied)
+			}
+			if len(store.auditEntries) != 0 {
+				t.Fatalf("unsafe base URL should not audit, got %#v", store.auditEntries)
+			}
+		})
+	}
+}
+
 func TestServicePassesChannelWeightThroughCreateAndUpdate(t *testing.T) {
 	store := &relayConfigApplyStore{}
 	service := NewService(store)
@@ -572,11 +666,13 @@ func (s *syncChannelModelsStore) CreateAuditEntry(ctx context.Context, entry *Au
 
 type relayConfigApplyStore struct {
 	Store
-	createdWeight int
-	updatedWeight *int
-	createdAPIKey string
-	updatedAPIKey *string
-	auditEntries  []*AuditEntry
+	createdChannelCalled bool
+	updatedChannelCalled bool
+	createdWeight        int
+	updatedWeight        *int
+	createdAPIKey        string
+	updatedAPIKey        *string
+	auditEntries         []*AuditEntry
 }
 
 type userQuotaAdminStore struct {
@@ -610,12 +706,14 @@ func (s *userQuotaAdminStore) CreateAuditEntry(ctx context.Context, entry *Audit
 }
 
 func (s *relayConfigApplyStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
+	s.createdChannelCalled = true
 	s.createdWeight = input.Weight
 	s.createdAPIKey = input.APIKey
 	return &ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider, Weight: input.Weight}, nil
 }
 
 func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+	s.updatedChannelCalled = true
 	s.updatedWeight = input.Weight
 	s.updatedAPIKey = input.APIKey
 	weight := 0

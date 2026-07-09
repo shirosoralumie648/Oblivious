@@ -69,6 +69,20 @@ func TestAdminHandlerExposesPhase31Operations(t *testing.T) {
 		t.Fatalf("expected approved agent agent_1, got %q", store.approvedAgentID)
 	}
 
+	claimRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/claim", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	claimRecorder := httptest.NewRecorder()
+	handler.claimReview(claimRecorder, claimRequest, "agent_1")
+	if claimRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("claim review expected 200, got %d: %s", claimRecorder.Code, claimRecorder.Body.String())
+	}
+	if store.claimedAgentID != "agent_1" || store.claimedReviewerID != "user_admin" {
+		t.Fatalf("expected review claim agent/reviewer to be stored, got agent=%q reviewer=%q", store.claimedAgentID, store.claimedReviewerID)
+	}
+	if !strings.Contains(claimRecorder.Body.String(), `"status":"claimed"`) {
+		t.Fatalf("expected claimed response status, got %s", claimRecorder.Body.String())
+	}
+
 	needsChangesRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/needs-changes", strings.NewReader(`{"reason":"Add data retention details."}`)).
 		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
 	needsChangesRecorder := httptest.NewRecorder()
@@ -1839,37 +1853,42 @@ func testAdminSession() auth.Session {
 }
 
 type fakeAdminStore struct {
-	channelFilter           admin.ChannelFilter
-	usageLogFilter          admin.UsageLogFilter
-	usageAnalyticsFilter    admin.UsageAnalyticsFilter
-	apiTokenFilter          admin.APITokenFilter
-	modelInventoryFilter    admin.ModelInventoryFilter
-	billingFilter           admin.BillingInspectionFilter
-	pendingReviews          []*marketplace.PublishedAgent
-	batchAction             string
-	routeUpdate             admin.RouteUpdateRequest
-	approvedAgentID         string
-	needsChangesAgentID     string
-	needsChangesReason      string
-	revokedAPITokenID       string
-	relayPricingSettings    admin.RelayPricingSettings
-	channelTestResult       *admin.ChannelTestResult
-	currentChannelModels    []string
-	updatedChannelModels    []string
-	channelDiagnostics      *admin.ChannelDiagnosticsUpdate
-	createdPlan             admin.PlanCreateRequest
-	recordedTopupRefundID   string
-	recordedTopupRefund     admin.TopupRefundRequest
-	topupRefundErr          error
-	marketplacePayouts      []*admin.MarketplacePayoutInspection
-	marketplacePayoutsSet   bool
-	marketplacePayoutsTotal int
-	updatedQuotaUserID      string
-	updatedQuotaBalance     float64
-	missingUserID           string
-	createdChannelAPIKey    string
-	updatedChannelAPIKey    *string
-	auditEntries            []*admin.AuditEntry
+	channelFilter               admin.ChannelFilter
+	usageLogFilter              admin.UsageLogFilter
+	usageAnalyticsFilter        admin.UsageAnalyticsFilter
+	apiTokenFilter              admin.APITokenFilter
+	modelInventoryFilter        admin.ModelInventoryFilter
+	billingFilter               admin.BillingInspectionFilter
+	pendingReviews              []*marketplace.PublishedAgent
+	batchAction                 string
+	routeUpdate                 admin.RouteUpdateRequest
+	approvedAgentID             string
+	claimedAgentID              string
+	claimedReviewerID           string
+	needsChangesAgentID         string
+	needsChangesReason          string
+	revokedAPITokenID           string
+	relayPricingSettings        admin.RelayPricingSettings
+	channelTestResult           *admin.ChannelTestResult
+	currentChannelModels        []string
+	updatedChannelModels        []string
+	channelDiagnostics          *admin.ChannelDiagnosticsUpdate
+	createdPlan                 admin.PlanCreateRequest
+	recordedTopupRefundID       string
+	recordedTopupRefund         admin.TopupRefundRequest
+	topupRefundErr              error
+	marketplacePayouts          []*admin.MarketplacePayoutInspection
+	marketplacePayoutsSet       bool
+	marketplacePayoutsTotal     int
+	marketplaceSettlements      []*admin.MarketplaceSettlementInspection
+	marketplaceSettlementsSet   bool
+	marketplaceSettlementsTotal int
+	updatedQuotaUserID          string
+	updatedQuotaBalance         float64
+	missingUserID               string
+	createdChannelAPIKey        string
+	updatedChannelAPIKey        *string
+	auditEntries                []*admin.AuditEntry
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {
@@ -1886,7 +1905,7 @@ func (s *fakeAdminStore) DeleteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *fakeAdminStore) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
+func (s *fakeAdminStore) ListPendingReviews(ctx context.Context, status string) ([]*marketplace.PublishedAgent, error) {
 	if s.pendingReviews != nil {
 		return s.pendingReviews, nil
 	}
@@ -1895,6 +1914,12 @@ func (s *fakeAdminStore) ListPendingReviews(ctx context.Context) ([]*marketplace
 
 func (s *fakeAdminStore) ApproveAgent(ctx context.Context, id string) error {
 	s.approvedAgentID = id
+	return nil
+}
+
+func (s *fakeAdminStore) ClaimReview(ctx context.Context, id string, reviewerID string) error {
+	s.claimedAgentID = id
+	s.claimedReviewerID = reviewerID
 	return nil
 }
 
@@ -2338,6 +2363,10 @@ func (s *fakeMarketplaceStore) ListUserAgents(ctx context.Context, ownerID, orga
 
 func (s *fakeMarketplaceStore) ListPendingReviews(ctx context.Context, limit, offset int) ([]*marketplace.PublishedAgent, error) {
 	return []*marketplace.PublishedAgent{{ID: "agent_1", Name: "Agent", Status: "pending_review"}}, nil
+}
+
+func (s *fakeMarketplaceStore) ListReviewQueue(ctx context.Context, status string, limit, offset int) ([]*marketplace.PublishedAgent, error) {
+	return s.ListPendingReviews(ctx, limit, offset)
 }
 
 func (s *fakeMarketplaceStore) ApproveAgent(ctx context.Context, id, reviewerID string) error {

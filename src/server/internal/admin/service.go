@@ -275,12 +275,16 @@ func (s *Service) DeleteUser(ctx context.Context, userID string) error {
 
 // --- Review Queue ---
 
-func (s *Service) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
-	return s.store.ListPendingReviews(ctx)
+func (s *Service) ListPendingReviews(ctx context.Context, status string) ([]*marketplace.PublishedAgent, error) {
+	return s.store.ListPendingReviews(ctx, status)
 }
 
 func (s *Service) ApproveAgent(ctx context.Context, id string) error {
 	return s.store.ApproveAgent(ctx, id)
+}
+
+func (s *Service) ClaimReview(ctx context.Context, id string, reviewerID string) error {
+	return s.store.ClaimReview(ctx, id, reviewerID)
 }
 
 func (s *Service) RejectAgent(ctx context.Context, id string, reason string) error {

@@ -21,6 +21,7 @@ type marketplaceServiceStore struct {
 	settlementPrefs  map[string]MarketplaceSettlementPreferences
 	rankingSignals   map[string]map[AgentRankingSignalEvent]int
 	pendingReviews   []*PublishedAgent
+	reviewQueues     map[string][]*PublishedAgent
 	lastOwnerID      string
 	lastOrgID        string
 	lastListLimit    int
@@ -127,6 +128,22 @@ func (s *marketplaceServiceStore) ListPendingReviews(ctx context.Context, limit,
 		return s.pendingReviews, nil
 	}
 	return []*PublishedAgent{{ID: "agent_new", Status: "pending_review"}}, nil
+}
+
+func (s *marketplaceServiceStore) ListReviewQueue(ctx context.Context, status string, limit, offset int) ([]*PublishedAgent, error) {
+	if s.reviewQueues != nil {
+		return s.reviewQueues[status], nil
+	}
+	if s.pendingReviews == nil {
+		return s.ListPendingReviews(ctx, limit, offset)
+	}
+	filtered := make([]*PublishedAgent, 0, len(s.pendingReviews))
+	for _, review := range s.pendingReviews {
+		if review != nil && review.Status == status {
+			filtered = append(filtered, review)
+		}
+	}
+	return filtered, nil
 }
 
 func (s *marketplaceServiceStore) ApproveAgent(ctx context.Context, id, reviewerID string) error {
@@ -773,5 +790,45 @@ func TestServiceEnforceReviewSLAsAlertsDueSoonAndOverdueOnce(t *testing.T) {
 	}
 	if len(alerts.events) != 2 {
 		t.Fatalf("expected no duplicate alert events, got %+v", alerts.events)
+	}
+}
+
+func TestServiceEnforceReviewSLAsIncludesAppealPendingQueue(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	store := newMarketplaceServiceStore()
+	store.pendingReviews = []*PublishedAgent{
+		{
+			ID:             "agent_pending_overdue",
+			Name:           "Pending Overdue Review",
+			OrganizationID: "org_standard",
+			Status:         AgentStatusPendingReview,
+			CreatedAt:      now.Add(-73 * time.Hour),
+			UpdatedAt:      now.Add(-73 * time.Hour),
+		},
+		{
+			ID:             "agent_appeal_overdue",
+			Name:           "Appeal Overdue Review",
+			OrganizationID: "org_standard",
+			Status:         AgentStatusAppealPending,
+			CreatedAt:      now.Add(-73 * time.Hour),
+			UpdatedAt:      now.Add(-73 * time.Hour),
+		},
+	}
+	alerts := &marketplaceSLACaptureAlertSink{}
+	service := NewService(store, nil, WithReviewSLAClock(func() time.Time { return now }), WithReviewSLAAlertSink(alerts))
+
+	result, err := service.EnforceReviewSLAs(context.Background(), ReviewSLAEnforcementOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("EnforceReviewSLAs returned error: %v", err)
+	}
+	if result.Scanned != 2 || result.Alerted != 2 {
+		t.Fatalf("expected pending and appeal queues to be scanned and alerted, got %+v", result)
+	}
+	if len(alerts.events) != 2 {
+		t.Fatalf("expected two SLA alert events, got %+v", alerts.events)
+	}
+	if alerts.events[1].Key != "marketplace_review_sla:agent_appeal_overdue:manual:overdue" ||
+		alerts.events[1].Fields["agentID"] != "agent_appeal_overdue" {
+		t.Fatalf("expected appeal pending review to produce SLA alert, got %+v", alerts.events[1])
 	}
 }

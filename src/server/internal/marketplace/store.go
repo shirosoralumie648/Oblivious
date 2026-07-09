@@ -23,6 +23,7 @@ type Store interface {
 
 	// Review queue (D-17, D-24)
 	ListPendingReviews(ctx context.Context, limit, offset int) ([]*PublishedAgent, error)
+	ListReviewQueue(ctx context.Context, status string, limit, offset int) ([]*PublishedAgent, error)
 	ApproveAgent(ctx context.Context, id, reviewerID string) error
 	RejectAgent(ctx context.Context, id, reviewerID, reason string) error
 
@@ -391,30 +392,54 @@ func (s *SQLStore) ListUserAgents(ctx context.Context, ownerID, organizationID s
 
 // ListPendingReviews lists agents awaiting review, oldest first (fair queue).
 func (s *SQLStore) ListPendingReviews(ctx context.Context, limit, offset int) ([]*PublishedAgent, error) {
+	return s.ListReviewQueue(ctx, AgentStatusPendingReview, limit, offset)
+}
+
+// ListReviewQueue lists agents in an operator review queue status, oldest first.
+func (s *SQLStore) ListReviewQueue(ctx context.Context, status string, limit, offset int) ([]*PublishedAgent, error) {
+	status = normalizeReviewQueueStatus(status)
+	if status == "" {
+		return []*PublishedAgent{}, nil
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+selectAgentColumns+`
 		FROM published_agents a
 		LEFT JOIN categories c ON a.category_id = c.id
 		LEFT JOIN users u ON a.owner_id = u.id
-		WHERE a.status = 'pending_review'
+		WHERE a.status = $1
 		ORDER BY a.created_at ASC
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $2 OFFSET $3
+	`, status, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("list pending reviews: %w", err)
+		return nil, fmt.Errorf("list review queue: %w", err)
 	}
 	agents, err := scanAgents(rows)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.attachReviewQueueMetadata(ctx, agents); err != nil {
-		return nil, fmt.Errorf("list pending reviews: %w", err)
+		return nil, fmt.Errorf("list review queue: %w", err)
+	}
+	if err := s.attachReviewAssignments(ctx, agents); err != nil {
+		return nil, fmt.Errorf("list review queue: %w", err)
 	}
 	now := time.Now().UTC()
 	for _, agent := range agents {
 		AddReviewSLA(agent, now)
 	}
 	return agents, nil
+}
+
+func normalizeReviewQueueStatus(status string) string {
+	status = strings.TrimSpace(status)
+	switch status {
+	case "", "pending":
+		return AgentStatusPendingReview
+	case AgentStatusPendingReview, AgentStatusAppealPending:
+		return status
+	default:
+		return ""
+	}
 }
 
 func (s *SQLStore) attachReviewQueueMetadata(ctx context.Context, agents []*PublishedAgent) error {
@@ -466,6 +491,46 @@ func (s *SQLStore) attachReviewQueueMetadata(ctx context.Context, agents []*Publ
 		agent.PublisherReviewTier = tierByOrgID[agent.OrganizationID]
 	}
 	return nil
+}
+
+func (s *SQLStore) attachReviewAssignments(ctx context.Context, agents []*PublishedAgent) error {
+	if len(agents) == 0 {
+		return nil
+	}
+	agentIDs := make([]string, 0, len(agents))
+	agentByID := map[string]*PublishedAgent{}
+	for _, agent := range agents {
+		if agent == nil || agent.ID == "" {
+			continue
+		}
+		agentIDs = append(agentIDs, agent.ID)
+		agentByID[agent.ID] = agent
+	}
+	if len(agentIDs) == 0 {
+		return nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (agent_id) agent_id, COALESCE(actor_user_id, '')
+		FROM marketplace_governance_events
+		WHERE action = 'review_assign' AND agent_id = ANY($1::text[])
+		ORDER BY agent_id, created_at DESC
+	`, pq.Array(agentIDs))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var agentID, reviewerUserID string
+		if err := rows.Scan(&agentID, &reviewerUserID); err != nil {
+			return err
+		}
+		if agent := agentByID[agentID]; agent != nil {
+			agent.ReviewerUserID = reviewerUserID
+		}
+	}
+	return rows.Err()
 }
 
 func publisherReviewTierFromMetadata(metadataRaw []byte) string {

@@ -67,13 +67,29 @@ func (s *GovernanceService) AppealAgent(ctx context.Context, action GovernanceAc
 	if ownerOrganizationID != action.ActorOrganizationID {
 		return fmt.Errorf("appeal agent: only the publisher organization can appeal")
 	}
+	if currentStatus != AgentStatusTakedown {
+		return fmt.Errorf("appeal agent: agent not in takedown state")
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE published_agents
+		SET status = $2, review_reason = $3, updated_at = $4
+		WHERE id = $1 AND status = $5
+	`, action.AgentID, AgentStatusAppealPending, action.Reason, now, AgentStatusTakedown)
+	if err != nil {
+		return fmt.Errorf("appeal agent: update status: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("appeal agent: agent not in takedown state")
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO marketplace_governance_events (
 			id, actor_user_id, actor_organization_id, agent_id, action,
 			from_status, to_status, reason, metadata, created_at
 		)
-		VALUES ($1, $2, $3, $4, 'appeal', $5, $5, $6, '{}', $7)
-	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, action.Reason, time.Now().UTC()); err != nil {
+		VALUES ($1, $2, $3, $4, 'appeal', $5, $6, $7, '{}', $8)
+	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, AgentStatusAppealPending, action.Reason, now); err != nil {
 		return fmt.Errorf("appeal agent: insert event: %w", err)
 	}
 	return tx.Commit()
@@ -83,7 +99,136 @@ func (s *GovernanceService) ReinstateAgent(ctx context.Context, action Governanc
 	if action.ActorUserID == "" || action.AgentID == "" || action.Reason == "" {
 		return fmt.Errorf("reinstate agent: actor, agent, and reason are required")
 	}
-	return s.updateAgentGovernanceStatus(ctx, action, "reinstate", "approved")
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("reinstate agent: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, action.AgentID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("reinstate agent: load agent: %w", err)
+	}
+	if currentStatus != AgentStatusAppealPending {
+		return fmt.Errorf("reinstate agent: agent not in appeal_pending state")
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE published_agents
+		SET status = $2, review_reason = NULLIF($3, ''), updated_at = $4
+		WHERE id = $1 AND status = $5
+	`, action.AgentID, AgentStatusApproved, action.Reason, now, AgentStatusAppealPending)
+	if err != nil {
+		return fmt.Errorf("reinstate agent: update status: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("reinstate agent: agent not in appeal_pending state")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, actor_organization_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4, 'reinstate', $5, $6, $7, '{}', $8)
+	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, AgentStatusApproved, action.Reason, now); err != nil {
+		return fmt.Errorf("reinstate agent: insert event: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *GovernanceService) RejectAppealAgent(ctx context.Context, action GovernanceAction) error {
+	if action.ActorUserID == "" || action.AgentID == "" || action.Reason == "" {
+		return fmt.Errorf("reject appeal agent: actor, agent, and reason are required")
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("reject appeal agent: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, action.AgentID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("reject appeal agent: load agent: %w", err)
+	}
+	if currentStatus != AgentStatusAppealPending {
+		return fmt.Errorf("reject appeal agent: agent not in appeal_pending state")
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE published_agents
+		SET status = $2, review_reason = $3, updated_at = $4
+		WHERE id = $1 AND status = $5
+	`, action.AgentID, AgentStatusTakedown, action.Reason, now, AgentStatusAppealPending)
+	if err != nil {
+		return fmt.Errorf("reject appeal agent: update status: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("reject appeal agent: agent not in appeal_pending state")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, actor_organization_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4, 'appeal_reject', $5, $6, $7, '{}', $8)
+	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, AgentStatusTakedown, action.Reason, now); err != nil {
+		return fmt.Errorf("reject appeal agent: insert event: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *GovernanceService) AssignReview(ctx context.Context, action GovernanceAction) error {
+	if action.ActorUserID == "" || action.AgentID == "" {
+		return fmt.Errorf("assign review: actor and agent are required")
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("assign review: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, action.AgentID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("assign review: load agent: %w", err)
+	}
+	if currentStatus != AgentStatusPendingReview && currentStatus != AgentStatusAppealPending {
+		return fmt.Errorf("assign review: agent not in pending review or appeal_pending state")
+	}
+	var existingReviewerUserID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(actor_user_id, '')
+		FROM marketplace_governance_events
+		WHERE agent_id = $1 AND action = 'review_assign'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, action.AgentID).Scan(&existingReviewerUserID)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("assign review: load reviewer assignment: %w", err)
+	}
+	if existingReviewerUserID != "" && existingReviewerUserID != action.ActorUserID {
+		return fmt.Errorf("assign review: agent already claimed by another reviewer")
+	}
+	reason := strings.TrimSpace(action.Reason)
+	if reason == "" {
+		reason = "claimed for review"
+	}
+	metadata, err := json.Marshal(map[string]string{"reviewerUserId": action.ActorUserID})
+	if err != nil {
+		return fmt.Errorf("assign review: metadata: %w", err)
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, actor_organization_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4, 'review_assign', $5, $6, $7, $8::jsonb, $9)
+	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, currentStatus, reason, string(metadata), now); err != nil {
+		return fmt.Errorf("assign review: insert event: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (s *GovernanceService) RequestAgentChanges(ctx context.Context, action GovernanceAction) error {
@@ -157,6 +302,12 @@ func (s *GovernanceService) RunAutomatedReview(ctx context.Context, agentID stri
 	}
 	if result.Scanner == "" {
 		result.Scanner = defaultReviewScannerName
+	}
+	if result.PolicyVersion == "" {
+		result.PolicyVersion = defaultReviewPolicyVersion
+	}
+	if result.PolicyChecksum == "" {
+		result.PolicyChecksum = staticReviewPolicyChecksum()
 	}
 	if result.CreatedAt.IsZero() {
 		result.CreatedAt = time.Now().UTC()
@@ -259,11 +410,13 @@ func (s *GovernanceService) persistAutomatedReview(ctx context.Context, agent Pu
 	}
 
 	metadata, err := json.Marshal(map[string]any{
-		"agentID":   result.AgentID,
-		"decision":  result.Decision,
-		"scanner":   result.Scanner,
-		"findings":  result.Findings,
-		"createdAt": result.CreatedAt,
+		"agentID":        result.AgentID,
+		"decision":       result.Decision,
+		"scanner":        result.Scanner,
+		"policyVersion":  result.PolicyVersion,
+		"policyChecksum": result.PolicyChecksum,
+		"findings":       result.Findings,
+		"createdAt":      result.CreatedAt,
 	})
 	if err != nil {
 		return fmt.Errorf("automated review: encode metadata: %w", err)

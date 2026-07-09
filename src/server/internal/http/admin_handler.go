@@ -108,8 +108,21 @@ func (h adminHandler) listChannelProviders(w stdhttp.ResponseWriter, r *stdhttp.
 		return
 	}
 
+	supportedProviders := make([]admin.ChannelProviderInfo, 0)
+	plannedProviders := make([]admin.ChannelProviderInfo, 0)
+	for _, provider := range providers {
+		switch provider.Status {
+		case "supported":
+			supportedProviders = append(supportedProviders, provider)
+		case "planned":
+			plannedProviders = append(plannedProviders, provider)
+		}
+	}
+
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{
-		"providers": providers,
+		"providers":          providers,
+		"supportedProviders": supportedProviders,
+		"plannedProviders":   plannedProviders,
 	})
 }
 
@@ -1099,7 +1112,7 @@ func (h adminHandler) listReviews(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		return
 	}
 
-	reviews, err := h.service.ListPendingReviews(r.Context())
+	reviews, err := h.service.ListPendingReviews(r.Context(), status)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -1140,6 +1153,21 @@ func (h adminHandler) approveAgent(w stdhttp.ResponseWriter, r *stdhttp.Request,
 	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.approve", "agent", agentID, "", requestClientIP(r))
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "approved"})
+}
+
+func (h adminHandler) claimReview(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.service.ClaimReview(r.Context(), agentID, session.User.ID); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.review_claim", "agent", agentID, "", requestClientIP(r))
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "claimed"})
 }
 
 func (h adminHandler) rejectAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {

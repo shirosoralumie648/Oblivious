@@ -4,11 +4,43 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+
 	"oblivious/server/internal/notification"
 )
+
+func TestGovernanceMigrationAllowsRuntimeReviewActions(t *testing.T) {
+	raw, err := os.ReadFile("../../migrations/0096_marketplace_governance_review_actions.sql")
+	if err != nil {
+		t.Fatalf("read marketplace governance review action migration: %v", err)
+	}
+	migration := string(raw)
+	for _, action := range []string{
+		"automated_review_pass",
+		"automated_review_reject",
+		"needs_changes",
+		"publish",
+		"approve",
+		"reject",
+		"takedown",
+		"appeal",
+		"appeal_reject",
+		"reinstate",
+		"review_assign",
+		"abuse_report",
+		"abuse_resolve",
+		"abuse_dismiss",
+		"payout_state",
+	} {
+		if !strings.Contains(migration, "'"+action+"'") {
+			t.Fatalf("marketplace governance action %q is written by runtime code but missing from migration CHECK:\n%s", action, migration)
+		}
+	}
+}
 
 func TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory(t *testing.T) {
 	database := settlementTestDB(t)
@@ -52,7 +84,296 @@ func TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory(t *testing.T) 
 	}
 }
 
-func TestGovernanceAppealAndReinstateRecordEvents(t *testing.T) {
+func TestGovernanceAppealSQLMovesTakedownIntoPendingAppealQueue(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, organization_id FROM published_agents").
+		WithArgs("agent_appeal").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "organization_id"}).AddRow("takedown", "publisher_org"))
+	mock.ExpectExec("UPDATE published_agents").
+		WithArgs("agent_appeal", "appeal_pending", "fixed the issue", sqlmock.AnyArg(), "takedown").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO marketplace_governance_events").
+		WithArgs(sqlmock.AnyArg(), "publisher_user", "publisher_org", "agent_appeal", "takedown", "appeal_pending", "fixed the issue", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := service.AppealAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "publisher_user",
+		ActorOrganizationID: "publisher_org",
+		AgentID:             "agent_appeal",
+		Reason:              "fixed the issue",
+	}); err != nil {
+		t.Fatalf("AppealAgent returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceReinstateSQLRequiresPendingAppealDecision(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_reinstate").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("appeal_pending"))
+	mock.ExpectExec("UPDATE published_agents").
+		WithArgs("agent_reinstate", "approved", "appeal accepted", sqlmock.AnyArg(), "appeal_pending").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO marketplace_governance_events").
+		WithArgs(sqlmock.AnyArg(), "admin_user", "admin_org", "agent_reinstate", "appeal_pending", "approved", "appeal accepted", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := service.ReinstateAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "admin_user",
+		ActorOrganizationID: "admin_org",
+		AgentID:             "agent_reinstate",
+		Reason:              "appeal accepted",
+	}); err != nil {
+		t.Fatalf("ReinstateAgent returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceReinstateRejectsTakedownWithoutAppeal(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_reinstate").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("takedown"))
+	mock.ExpectRollback()
+
+	err = service.ReinstateAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "admin_user",
+		ActorOrganizationID: "admin_org",
+		AgentID:             "agent_reinstate",
+		Reason:              "manual override",
+	})
+	if err == nil || !strings.Contains(err.Error(), "appeal_pending") {
+		t.Fatalf("expected reinstate without appeal to fail with appeal_pending requirement, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceRejectAppealSQLRequiresPendingAppealDecision(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_reject_appeal").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("appeal_pending"))
+	mock.ExpectExec("UPDATE published_agents").
+		WithArgs("agent_reject_appeal", "takedown", "appeal evidence insufficient", sqlmock.AnyArg(), "appeal_pending").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO marketplace_governance_events").
+		WithArgs(sqlmock.AnyArg(), "admin_user", "admin_org", "agent_reject_appeal", "appeal_pending", "takedown", "appeal evidence insufficient", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := service.RejectAppealAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "admin_user",
+		ActorOrganizationID: "admin_org",
+		AgentID:             "agent_reject_appeal",
+		Reason:              "appeal evidence insufficient",
+	}); err != nil {
+		t.Fatalf("RejectAppealAgent returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceRejectAppealRejectsTakedownWithoutPendingAppeal(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_reject_appeal").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("takedown"))
+	mock.ExpectRollback()
+
+	err = service.RejectAppealAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "admin_user",
+		ActorOrganizationID: "admin_org",
+		AgentID:             "agent_reject_appeal",
+		Reason:              "appeal evidence insufficient",
+	})
+	if err == nil || !strings.Contains(err.Error(), "appeal_pending") {
+		t.Fatalf("expected reject appeal without pending appeal to fail with appeal_pending requirement, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceAssignReviewSQLRecordsReviewerAssignment(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("pending_review"))
+	mock.ExpectQuery("SELECT COALESCE\\(actor_user_id, ''\\) FROM marketplace_governance_events").
+		WithArgs("agent_review_claim").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec("INSERT INTO marketplace_governance_events").
+		WithArgs(sqlmock.AnyArg(), "reviewer_user", "reviewer_org", "agent_review_claim", "pending_review", "pending_review", "claimed for review", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := service.AssignReview(context.Background(), GovernanceAction{
+		ActorUserID:         "reviewer_user",
+		ActorOrganizationID: "reviewer_org",
+		AgentID:             "agent_review_claim",
+		Reason:              "claimed for review",
+	}); err != nil {
+		t.Fatalf("AssignReview returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceAssignReviewRejectsApprovedAgent(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("approved"))
+	mock.ExpectRollback()
+
+	err = service.AssignReview(context.Background(), GovernanceAction{
+		ActorUserID:         "reviewer_user",
+		ActorOrganizationID: "reviewer_org",
+		AgentID:             "agent_review_claim",
+		Reason:              "claimed for review",
+	})
+	if err == nil || !strings.Contains(err.Error(), "pending review or appeal_pending state") {
+		t.Fatalf("expected assign review to reject approved agent, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceAssignReviewRejectsClaimByAnotherReviewer(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("pending_review"))
+	mock.ExpectQuery("SELECT COALESCE\\(actor_user_id, ''\\) FROM marketplace_governance_events").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"actor_user_id"}).AddRow("other_reviewer"))
+	mock.ExpectRollback()
+
+	err = service.AssignReview(context.Background(), GovernanceAction{
+		ActorUserID:         "reviewer_user",
+		ActorOrganizationID: "reviewer_org",
+		AgentID:             "agent_review_claim",
+		Reason:              "claimed for review",
+	})
+	if err == nil || !strings.Contains(err.Error(), "already claimed by another reviewer") {
+		t.Fatalf("expected assign review to reject conflicting reviewer, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceAssignReviewAllowsSameReviewerToRefreshClaim(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewGovernanceService(NewSQLStore(database))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM published_agents").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("pending_review"))
+	mock.ExpectQuery("SELECT COALESCE\\(actor_user_id, ''\\) FROM marketplace_governance_events").
+		WithArgs("agent_review_claim").
+		WillReturnRows(sqlmock.NewRows([]string{"actor_user_id"}).AddRow("reviewer_user"))
+	mock.ExpectExec("INSERT INTO marketplace_governance_events").
+		WithArgs(sqlmock.AnyArg(), "reviewer_user", "reviewer_org", "agent_review_claim", "pending_review", "pending_review", "claimed for review", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := service.AssignReview(context.Background(), GovernanceAction{
+		ActorUserID:         "reviewer_user",
+		ActorOrganizationID: "reviewer_org",
+		AgentID:             "agent_review_claim",
+		Reason:              "claimed for review",
+	}); err != nil {
+		t.Fatalf("AssignReview returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGovernanceAppealMovesTakedownIntoPendingAppealQueue(t *testing.T) {
 	database := settlementTestDB(t)
 	service := NewGovernanceService(NewSQLStore(database))
 
@@ -76,10 +397,53 @@ func TestGovernanceAppealAndReinstateRecordEvents(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AppealAgent returned error: %v", err)
 	}
+
+	var status, versionStatus, appealFromStatus, appealToStatus string
+	var appealCount int
+	if err := database.QueryRow(`
+		SELECT a.status, v.status, e.from_status, e.to_status
+		FROM published_agents a
+		JOIN agent_versions v ON v.agent_id = a.id
+		JOIN marketplace_governance_events e ON e.agent_id = a.id
+		WHERE a.id = 'agent_appeal' AND e.action = 'appeal'
+	`).Scan(&status, &versionStatus, &appealFromStatus, &appealToStatus); err != nil {
+		t.Fatalf("query appeal queue state: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_appeal' AND action = 'appeal'`).Scan(&appealCount); err != nil {
+		t.Fatalf("count appeal events: %v", err)
+	}
+	if status != "appeal_pending" || versionStatus != "approved" || appealFromStatus != "takedown" || appealToStatus != "appeal_pending" || appealCount != 1 {
+		t.Fatalf("expected appeal_pending agent with preserved version and event transition, got status=%s version=%s from=%s to=%s count=%d", status, versionStatus, appealFromStatus, appealToStatus, appealCount)
+	}
+}
+
+func TestGovernanceReinstateAfterPendingAppealRecordEvents(t *testing.T) {
+	database := settlementTestDB(t)
+	service := NewGovernanceService(NewSQLStore(database))
+
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementUserOrg(t, database, "admin_user", "admin_org")
+	insertSettlementAgent(t, database, "agent_reinstate", "publisher_user", "publisher_org", "free", 0)
+	if err := service.TakedownAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "admin_user",
+		ActorOrganizationID: "admin_org",
+		AgentID:             "agent_reinstate",
+		Reason:              "policy violation",
+	}); err != nil {
+		t.Fatalf("takedown: %v", err)
+	}
+	if err := service.AppealAgent(context.Background(), GovernanceAction{
+		ActorUserID:         "publisher_user",
+		ActorOrganizationID: "publisher_org",
+		AgentID:             "agent_reinstate",
+		Reason:              "fixed the issue",
+	}); err != nil {
+		t.Fatalf("appeal: %v", err)
+	}
 	if err := service.ReinstateAgent(context.Background(), GovernanceAction{
 		ActorUserID:         "admin_user",
 		ActorOrganizationID: "admin_org",
-		AgentID:             "agent_appeal",
+		AgentID:             "agent_reinstate",
 		Reason:              "appeal accepted",
 	}); err != nil {
 		t.Fatalf("ReinstateAgent returned error: %v", err)
@@ -87,13 +451,13 @@ func TestGovernanceAppealAndReinstateRecordEvents(t *testing.T) {
 
 	var status string
 	var appealCount, reinstateCount int
-	if err := database.QueryRow(`SELECT status FROM published_agents WHERE id = 'agent_appeal'`).Scan(&status); err != nil {
+	if err := database.QueryRow(`SELECT status FROM published_agents WHERE id = 'agent_reinstate'`).Scan(&status); err != nil {
 		t.Fatalf("query agent status: %v", err)
 	}
-	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_appeal' AND action = 'appeal'`).Scan(&appealCount); err != nil {
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_reinstate' AND action = 'appeal'`).Scan(&appealCount); err != nil {
 		t.Fatalf("count appeal events: %v", err)
 	}
-	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_appeal' AND action = 'reinstate'`).Scan(&reinstateCount); err != nil {
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_reinstate' AND action = 'reinstate'`).Scan(&reinstateCount); err != nil {
 		t.Fatalf("count reinstate events: %v", err)
 	}
 	if status != "approved" || appealCount != 1 || reinstateCount != 1 {
@@ -286,6 +650,19 @@ func TestAutomatedReviewAllowsCleanAgentToWaitForManualReview(t *testing.T) {
 	}
 	if status != "pending_review" || action != "automated_review_pass" {
 		t.Fatalf("expected pending_review pass event, got status=%s action=%s metadata=%s", status, action, metadata)
+	}
+	var event struct {
+		Scanner        string `json:"scanner"`
+		Decision       string `json:"decision"`
+		PolicyVersion  string `json:"policyVersion"`
+		PolicyChecksum string `json:"policyChecksum"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &event); err != nil {
+		t.Fatalf("decode automated review metadata: %v", err)
+	}
+	if event.Scanner != defaultReviewScannerName || event.Decision != "pending_manual_review" ||
+		event.PolicyVersion == "" || !strings.HasPrefix(event.PolicyChecksum, "sha256:") {
+		t.Fatalf("expected automated review metadata with scanner and policy fingerprint, got %+v", event)
 	}
 }
 

@@ -13,6 +13,7 @@ const (
 	AgentStatusRejected      = "rejected"
 	AgentStatusNeedsChanges  = "needs_changes"
 	AgentStatusTakedown      = "takedown"
+	AgentStatusAppealPending = "appeal_pending"
 )
 
 // PublishedAgent represents an agent published to the marketplace (D-17, D-18).
@@ -31,7 +32,7 @@ type PublishedAgent struct {
 	ExampleConversations string                  `json:"exampleConversations"` // JSON string
 	SystemPrompt         string                  `json:"systemPrompt,omitempty"`
 	Visibility           string                  `json:"visibility"` // "public"|"private"|"unlisted"
-	Status               string                  `json:"status"`     // "draft"|"pending_review"|"approved"|"rejected"|"needs_changes"|"takedown"
+	Status               string                  `json:"status"`     // "draft"|"pending_review"|"approved"|"rejected"|"needs_changes"|"takedown"|"appeal_pending"
 	ReviewReason         string                  `json:"reviewReason,omitempty"`
 	PricingType          string                  `json:"pricingType"` // "free"|"one_time"|"subscription"
 	PricingAmount        float64                 `json:"pricingAmount"`
@@ -43,6 +44,7 @@ type PublishedAgent struct {
 	CreatedAt            time.Time               `json:"createdAt"`
 	UpdatedAt            time.Time               `json:"updatedAt"`
 	PublisherReviewTier  string                  `json:"publisherReviewTier,omitempty"`
+	ReviewerUserID       string                  `json:"reviewerUserId,omitempty"`
 	ReviewSLA            *ReviewSLA              `json:"reviewSLA,omitempty"`
 }
 
@@ -107,15 +109,18 @@ type ReviewScanner interface {
 
 // AutomatedReviewResult is the structured output from automated Marketplace review.
 type AutomatedReviewResult struct {
-	AgentID   string          `json:"agentID"`
-	Decision  string          `json:"decision"` // "pending_manual_review"|"rejected"
-	Scanner   string          `json:"scanner"`
-	Findings  []ReviewFinding `json:"findings"`
-	CreatedAt time.Time       `json:"createdAt"`
+	AgentID        string          `json:"agentID"`
+	Decision       string          `json:"decision"` // "pending_manual_review"|"rejected"
+	Scanner        string          `json:"scanner"`
+	PolicyVersion  string          `json:"policyVersion,omitempty"`
+	PolicyChecksum string          `json:"policyChecksum,omitempty"`
+	Findings       []ReviewFinding `json:"findings"`
+	CreatedAt      time.Time       `json:"createdAt"`
 }
 
 // ReviewFinding describes a single automated review issue.
 type ReviewFinding struct {
+	RuleID   string `json:"ruleId,omitempty"`
 	Type     string `json:"type"`     // "prompt_injection"|"sensitive_api"|"malicious_code"|"unsafe_tool"|"policy_violation"
 	Severity string `json:"severity"` // "low"|"medium"|"high"|"critical"
 	Field    string `json:"field"`
@@ -227,7 +232,7 @@ type MarketplaceSettlement struct {
 	UpdatedAt               time.Time `json:"updatedAt"`
 }
 
-// MarketplacePayout records provider-neutral local payout state.
+// MarketplacePayout records provider-neutral payout state.
 type MarketplacePayout struct {
 	ID                      string    `json:"id"`
 	PublisherOrganizationID string    `json:"publisherOrganizationId"`

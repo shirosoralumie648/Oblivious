@@ -1233,6 +1233,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 				adminHandler.approveAgent(w, r, parts[0])
 				return
 			}
+		case "claim":
+			if r.Method == stdhttp.MethodPost {
+				adminHandler.claimReview(w, r, parts[0])
+				return
+			}
 		case "reject":
 			if r.Method == stdhttp.MethodPost {
 				adminHandler.rejectAgent(w, r, parts[0])
@@ -1261,6 +1266,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		case "reinstate":
 			if r.Method == stdhttp.MethodPost {
 				marketplaceHandler.reinstateAgent(w, r, parts[0])
+				return
+			}
+		case "reject-appeal":
+			if r.Method == stdhttp.MethodPost {
+				marketplaceHandler.rejectAppealAgent(w, r, parts[0])
 				return
 			}
 		}
