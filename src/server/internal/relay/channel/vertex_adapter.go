@@ -130,6 +130,9 @@ func (a *VertexAdapter) DoRequest(ctx context.Context, req *types.ProviderReques
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProviderUpstreamURL(upstreamReq.URL.String()); err != nil {
+		return nil, err
+	}
 	upstreamReq.Header = req.Headers.Clone()
 	if upstreamReq.Header == nil {
 		upstreamReq.Header = http.Header{}
@@ -147,7 +150,7 @@ func (a *VertexAdapter) DoRequest(ctx context.Context, req *types.ProviderReques
 		}
 	}
 
-	return (&http.Client{Timeout: 60 * time.Second}).Do(upstreamReq)
+	return newProviderHTTPClient(60*time.Second, nil).Do(upstreamReq)
 }
 
 func (a *VertexAdapter) HealthCheck(ctx context.Context) error {

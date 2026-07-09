@@ -233,6 +233,9 @@ func (a *OpenAIAdapter) DoRequest(ctx context.Context, req *types.ProviderReques
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProviderUpstreamURL(upstreamReq.URL.String()); err != nil {
+		return nil, err
+	}
 	upstreamReq.Header = req.Headers.Clone()
 	if upstreamReq.Header == nil {
 		upstreamReq.Header = http.Header{}
@@ -252,7 +255,7 @@ func (a *OpenAIAdapter) DoRequest(ctx context.Context, req *types.ProviderReques
 		upstreamReq.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := newProviderHTTPClient(60*time.Second, nil)
 	return client.Do(upstreamReq)
 }
 
@@ -271,13 +274,16 @@ func (a *OpenAIAdapter) ListModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProviderUpstreamURL(req.URL.String()); err != nil {
+		return nil, err
+	}
 	headers, err := a.BuildHeaders(ctx, "", types.APITypeUnknown)
 	if err != nil {
 		return nil, err
 	}
 	req.Header = headers
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := newProviderHTTPClient(10*time.Second, nil).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -317,13 +323,16 @@ func (a *OpenAIAdapter) CheckBalance(ctx context.Context) (*ProviderBalance, err
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProviderUpstreamURL(req.URL.String()); err != nil {
+		return nil, err
+	}
 	headers, err := a.BuildHeaders(ctx, "", types.APITypeUnknown)
 	if err != nil {
 		return nil, err
 	}
 	req.Header = headers
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := newProviderHTTPClient(10*time.Second, nil).Do(req)
 	if err != nil {
 		return nil, err
 	}

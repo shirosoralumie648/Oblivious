@@ -118,16 +118,16 @@ func TestOpenAIAdapter_DoRequestRequestsUsageForChatStreams(t *testing.T) {
 
 func TestOpenAIAdapter_DoRequestPreservesToolCallingPayload(t *testing.T) {
 	var gotBody struct {
-		Tools []map[string]any `json:"tools"`
-		ToolChoice any `json:"tool_choice"`
-		Messages []struct {
-			Role string `json:"role"`
-			Content string `json:"content"`
+		Tools      []map[string]any `json:"tools"`
+		ToolChoice any              `json:"tool_choice"`
+		Messages   []struct {
+			Role      string `json:"role"`
+			Content   string `json:"content"`
 			ToolCalls []struct {
-				ID string `json:"id"`
-				Type string `json:"type"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
 				Function struct {
-					Name string `json:"name"`
+					Name      string `json:"name"`
 					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls"`
@@ -145,12 +145,12 @@ func TestOpenAIAdapter_DoRequestPreservesToolCallingPayload(t *testing.T) {
 	adapter := NewOpenAIAdapter(upstream.URL, "sk-tools")
 	_, err := adapter.DoRequest(context.Background(), &types.ProviderRequest{
 		APIType: types.APITypeChat,
-		Model: "gpt-4o-mini",
+		Model:   "gpt-4o-mini",
 		Messages: []types.Message{{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{{
-				ID: "call_weather",
-				Type: "function",
+				ID:       "call_weather",
+				Type:     "function",
 				Function: types.ToolFunction{Name: "weather.lookup", Arguments: `{"city":"Shanghai"}`},
 			}},
 		}},
@@ -177,6 +177,23 @@ func TestOpenAIAdapter_DoRequestPreservesToolCallingPayload(t *testing.T) {
 	}
 	if gotBody.Messages[0].ToolCalls[0].Function.Name != "weather.lookup" {
 		t.Fatalf("tool call function not preserved: %+v", gotBody.Messages[0].ToolCalls[0])
+	}
+}
+
+func TestOpenAIAdapter_DoRequestRejectsUnsafeOverrideURL(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	adapter := NewOpenAIAdapter("https://api.openai.com", "sk-safe")
+	_, err := adapter.DoRequest(context.Background(), &types.ProviderRequest{
+		APIType: types.APITypeChat,
+		Model:   "gpt-4o-mini",
+		URL:     "http://169.254.169.254/latest/meta-data",
+		Messages: []types.Message{{
+			Role:    "user",
+			Content: "must not reach metadata service",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider upstream URL must not target local or private network addresses") {
+		t.Fatalf("expected unsafe provider upstream URL error, got %v", err)
 	}
 }
 

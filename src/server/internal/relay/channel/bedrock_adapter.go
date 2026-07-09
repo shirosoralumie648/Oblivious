@@ -120,6 +120,9 @@ func (a *BedrockAdapter) DoRequest(ctx context.Context, req *types.ProviderReque
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProviderUpstreamURL(upstreamReq.URL.String()); err != nil {
+		return nil, err
+	}
 	upstreamReq.Header = req.Headers.Clone()
 	if upstreamReq.Header == nil {
 		upstreamReq.Header = http.Header{}
@@ -142,7 +145,7 @@ func (a *BedrockAdapter) DoRequest(ctx context.Context, req *types.ProviderReque
 		upstreamReq.Header.Set("Content-Type", "application/json")
 	}
 
-	return (&http.Client{Timeout: 60 * time.Second}).Do(upstreamReq)
+	return newProviderHTTPClient(60*time.Second, nil).Do(upstreamReq)
 }
 
 func (a *BedrockAdapter) HealthCheck(ctx context.Context) error {
