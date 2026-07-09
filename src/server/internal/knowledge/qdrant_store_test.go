@@ -159,6 +159,7 @@ func TestQdrantVectorStoreUpsertsTenantChunkPoints(t *testing.T) {
 		{
 			ChunkIndex:          2,
 			Content:             "Deployment rollback content",
+			DocumentTitle:       "Deployment Runbook",
 			DocumentVersion:     "v2",
 			Embedding:           []float32{0.1, 0.2, 0.3},
 			EstimatedTokenCount: 42,
@@ -195,6 +196,9 @@ func TestQdrantVectorStoreUpsertsTenantChunkPoints(t *testing.T) {
 	}
 	if point.Payload["document_id"] != "doc_1" || point.Payload["chunk_index"] != float64(2) || point.Payload["document_version"] != "v2" {
 		t.Fatalf("unexpected qdrant payload %+v", point.Payload)
+	}
+	if point.Payload["document_title"] != "Deployment Runbook" {
+		t.Fatalf("expected document_title payload, got %+v", point.Payload)
 	}
 	if point.Payload["source_url"] != "https://docs.example/runbook.md" || point.Payload["page_number"] != float64(7) {
 		t.Fatalf("expected source metadata payload, got %+v", point.Payload)

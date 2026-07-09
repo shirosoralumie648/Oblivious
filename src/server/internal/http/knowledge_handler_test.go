@@ -17,38 +17,41 @@ import (
 )
 
 type knowledgeFakeStore struct {
-	createdName       string
-	createdBase       knowledge.KnowledgeBase
-	createdBaseConfig knowledge.KnowledgeBaseConfig
-	createdDoc        knowledge.KnowledgeDocument
-	deletedDocID      string
-	deletedID         string
-	detailBase        knowledge.KnowledgeBase
-	documentChunks    []knowledge.KnowledgeDocumentChunkView
-	documentVersions  []knowledge.KnowledgeDocumentVersion
-	documents         []knowledge.KnowledgeDocument
-	listBases         []knowledge.KnowledgeBase
-	organizationID    string
-	persistedChunks   []knowledge.KnowledgeDocumentChunk
-	queryEmbedding    []float32
-	retrievalOptions  knowledge.KnowledgeRetrievalOptions
-	retrievalQuery    string
-	retrievalResults  []knowledge.KnowledgeRetrievalResult
-	createdTestCase   knowledge.KnowledgeRetrievalTestCase
-	listTestCases     []knowledge.KnowledgeRetrievalTestCase
-	testCaseRequest   knowledge.CreateKnowledgeRetrievalTestCaseRequest
-	requestedDoc      knowledge.KnowledgeDocument
-	requestedID       string
-	mergedChunks      []knowledge.KnowledgeDocumentChunkView
-	mergeDirection    string
-	splitAt           int
-	splitChunks       []knowledge.KnowledgeDocumentChunkView
-	updatedBase       knowledge.KnowledgeBase
-	updatedBaseConfig knowledge.KnowledgeBaseConfig
-	updatedChunk      knowledge.KnowledgeDocumentChunkView
-	updatedChunkID    string
-	updatedContent    string
-	updatedDoc        knowledge.KnowledgeDocument
+	createdName          string
+	createdBase          knowledge.KnowledgeBase
+	createdBaseConfig    knowledge.KnowledgeBaseConfig
+	createdDoc           knowledge.KnowledgeDocument
+	createdIngestionJob  knowledge.KnowledgeIngestionJob
+	createdIngestionJobs []knowledge.CreateKnowledgeIngestionJobRequest
+	ingestionJobs        []knowledge.KnowledgeIngestionJob
+	deletedDocID         string
+	deletedID            string
+	detailBase           knowledge.KnowledgeBase
+	documentChunks       []knowledge.KnowledgeDocumentChunkView
+	documentVersions     []knowledge.KnowledgeDocumentVersion
+	documents            []knowledge.KnowledgeDocument
+	listBases            []knowledge.KnowledgeBase
+	organizationID       string
+	persistedChunks      []knowledge.KnowledgeDocumentChunk
+	queryEmbedding       []float32
+	retrievalOptions     knowledge.KnowledgeRetrievalOptions
+	retrievalQuery       string
+	retrievalResults     []knowledge.KnowledgeRetrievalResult
+	createdTestCase      knowledge.KnowledgeRetrievalTestCase
+	listTestCases        []knowledge.KnowledgeRetrievalTestCase
+	testCaseRequest      knowledge.CreateKnowledgeRetrievalTestCaseRequest
+	requestedDoc         knowledge.KnowledgeDocument
+	requestedID          string
+	mergedChunks         []knowledge.KnowledgeDocumentChunkView
+	mergeDirection       string
+	splitAt              int
+	splitChunks          []knowledge.KnowledgeDocumentChunkView
+	updatedBase          knowledge.KnowledgeBase
+	updatedBaseConfig    knowledge.KnowledgeBaseConfig
+	updatedChunk         knowledge.KnowledgeDocumentChunkView
+	updatedChunkID       string
+	updatedContent       string
+	updatedDoc           knowledge.KnowledgeDocument
 }
 
 type knowledgeFakeEmbedder struct {
@@ -160,6 +163,33 @@ func (f *knowledgeFakeStore) CreateKnowledgeDocumentWithOptions(ctx context.Cont
 	}
 	f.persistedChunks = append([]knowledge.KnowledgeDocumentChunk(nil), chunks...)
 	return f.createdDoc, nil
+}
+
+func (f *knowledgeFakeStore) CreateKnowledgeIngestionJob(ctx context.Context, req knowledge.CreateKnowledgeIngestionJobRequest) (knowledge.KnowledgeIngestionJob, error) {
+	f.createdIngestionJobs = append(f.createdIngestionJobs, req)
+	if f.createdIngestionJob.ID != "" {
+		return f.createdIngestionJob, nil
+	}
+	return knowledge.KnowledgeIngestionJob{
+		ID:              "kig_upload",
+		OrganizationID:  req.OrganizationID,
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		Title:           req.Title,
+		Content:         req.Content,
+		RawContent:      append([]byte(nil), req.RawContent...),
+		RawFilename:     req.RawFilename,
+		RawContentType:  req.RawContentType,
+		RawSizeBytes:    req.RawSizeBytes,
+		Options:         req.Options,
+		Status:          knowledge.KnowledgeIngestionJobStatusPending,
+		MaxAttempts:     5,
+	}, nil
+}
+
+func (f *knowledgeFakeStore) ListKnowledgeIngestionJobs(ctx context.Context, organizationID, knowledgeBaseID string) ([]knowledge.KnowledgeIngestionJob, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	return append([]knowledge.KnowledgeIngestionJob(nil), f.ingestionJobs...), nil
 }
 
 func (f *knowledgeFakeStore) UpdateKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID, name string) (knowledge.KnowledgeBase, error) {
@@ -771,17 +801,8 @@ func TestKnowledgeHandlerCreateDocumentAcceptsVersionOptions(t *testing.T) {
 	}
 }
 
-func TestKnowledgeHandlerUploadDocumentCreatesParsedKnowledgeDocument(t *testing.T) {
-	store := &knowledgeFakeStore{
-		createdDoc: knowledge.KnowledgeDocument{
-			Content:         "deploy rollback steps",
-			DocumentVersion: "v2",
-			ID:              "doc_upload",
-			Title:           "Runbook.md",
-			UpdateStrategy:  knowledge.KnowledgeUpdateStrategyVersioned,
-			UpdatedAt:       time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
-		},
-	}
+func TestKnowledgeHandlerUploadDocumentEnqueuesParsedKnowledgeIngestionJob(t *testing.T) {
+	store := &knowledgeFakeStore{}
 	handler := newKnowledgeTestHandler(store)
 	body, contentType := knowledgeUploadMultipartBody(t, map[string]string{
 		"documentVersion": " v2 ",
@@ -796,34 +817,93 @@ func TestKnowledgeHandlerUploadDocumentCreatesParsedKnowledgeDocument(t *testing
 
 	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if store.requestedID != "kb_2" {
-		t.Fatalf("expected kb_2, got %s", store.requestedID)
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected one ingestion job, got %+v", store.createdIngestionJobs)
 	}
-	if store.requestedDoc.Title != "Runbook.md" {
-		t.Fatalf("expected title from filename, got %q", store.requestedDoc.Title)
+	req := store.createdIngestionJobs[0]
+	if req.KnowledgeBaseID != "kb_2" {
+		t.Fatalf("expected kb_2, got %s", req.KnowledgeBaseID)
 	}
-	if store.requestedDoc.Content != "deploy rollback steps" {
-		t.Fatalf("expected normalized uploaded content, got %q", store.requestedDoc.Content)
+	if req.Title != "Runbook.md" {
+		t.Fatalf("expected title from filename, got %q", req.Title)
 	}
-	if store.requestedDoc.DocumentVersion != "v2" || store.requestedDoc.UpdateStrategy != knowledge.KnowledgeUpdateStrategyVersioned {
-		t.Fatalf("expected versioned upload options, got %+v", store.requestedDoc)
+	if req.Content != "deploy rollback steps" {
+		t.Fatalf("expected normalized uploaded content, got %q", req.Content)
 	}
-	if !strings.Contains(recorder.Body.String(), `"id":"doc_upload"`) {
-		t.Fatalf("expected created document response, got %s", recorder.Body.String())
+	if string(req.RawContent) != "\ufeffdeploy rollback steps" || req.RawFilename != "Runbook.md" || req.RawContentType != "text/markdown" || req.RawSizeBytes != int64(len("\ufeffdeploy rollback steps")) {
+		t.Fatalf("expected raw upload payload on ingestion job, raw=%q filename=%q contentType=%q size=%d", string(req.RawContent), req.RawFilename, req.RawContentType, req.RawSizeBytes)
+	}
+	if req.Options.DocumentVersion != "v2" || req.Options.UpdateStrategy != knowledge.KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("expected versioned upload options, got %+v", req.Options)
+	}
+	if store.requestedDoc.Title != "" || len(store.persistedChunks) != 0 {
+		t.Fatalf("upload must not synchronously create document/chunks, requested=%+v chunks=%+v", store.requestedDoc, store.persistedChunks)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"kig_upload"`) || !strings.Contains(recorder.Body.String(), `"status":"pending"`) {
+		t.Fatalf("expected ingestion job response, got %s", recorder.Body.String())
 	}
 }
 
-func TestKnowledgeHandlerUploadDocumentPersistsSourceMetadataOnChunks(t *testing.T) {
+func TestKnowledgeHandlerUploadDocumentEnqueuesDurableIngestionJob(t *testing.T) {
 	store := &knowledgeFakeStore{
-		createdDoc: knowledge.KnowledgeDocument{
-			Content: "deployment controls require approval",
-			ID:      "doc_source",
-			Title:   "Runbook.md",
+		createdIngestionJob: knowledge.KnowledgeIngestionJob{
+			ID:              "kig_upload_async",
+			OrganizationID:  "org_1",
+			KnowledgeBaseID: "kb_2",
+			Title:           "Runbook.md",
+			Status:          knowledge.KnowledgeIngestionJobStatusPending,
+			MaxAttempts:     5,
+			CreatedAt:       time.Date(2026, time.July, 3, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:       time.Date(2026, time.July, 3, 10, 0, 0, 0, time.UTC),
 		},
 	}
+	handler := newKnowledgeTestHandler(store)
+	body, contentType := knowledgeUploadMultipartBody(t, map[string]string{
+		"documentVersion": " v2 ",
+		"sourceUrl":       " https://docs.example/runbook.md ",
+		"updateStrategy":  "versioned",
+	}, "file", " Runbook.md ", "text/markdown", "\ufeffdeploy rollback steps")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected 202 accepted durable ingestion response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected exactly one durable ingestion job request, got %+v", store.createdIngestionJobs)
+	}
+	req := store.createdIngestionJobs[0]
+	if req.OrganizationID != "org_1" || req.KnowledgeBaseID != "kb_2" {
+		t.Fatalf("unexpected ingestion scope: %+v", req)
+	}
+	if req.Title != "Runbook.md" || req.Content != "deploy rollback steps" {
+		t.Fatalf("expected parsed upload payload in durable job, got title=%q content=%q", req.Title, req.Content)
+	}
+	if string(req.RawContent) != "\ufeffdeploy rollback steps" || req.RawFilename != "Runbook.md" || req.RawContentType != "text/markdown" || req.RawSizeBytes != int64(len("\ufeffdeploy rollback steps")) {
+		t.Fatalf("expected raw upload payload in durable job, raw=%q filename=%q contentType=%q size=%d", string(req.RawContent), req.RawFilename, req.RawContentType, req.RawSizeBytes)
+	}
+	if req.Options.DocumentVersion != "v2" || req.Options.SourceURL != "https://docs.example/runbook.md" || req.Options.UpdateStrategy != knowledge.KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("unexpected ingestion options: %+v", req.Options)
+	}
+	if store.requestedDoc.Title != "" || len(store.persistedChunks) != 0 {
+		t.Fatalf("upload handler must not synchronously create or chunk documents, requested=%+v chunks=%+v", store.requestedDoc, store.persistedChunks)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"kig_upload_async"`) || !strings.Contains(recorder.Body.String(), `"status":"pending"`) {
+		t.Fatalf("expected ingestion job response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerUploadDocumentPersistsSourceMetadataOnIngestionJob(t *testing.T) {
+	store := &knowledgeFakeStore{}
 	handler := newKnowledgeTestHandler(store)
 	body, contentType := knowledgeUploadMultipartBody(t, map[string]string{
 		"documentVersion": " v4 ",
@@ -839,27 +919,20 @@ func TestKnowledgeHandlerUploadDocumentPersistsSourceMetadataOnChunks(t *testing
 
 	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(store.persistedChunks) == 0 {
-		t.Fatalf("expected indexed chunks to be passed to store")
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected one durable ingestion job, got %+v", store.createdIngestionJobs)
 	}
-	metadata := store.persistedChunks[0].Metadata
-	if metadata.DocumentVersion != "v4" || metadata.PageNumber != 7 || metadata.SourceURL != "https://docs.example/runbook.md" {
-		t.Fatalf("expected upload source metadata on chunk, got %+v", metadata)
+	options := store.createdIngestionJobs[0].Options
+	if options.DocumentVersion != "v4" || options.PageNumber != 7 || options.SourceURL != "https://docs.example/runbook.md" {
+		t.Fatalf("expected upload source metadata on durable ingestion job, got %+v", options)
 	}
 }
 
-func TestKnowledgeHandlerUploadDocumentCreatesParsedCSVKnowledgeDocument(t *testing.T) {
-	store := &knowledgeFakeStore{
-		createdDoc: knowledge.KnowledgeDocument{
-			Content:   "title | owner\nDeploy | Ops",
-			ID:        "doc_csv",
-			Title:     "matrix.csv",
-			UpdatedAt: time.Date(2026, time.April, 3, 13, 15, 0, 0, time.UTC),
-		},
-	}
+func TestKnowledgeHandlerUploadDocumentEnqueuesParsedCSVKnowledgeIngestionJob(t *testing.T) {
+	store := &knowledgeFakeStore{}
 	handler := newKnowledgeTestHandler(store)
 	body, contentType := knowledgeUploadMultipartBody(t, nil, "file", " matrix.csv ", "text/csv", "title,owner\nDeploy,Ops")
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
@@ -871,29 +944,26 @@ func TestKnowledgeHandlerUploadDocumentCreatesParsedCSVKnowledgeDocument(t *test
 
 	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if store.requestedDoc.Title != "matrix.csv" {
-		t.Fatalf("expected title from csv filename, got %q", store.requestedDoc.Title)
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected one durable ingestion job, got %+v", store.createdIngestionJobs)
 	}
-	if store.requestedDoc.Content != "title | owner\nDeploy | Ops" {
-		t.Fatalf("expected parsed csv rows, got %q", store.requestedDoc.Content)
+	req := store.createdIngestionJobs[0]
+	if req.Title != "matrix.csv" {
+		t.Fatalf("expected title from csv filename, got %q", req.Title)
 	}
-	if !strings.Contains(recorder.Body.String(), `"id":"doc_csv"`) {
-		t.Fatalf("expected created csv document response, got %s", recorder.Body.String())
+	if req.Content != "title | owner\nDeploy | Ops" {
+		t.Fatalf("expected parsed csv rows, got %q", req.Content)
+	}
+	if string(req.RawContent) != "title,owner\nDeploy,Ops" || req.RawFilename != "matrix.csv" || req.RawContentType != "text/csv" {
+		t.Fatalf("expected raw csv payload to be persisted, raw=%q filename=%q contentType=%q", string(req.RawContent), req.RawFilename, req.RawContentType)
 	}
 }
 
-func TestKnowledgeHandlerUploadDocumentCreatesParsedHTMLKnowledgeDocument(t *testing.T) {
-	store := &knowledgeFakeStore{
-		createdDoc: knowledge.KnowledgeDocument{
-			Content:   "Deploy Plan\nRollback safely",
-			ID:        "doc_html",
-			Title:     "runbook.html",
-			UpdatedAt: time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
-		},
-	}
+func TestKnowledgeHandlerUploadDocumentEnqueuesParsedHTMLKnowledgeIngestionJob(t *testing.T) {
+	store := &knowledgeFakeStore{}
 	handler := newKnowledgeTestHandler(store)
 	body, contentType := knowledgeUploadMultipartBody(
 		t,
@@ -912,17 +982,24 @@ func TestKnowledgeHandlerUploadDocumentCreatesParsedHTMLKnowledgeDocument(t *tes
 
 	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if store.requestedDoc.Title != "HTML Runbook" {
-		t.Fatalf("expected explicit title, got %q", store.requestedDoc.Title)
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected one durable ingestion job, got %+v", store.createdIngestionJobs)
 	}
-	if store.requestedDoc.Content != "Deploy Plan\nRollback safely" {
-		t.Fatalf("expected parsed html text, got %q", store.requestedDoc.Content)
+	req := store.createdIngestionJobs[0]
+	if req.Title != "HTML Runbook" {
+		t.Fatalf("expected explicit title, got %q", req.Title)
 	}
-	if strings.Contains(store.requestedDoc.Content, "alert") || strings.Contains(store.requestedDoc.Content, "hidden") {
-		t.Fatalf("expected script/style content to be stripped, got %q", store.requestedDoc.Content)
+	if req.Content != "Deploy Plan\nRollback safely" {
+		t.Fatalf("expected parsed html text, got %q", req.Content)
+	}
+	if !strings.Contains(string(req.RawContent), "<script>alert('x')</script>") || req.RawFilename != "runbook.html" || req.RawContentType != "text/html" {
+		t.Fatalf("expected raw html payload to be persisted before sanitization, raw=%q filename=%q contentType=%q", string(req.RawContent), req.RawFilename, req.RawContentType)
+	}
+	if strings.Contains(req.Content, "alert") || strings.Contains(req.Content, "hidden") {
+		t.Fatalf("expected script/style content to be stripped, got %q", req.Content)
 	}
 }
 
@@ -943,6 +1020,48 @@ func TestKnowledgeHandlerUploadDocumentRejectsUnsupportedFormat(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "unsupported_document_format") {
 		t.Fatalf("expected unsupported document format response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerListsDocumentIngestionJobs(t *testing.T) {
+	completedAt := time.Date(2026, time.July, 3, 11, 5, 0, 0, time.UTC)
+	store := &knowledgeFakeStore{
+		ingestionJobs: []knowledge.KnowledgeIngestionJob{
+			{
+				ID:              "kig_ready",
+				KnowledgeBaseID: "kb_2",
+				DocumentID:      "doc_ready",
+				Title:           "Runbook.md",
+				Status:          knowledge.KnowledgeIngestionJobStatusSucceeded,
+				Attempts:        1,
+				MaxAttempts:     5,
+				AvailableAt:     time.Date(2026, time.July, 3, 11, 0, 0, 0, time.UTC),
+				CompletedAt:     &completedAt,
+				CreatedAt:       time.Date(2026, time.July, 3, 10, 55, 0, 0, time.UTC),
+				UpdatedAt:       completedAt,
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents/ingestion-jobs", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listKnowledgeDocumentIngestionJobs(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" {
+		t.Fatalf("unexpected ingestion list scope org=%q kb=%q", store.organizationID, store.requestedID)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"kig_ready"`) || !strings.Contains(recorder.Body.String(), `"documentId":"doc_ready"`) || !strings.Contains(recorder.Body.String(), `"status":"succeeded"`) {
+		t.Fatalf("expected ingestion status response, got %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "Content") || strings.Contains(recorder.Body.String(), "deploy rollback steps") {
+		t.Fatalf("ingestion status response must not leak parsed document content, got %s", recorder.Body.String())
 	}
 }
 
@@ -1012,6 +1131,77 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	}
 	if response.Data[0].RetrievalMethod != "embedding_rag" || response.Data[0].Source.DocumentTitle != "Plan" {
 		t.Fatalf("expected embedding RAG source citation, got %+v", response.Data[0])
+	}
+}
+
+func TestKnowledgeHandlerRetrieveDebugReturnsCitationCoverage(t *testing.T) {
+	store := &knowledgeFakeStore{
+		detailBase: knowledge.KnowledgeBase{
+			ID:             "kb_2",
+			RetrievalLimit: 3,
+			RetrievalMode:  knowledge.KnowledgeRetrievalModeHybrid,
+		},
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{
+				DocumentID:      "doc_2",
+				DocumentTitle:   "Plan",
+				DocumentVersion: "v2",
+				ChunkID:         "kdc_2",
+				ChunkIndex:      1,
+				RetrievalMethod: knowledge.KnowledgeRetrievalMethodKeyword,
+				RetrievalMode:   knowledge.KnowledgeRetrievalModeHybrid,
+				Score:           0.91,
+				Snippet:         "Initial plan mentions deployment boundaries.",
+				Source: knowledge.KnowledgeCitation{
+					DocumentID:         "doc_2",
+					DocumentTitle:      "Plan",
+					DocumentVersion:    "v2",
+					ChunkID:            "kdc_2",
+					ChunkIndex:         1,
+					PageNumber:         7,
+					SourceURL:          "https://docs.example/runbook.md",
+					OriginalText:       "Initial plan mentions deployment boundaries.",
+					MatchedSnippet:     "deployment boundaries",
+					ConfidenceScore:    0.88,
+					HighlightPositions: []knowledge.KnowledgeHighlightPosition{{Start: 22, End: 43}},
+				},
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve/debug", strings.NewReader(`{
+		"query":"deployment",
+		"mode":"hybrid",
+		"limit":3
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledgeDebug(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data knowledge.KnowledgeRetrievalDebugReport `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.KnowledgeBaseID != "kb_2" || response.Data.Query != "deployment" || response.Data.ResultCount != 1 {
+		t.Fatalf("unexpected debug report identity: %+v", response.Data)
+	}
+	if response.Data.Options.Mode != knowledge.KnowledgeRetrievalModeHybrid || response.Data.Options.Limit != 3 {
+		t.Fatalf("expected hybrid debug options, got %+v", response.Data.Options)
+	}
+	if response.Data.CitationCoverage.ResultsWithSource != 1 || response.Data.CitationCoverage.ResultsWithPage != 1 || response.Data.CitationCoverage.ResultsWithHighlights != 1 {
+		t.Fatalf("unexpected citation coverage: %+v", response.Data.CitationCoverage)
+	}
+	if len(response.Data.Results) != 1 || response.Data.Results[0].Source.SourceURL != "https://docs.example/runbook.md" || len(response.Data.Results[0].Source.HighlightPositions) != 1 {
+		t.Fatalf("expected debug results to preserve citation provenance, got %+v", response.Data.Results)
 	}
 }
 

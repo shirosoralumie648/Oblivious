@@ -89,6 +89,7 @@ type KnowledgeChunkMetadata struct {
 type KnowledgeDocumentChunk struct {
 	ChunkIndex          int                    `json:"chunkIndex"`
 	Content             string                 `json:"content"`
+	DocumentTitle       string                 `json:"documentTitle,omitempty"`
 	DocumentVersion     string                 `json:"documentVersion,omitempty"`
 	Embedding           []float32              `json:"-"`
 	EstimatedTokenCount int                    `json:"estimatedTokenCount,omitempty"`
@@ -99,6 +100,7 @@ type KnowledgeDocumentChunkView struct {
 	ChunkID             string                 `json:"chunkId"`
 	ChunkIndex          int                    `json:"chunkIndex"`
 	Content             string                 `json:"content"`
+	DocumentTitle       string                 `json:"documentTitle,omitempty"`
 	DocumentVersion     string                 `json:"documentVersion,omitempty"`
 	CharCount           int                    `json:"charCount,omitempty"`
 	EstimatedTokenCount int                    `json:"estimatedTokenCount,omitempty"`
@@ -131,6 +133,23 @@ type KnowledgeRetrievalOptions struct {
 	RerankTopK      int      `json:"rerankTopK,omitempty"`
 	VectorWeight    float64  `json:"vectorWeight,omitempty"`
 	KeywordWeight   float64  `json:"keywordWeight,omitempty"`
+}
+
+type KnowledgeRetrievalCitationCoverage struct {
+	TotalResults            int `json:"totalResults"`
+	ResultsWithSource       int `json:"resultsWithSource"`
+	ResultsWithPage         int `json:"resultsWithPage"`
+	ResultsWithHighlights   int `json:"resultsWithHighlights"`
+	ResultsWithOriginalText int `json:"resultsWithOriginalText"`
+}
+
+type KnowledgeRetrievalDebugReport struct {
+	KnowledgeBaseID  string                             `json:"knowledgeBaseId"`
+	Query            string                             `json:"query"`
+	Options          KnowledgeRetrievalOptions          `json:"options"`
+	ResultCount      int                                `json:"resultCount"`
+	CitationCoverage KnowledgeRetrievalCitationCoverage `json:"citationCoverage"`
+	Results          []KnowledgeRetrievalResult         `json:"results"`
 }
 
 // HybridEngineRetrievalResult is a single retrieval result from the hybrid engine.
@@ -205,6 +224,7 @@ type KnowledgeDocumentOptions struct {
 	PageNumber      int    `json:"pageNumber,omitempty"`
 	SourceURL       string `json:"sourceUrl,omitempty"`
 	UpdateStrategy  string `json:"updateStrategy,omitempty"`
+	createIndexJob  bool
 }
 
 type CreateKnowledgeRetrievalTestCaseRequest struct {

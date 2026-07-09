@@ -73,6 +73,7 @@ func (s *QdrantVectorStore) UpsertKnowledgeDocumentChunks(ctx context.Context, o
 			version = strings.TrimSpace(chunk.Metadata.DocumentVersion)
 		}
 		pointID := qdrantPointID(documentID, chunk.ChunkIndex, version)
+		documentTitle := strings.TrimSpace(chunk.DocumentTitle)
 		points = append(points, qdrantPoint{
 			ID:     pointID,
 			Vector: append([]float32(nil), chunk.Embedding...),
@@ -80,6 +81,7 @@ func (s *QdrantVectorStore) UpsertKnowledgeDocumentChunks(ctx context.Context, o
 				"chunk_index":           chunk.ChunkIndex,
 				"content":               chunk.Content,
 				"document_id":           documentID,
+				"document_title":        documentTitle,
 				"document_version":      version,
 				"estimated_token_count": chunk.EstimatedTokenCount,
 				"page_number":           chunk.Metadata.PageNumber,

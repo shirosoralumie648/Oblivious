@@ -365,7 +365,7 @@ func (s *SQLStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeB
 
 func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.title, d.content, d.updated_at
+		SELECT d.id, d.title, d.content, COALESCE(d.index_status, ''), COALESCE(d.index_error, ''), d.indexed_at, d.updated_at
 		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
 		WHERE (kb.organization_id = $1 OR kb.workspace_id = $1) AND d.knowledge_base_id = $2
@@ -379,8 +379,12 @@ func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, know
 	documents := []KnowledgeDocument{}
 	for rows.Next() {
 		var document KnowledgeDocument
-		if err := rows.Scan(&document.ID, &document.Title, &document.Content, &document.UpdatedAt); err != nil {
+		var indexedAt sql.NullTime
+		if err := rows.Scan(&document.ID, &document.Title, &document.Content, &document.IndexStatus, &document.IndexError, &indexedAt, &document.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if indexedAt.Valid {
+			document.IndexedAt = &indexedAt.Time
 		}
 		documents = append(documents, document)
 	}
@@ -390,6 +394,10 @@ func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, know
 
 func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
 	return s.CreateKnowledgeDocumentWithOptions(ctx, workspaceID, knowledgeBaseID, title, content, chunksFromContent(content), KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) UsesTransactionalKnowledgeIndexOutbox() bool {
+	return true
 }
 
 func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
@@ -406,12 +414,17 @@ func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organ
 	}
 	defer tx.Rollback()
 
+	indexStatus := KnowledgeDocumentIndexStatusReady
+	if options.createIndexJob {
+		indexStatus = KnowledgeDocumentIndexStatusPending
+	}
+
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO knowledge_documents (id, organization_id, knowledge_base_id, title, content, document_version, update_strategy, created_at, updated_at)
-		SELECT $1, $2, kb.id, $4, $5, $6, $7, $8, $8
+		INSERT INTO knowledge_documents (id, organization_id, knowledge_base_id, title, content, document_version, update_strategy, index_status, index_error, indexed_at, created_at, updated_at)
+		SELECT $1, $2, kb.id, $4, $5, $6, $7, $8, '', NULL, $9, $9
 		FROM knowledge_bases kb
 		WHERE kb.organization_id = $2 AND kb.id = $3
-	`, documentID, organizationID, knowledgeBaseID, title, content, options.DocumentVersion, options.UpdateStrategy, now)
+	`, documentID, organizationID, knowledgeBaseID, title, content, options.DocumentVersion, options.UpdateStrategy, indexStatus, now)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -440,6 +453,17 @@ func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organ
 		return KnowledgeDocument{}, err
 	}
 
+	if options.createIndexJob {
+		if _, err := insertKnowledgeIndexJob(ctx, tx, CreateKnowledgeIndexJobRequest{
+			OrganizationID:  organizationID,
+			KnowledgeBaseID: knowledgeBaseID,
+			DocumentID:      documentID,
+			Operation:       KnowledgeIndexJobOperationUpsertDocument,
+		}, now); err != nil {
+			return KnowledgeDocument{}, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -448,6 +472,7 @@ func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organ
 		Content:         content,
 		DocumentVersion: options.DocumentVersion,
 		ID:              documentID,
+		IndexStatus:     indexStatus,
 		Title:           title,
 		UpdateStrategy:  options.UpdateStrategy,
 		UpdatedAt:       now,
@@ -488,7 +513,7 @@ func (s *SQLStore) DiffKnowledgeDocumentChunks(ctx context.Context, organization
 
 func (s *SQLStore) ListKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+		SELECT c.id, c.chunk_index, c.content, d.title, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
 		FROM knowledge_document_chunks c
 		JOIN knowledge_documents d ON d.id = c.document_id
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
@@ -539,6 +564,11 @@ func (s *SQLStore) ListKnowledgeDocumentVersions(ctx context.Context, organizati
 }
 
 func (s *SQLStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
+	return s.UpdateKnowledgeDocumentChunkWithOptions(ctx, organizationID, knowledgeBaseID, documentID, chunkID, content, KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) UpdateKnowledgeDocumentChunkWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string, options KnowledgeDocumentOptions) (KnowledgeDocumentChunkView, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return KnowledgeDocumentChunkView{}, ErrEmptyKnowledgeDocumentChunk
@@ -548,7 +578,14 @@ func (s *SQLStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizatio
 	if err != nil {
 		return KnowledgeDocumentChunkView{}, err
 	}
-	row := s.db.QueryRowContext(ctx, `
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	defer tx.Rollback()
+
+	chunk, err := scanKnowledgeDocumentChunkView(tx.QueryRowContext(ctx, `
 		UPDATE knowledge_document_chunks c
 		SET content = $5,
 		    metadata = COALESCE(c.metadata, '{}'::jsonb) || $6::jsonb,
@@ -563,12 +600,28 @@ func (s *SQLStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizatio
 		  AND kb.id = $2
 		  AND d.id = $3
 		  AND c.id = $4
-		RETURNING c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
-	`, organizationID, knowledgeBaseID, documentID, chunkID, content, string(metadataJSON))
-	return scanKnowledgeDocumentChunkView(row)
+		RETURNING c.id, c.chunk_index, c.content, d.title, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+	`, organizationID, knowledgeBaseID, documentID, chunkID, content, string(metadataJSON)))
+	if err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	if options.createIndexJob {
+		if err := enqueueKnowledgeDocumentIndexJobInTx(ctx, tx, organizationID, knowledgeBaseID, documentID, KnowledgeIndexJobOperationUpsertDocument, true, now); err != nil {
+			return KnowledgeDocumentChunkView{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	return chunk, nil
 }
 
 func (s *SQLStore) SplitKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]KnowledgeDocumentChunkView, error) {
+	return s.SplitKnowledgeDocumentChunkWithOptions(ctx, organizationID, knowledgeBaseID, documentID, chunkID, splitAt, KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) SplitKnowledgeDocumentChunkWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID string, splitAt int, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunkView, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
 	if splitAt <= 0 {
 		return nil, ErrInvalidKnowledgeDocumentChunkEdit
 	}
@@ -642,6 +695,11 @@ func (s *SQLStore) SplitKnowledgeDocumentChunk(ctx context.Context, organization
 	`, organizationID, documentID); err != nil {
 		return nil, err
 	}
+	if options.createIndexJob {
+		if err := enqueueKnowledgeDocumentIndexJobInTx(ctx, tx, organizationID, knowledgeBaseID, documentID, KnowledgeIndexJobOperationUpsertDocument, true, now); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -649,6 +707,11 @@ func (s *SQLStore) SplitKnowledgeDocumentChunk(ctx context.Context, organization
 }
 
 func (s *SQLStore) MergeKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, direction string) ([]KnowledgeDocumentChunkView, error) {
+	return s.MergeKnowledgeDocumentChunksWithOptions(ctx, organizationID, knowledgeBaseID, documentID, chunkID, direction, KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) MergeKnowledgeDocumentChunksWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, direction string, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunkView, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
 	direction = strings.TrimSpace(strings.ToLower(direction))
 	if direction != "next" && direction != "previous" {
 		return nil, ErrInvalidKnowledgeDocumentChunkEdit
@@ -716,6 +779,11 @@ func (s *SQLStore) MergeKnowledgeDocumentChunks(ctx context.Context, organizatio
 	`, organizationID, documentID, remove.chunkIndex); err != nil {
 		return nil, err
 	}
+	if options.createIndexJob {
+		if err := enqueueKnowledgeDocumentIndexJobInTx(ctx, tx, organizationID, knowledgeBaseID, documentID, KnowledgeIndexJobOperationUpsertDocument, true, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -732,19 +800,27 @@ func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organ
 	}
 	defer tx.Rollback()
 
+	indexStatus := KnowledgeDocumentIndexStatusReady
+	if options.createIndexJob {
+		indexStatus = KnowledgeDocumentIndexStatusPending
+	}
+
 	result, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_documents d
 		SET title = $4,
 			content = $5,
 			document_version = $6,
 			update_strategy = $7,
-			updated_at = $8
+			index_status = $8,
+			index_error = '',
+			indexed_at = NULL,
+			updated_at = $9
 		FROM knowledge_bases kb
 		WHERE d.knowledge_base_id = kb.id
 		  AND kb.organization_id = $1
 		  AND kb.id = $2
 		  AND d.id = $3
-	`, organizationID, knowledgeBaseID, documentID, title, content, options.DocumentVersion, options.UpdateStrategy, now)
+	`, organizationID, knowledgeBaseID, documentID, title, content, options.DocumentVersion, options.UpdateStrategy, indexStatus, now)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -764,6 +840,17 @@ func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organ
 		return KnowledgeDocument{}, err
 	}
 
+	if options.createIndexJob {
+		if _, err := insertKnowledgeIndexJob(ctx, tx, CreateKnowledgeIndexJobRequest{
+			OrganizationID:  organizationID,
+			KnowledgeBaseID: knowledgeBaseID,
+			DocumentID:      documentID,
+			Operation:       KnowledgeIndexJobOperationUpsertDocument,
+		}, now); err != nil {
+			return KnowledgeDocument{}, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -772,18 +859,70 @@ func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organ
 		Content:         content,
 		DocumentVersion: options.DocumentVersion,
 		ID:              documentID,
+		IndexStatus:     indexStatus,
 		Title:           title,
 		UpdateStrategy:  options.UpdateStrategy,
 		UpdatedAt:       now,
 	}, nil
 }
 
+func enqueueKnowledgeDocumentIndexJobInTx(ctx context.Context, tx *sql.Tx, organizationID, knowledgeBaseID, documentID, operation string, updateDocumentStatus bool, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if updateDocumentStatus {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE knowledge_documents d
+			SET index_status = $4,
+			    index_error = '',
+			    indexed_at = NULL,
+			    updated_at = $5
+			FROM knowledge_bases kb
+			WHERE d.knowledge_base_id = kb.id
+			  AND d.organization_id = $1
+			  AND kb.organization_id = $1
+			  AND kb.id = $2
+			  AND d.id = $3
+		`, organizationID, knowledgeBaseID, documentID, KnowledgeDocumentIndexStatusPending, now)
+		if err != nil {
+			return fmt.Errorf("mark knowledge document index pending: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("mark knowledge document index pending rows: %w", err)
+		}
+		if rowsAffected == 0 {
+			return sql.ErrNoRows
+		}
+	}
+	if _, err := insertKnowledgeIndexJob(ctx, tx, CreateKnowledgeIndexJobRequest{
+		OrganizationID:  organizationID,
+		KnowledgeBaseID: knowledgeBaseID,
+		DocumentID:      documentID,
+		Operation:       operation,
+	}, now); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
+	return s.DeleteKnowledgeDocumentWithOptions(ctx, workspaceID, knowledgeBaseID, documentID, KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) DeleteKnowledgeDocumentWithOptions(ctx context.Context, workspaceID, knowledgeBaseID, documentID string, options KnowledgeDocumentOptions) error {
+	options = normalizeKnowledgeDocumentOptions(options)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	if options.createIndexJob {
+		if err := enqueueKnowledgeDocumentIndexJobInTx(ctx, tx, workspaceID, knowledgeBaseID, documentID, KnowledgeIndexJobOperationDeleteDocument, false, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
 
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_documents d
@@ -811,6 +950,33 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, kno
 	}
 
 	return tx.Commit()
+}
+
+func (s *SQLStore) GetKnowledgeDocumentScope(ctx context.Context, organizationID, documentID string) (KnowledgeDocumentScope, error) {
+	var scope KnowledgeDocumentScope
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT d.knowledge_base_id
+		FROM knowledge_documents d
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND d.id = $2
+	`, organizationID, documentID).Scan(&scope.KnowledgeBaseID); err != nil {
+		return KnowledgeDocumentScope{}, err
+	}
+	return scope, nil
+}
+
+func (s *SQLStore) DeleteKnowledgeDocumentByID(ctx context.Context, organizationID, documentID string) error {
+	return s.DeleteKnowledgeDocumentByIDWithOptions(ctx, organizationID, documentID, KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) DeleteKnowledgeDocumentByIDWithOptions(ctx context.Context, organizationID, documentID string, options KnowledgeDocumentOptions) error {
+	scope, err := s.GetKnowledgeDocumentScope(ctx, organizationID, documentID)
+	if err != nil {
+		return err
+	}
+	return s.DeleteKnowledgeDocumentWithOptions(ctx, organizationID, scope.KnowledgeBaseID, documentID, options)
 }
 
 func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
@@ -981,7 +1147,7 @@ func (s *SQLStore) RetrieveKnowledgeWithOptions(ctx context.Context, organizatio
 					setweight(to_tsvector('simple', COALESCE(c.content, '')), 'B'),
 					keyword_query.query
 				) * $11 AS score,
-				$9::text AS retrieval_method,
+				$12::text AS retrieval_method,
 				NULL::double precision AS vector_distance
 			FROM knowledge_document_chunks c
 			JOIN knowledge_documents d ON d.id = c.document_id
@@ -1037,13 +1203,97 @@ func (s *SQLStore) RetrieveKnowledgeWithOptions(ctx context.Context, organizatio
 		FROM fused
 		ORDER BY score DESC, vector_distance ASC NULLS LAST, document_title ASC, chunk_index ASC
 		LIMIT $4
-	`, organizationID, knowledgeBaseID, embeddingVector, options.Limit, options.MinScore, normalizedQuery, options.VectorWeight, options.Mode, KnowledgeRetrievalMethodEmbeddingRAG, options.DocumentVersion, options.KeywordWeight)
+	`, organizationID, knowledgeBaseID, embeddingVector, options.Limit, options.MinScore, normalizedQuery, options.VectorWeight, options.Mode, KnowledgeRetrievalMethodEmbeddingRAG, options.DocumentVersion, options.KeywordWeight, KnowledgeRetrievalMethodKeyword)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	return scanKnowledgeRetrievalRows(rows, normalizedQuery)
+}
+
+func (s *SQLStore) FilterReadyKnowledgeRetrievalResults(ctx context.Context, organizationID, knowledgeBaseID string, results []KnowledgeRetrievalResult) ([]KnowledgeRetrievalResult, error) {
+	if len(results) == 0 {
+		return results, nil
+	}
+	type resultKey struct {
+		documentID string
+		chunkID    string
+	}
+	keys := make([]resultKey, 0, len(results))
+	seen := map[resultKey]struct{}{}
+	for _, result := range results {
+		key := resultKey{
+			documentID: strings.TrimSpace(result.DocumentID),
+			chunkID:    strings.TrimSpace(result.ChunkID),
+		}
+		if key.documentID == "" || key.chunkID == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return []KnowledgeRetrievalResult{}, nil
+	}
+
+	values := make([]string, 0, len(keys))
+	args := make([]any, 0, len(keys)*2+3)
+	args = append(args, strings.TrimSpace(organizationID), strings.TrimSpace(knowledgeBaseID), KnowledgeDocumentIndexStatusReady)
+	for _, key := range keys {
+		documentArg := len(args) + 1
+		chunkArg := len(args) + 2
+		values = append(values, fmt.Sprintf("($%d, $%d)", documentArg, chunkArg))
+		args = append(args, key.documentID, key.chunkID)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		WITH candidate(document_id, chunk_id) AS (
+			VALUES `+strings.Join(values, ", ")+`
+		)
+		SELECT c.document_id, c.chunk_id
+		FROM candidate c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_document_chunks kdc ON kdc.id = c.chunk_id AND kdc.document_id = d.id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE d.organization_id = $1
+		  AND kdc.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.knowledge_base_id = $2
+		  AND COALESCE(d.index_status, '') = $3
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ready := map[resultKey]struct{}{}
+	for rows.Next() {
+		var key resultKey
+		if err := rows.Scan(&key.documentID, &key.chunkID); err != nil {
+			return nil, err
+		}
+		ready[key] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	filtered := make([]KnowledgeRetrievalResult, 0, len(results))
+	for _, result := range results {
+		key := resultKey{
+			documentID: strings.TrimSpace(result.DocumentID),
+			chunkID:    strings.TrimSpace(result.ChunkID),
+		}
+		if _, ok := ready[key]; ok {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered, nil
 }
 
 func (s *SQLStore) retrieveKnowledgeByKeywordWithOptions(ctx context.Context, organizationID, knowledgeBaseID, query string, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
@@ -1082,7 +1332,7 @@ func (s *SQLStore) retrieveKnowledgeByKeywordWithOptions(ctx context.Context, or
 		  )
 		ORDER BY score DESC, d.updated_at DESC, d.title ASC, c.chunk_index ASC
 		LIMIT $4
-	`, organizationID, knowledgeBaseID, query, options.Limit, options.DocumentVersion, KnowledgeRetrievalMethodEmbeddingRAG)
+	`, organizationID, knowledgeBaseID, query, options.Limit, options.DocumentVersion, KnowledgeRetrievalMethodKeyword)
 	if err != nil {
 		return nil, err
 	}
@@ -1301,7 +1551,7 @@ func scanKnowledgeDocumentChunkView(scanner interface{ Scan(dest ...any) error }
 		chunk       KnowledgeDocumentChunkView
 		metadataRaw []byte
 	)
-	if err := scanner.Scan(&chunk.ChunkID, &chunk.ChunkIndex, &chunk.Content, &chunk.DocumentVersion, &metadataRaw); err != nil {
+	if err := scanner.Scan(&chunk.ChunkID, &chunk.ChunkIndex, &chunk.Content, &chunk.DocumentTitle, &chunk.DocumentVersion, &metadataRaw); err != nil {
 		return KnowledgeDocumentChunkView{}, err
 	}
 	if len(metadataRaw) > 0 {

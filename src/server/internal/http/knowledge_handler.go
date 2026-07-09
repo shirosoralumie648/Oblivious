@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	stdhttp "net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/knowledge"
@@ -72,6 +74,46 @@ type splitKnowledgeDocumentChunkRequest struct {
 
 type mergeKnowledgeDocumentChunksRequest struct {
 	Direction string `json:"direction"`
+}
+
+type knowledgeIngestionJobResponse struct {
+	ID              string     `json:"id"`
+	KnowledgeBaseID string     `json:"knowledgeBaseId"`
+	DocumentID      string     `json:"documentId,omitempty"`
+	Title           string     `json:"title"`
+	Status          string     `json:"status"`
+	Error           string     `json:"error,omitempty"`
+	Attempts        int        `json:"attempts"`
+	MaxAttempts     int        `json:"maxAttempts"`
+	AvailableAt     time.Time  `json:"availableAt"`
+	CompletedAt     *time.Time `json:"completedAt,omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+}
+
+func knowledgeIngestionJobAPIResponse(job knowledge.KnowledgeIngestionJob) knowledgeIngestionJobResponse {
+	return knowledgeIngestionJobResponse{
+		ID:              job.ID,
+		KnowledgeBaseID: job.KnowledgeBaseID,
+		DocumentID:      job.DocumentID,
+		Title:           job.Title,
+		Status:          job.Status,
+		Error:           job.Error,
+		Attempts:        job.Attempts,
+		MaxAttempts:     job.MaxAttempts,
+		AvailableAt:     job.AvailableAt,
+		CompletedAt:     job.CompletedAt,
+		CreatedAt:       job.CreatedAt,
+		UpdatedAt:       job.UpdatedAt,
+	}
+}
+
+func knowledgeIngestionJobsAPIResponse(jobs []knowledge.KnowledgeIngestionJob) []knowledgeIngestionJobResponse {
+	response := make([]knowledgeIngestionJobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		response = append(response, knowledgeIngestionJobAPIResponse(job))
+	}
+	return response
 }
 
 func newKnowledgeHandler(service *knowledge.Service) knowledgeHandler {
@@ -402,7 +444,12 @@ func (h knowledgeHandler) uploadKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 		contentType = header.Header.Get("Content-Type")
 		filename = header.Filename
 	}
-	parsed, err := knowledgedocument.NewParser().Parse(r.Context(), file, filename, contentType, knowledgeDocumentUploadMaxBytes)
+	rawContent, err := readKnowledgeUploadRawFile(file)
+	if err != nil {
+		writeKnowledgeUploadError(w, err)
+		return
+	}
+	parsed, err := knowledgedocument.NewParser().Parse(r.Context(), bytes.NewReader(rawContent), filename, contentType, knowledgeDocumentUploadMaxBytes)
 	if err != nil {
 		writeKnowledgeUploadError(w, err)
 		return
@@ -417,12 +464,24 @@ func (h knowledgeHandler) uploadKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 		return
 	}
 
-	document, err := h.service.CreateDocumentWithOptions(r.Context(), session, knowledgeBaseID, title, parsed.Content, knowledge.KnowledgeDocumentOptions{
-		DocumentVersion: strings.TrimSpace(r.FormValue("documentVersion")),
-		PageNumber:      parseKnowledgeDocumentPageNumber(r.FormValue("pageNumber")),
-		SourceURL:       strings.TrimSpace(r.FormValue("sourceUrl")),
-		UpdateStrategy:  strings.TrimSpace(r.FormValue("updateStrategy")),
-	})
+	job, err := h.service.EnqueueDocumentIngestion(
+		r.Context(),
+		session,
+		knowledgeBaseID,
+		title,
+		parsed.Content,
+		knowledge.KnowledgeDocumentOptions{
+			DocumentVersion: strings.TrimSpace(r.FormValue("documentVersion")),
+			PageNumber:      parseKnowledgeDocumentPageNumber(r.FormValue("pageNumber")),
+			SourceURL:       strings.TrimSpace(r.FormValue("sourceUrl")),
+			UpdateStrategy:  strings.TrimSpace(r.FormValue("updateStrategy")),
+		},
+		knowledge.KnowledgeIngestionRawPayload{
+			Content:     rawContent,
+			Filename:    filename,
+			ContentType: contentType,
+		},
+	)
 	if err != nil {
 		if isNotFoundError(err) {
 			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
@@ -432,7 +491,21 @@ func (h knowledgeHandler) uploadKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 		return
 	}
 
-	writeSuccess(w, stdhttp.StatusOK, document)
+	writeSuccess(w, stdhttp.StatusAccepted, knowledgeIngestionJobAPIResponse(job))
+}
+
+func readKnowledgeUploadRawFile(reader io.Reader) ([]byte, error) {
+	if reader == nil {
+		return nil, knowledgedocument.ErrEmptyDocument
+	}
+	rawContent, err := io.ReadAll(io.LimitReader(reader, knowledgeDocumentUploadMaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(rawContent)) > knowledgeDocumentUploadMaxBytes {
+		return nil, knowledgedocument.ErrDocumentTooLarge
+	}
+	return rawContent, nil
 }
 
 func parseKnowledgeDocumentPageNumber(raw string) int {
@@ -441,6 +514,26 @@ func parseKnowledgeDocumentPageNumber(raw string) int {
 		return 0
 	}
 	return pageNumber
+}
+
+func (h knowledgeHandler) listKnowledgeDocumentIngestionJobs(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	jobs, err := h.service.ListDocumentIngestionJobs(r.Context(), session, knowledgeBaseID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list knowledge document ingestion jobs failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, knowledgeIngestionJobsAPIResponse(jobs))
 }
 
 func (h knowledgeHandler) retrieveKnowledge(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
@@ -492,6 +585,65 @@ func (h knowledgeHandler) retrieveKnowledge(w stdhttp.ResponseWriter, r *stdhttp
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, results)
+}
+
+func (h knowledgeHandler) retrieveKnowledgeDebug(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload retrieveKnowledgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	query := strings.TrimSpace(payload.Query)
+	if query == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "query is required")
+		return
+	}
+
+	rerankTopK, err := h.knowledgeBaseRerankTopK(r.Context(), session, knowledgeBaseID, payload.Mode)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "load knowledge base config failed")
+		return
+	}
+
+	options := knowledge.KnowledgeRetrievalOptions{
+		AllVersions:     payload.AllVersions,
+		DocumentVersion: strings.TrimSpace(payload.DocumentVersion),
+		Mode:            strings.TrimSpace(payload.Mode),
+		Limit:           payload.Limit,
+		MinScore:        payload.MinScore,
+		RerankTopK:      rerankTopK,
+		VectorWeight:    payload.VectorWeight,
+		KeywordWeight:   payload.KeywordWeight,
+	}
+	results, err := h.service.RetrieveWithOptions(r.Context(), session, knowledgeBaseID, query, options)
+	if err != nil {
+		if errors.Is(err, knowledge.ErrInvalidKnowledgeRetrievalOptions) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_retrieval_options", err.Error())
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "retrieve knowledge failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, knowledge.KnowledgeRetrievalDebugReport{
+		KnowledgeBaseID:  knowledgeBaseID,
+		Query:            query,
+		Options:          options,
+		ResultCount:      len(results),
+		CitationCoverage: knowledgeRetrievalCitationCoverage(results),
+		Results:          results,
+	})
 }
 
 func (h knowledgeHandler) createRetrievalTestCase(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
@@ -699,6 +851,28 @@ func (h knowledgeHandler) knowledgeBaseRerankTopK(ctx context.Context, session a
 		return 0, err
 	}
 	return base.RerankTopK, nil
+}
+
+func knowledgeRetrievalCitationCoverage(results []knowledge.KnowledgeRetrievalResult) knowledge.KnowledgeRetrievalCitationCoverage {
+	coverage := knowledge.KnowledgeRetrievalCitationCoverage{TotalResults: len(results)}
+	for _, result := range results {
+		source := result.Source
+		if strings.TrimSpace(source.SourceURL) != "" ||
+			strings.TrimSpace(source.DocumentID) != "" ||
+			strings.TrimSpace(source.ChunkID) != "" {
+			coverage.ResultsWithSource++
+		}
+		if source.PageNumber > 0 {
+			coverage.ResultsWithPage++
+		}
+		if len(source.HighlightPositions) > 0 {
+			coverage.ResultsWithHighlights++
+		}
+		if strings.TrimSpace(source.OriginalText) != "" {
+			coverage.ResultsWithOriginalText++
+		}
+	}
+	return coverage
 }
 
 func writeKnowledgeUploadError(w stdhttp.ResponseWriter, err error) {

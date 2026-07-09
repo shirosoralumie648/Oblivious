@@ -205,11 +205,28 @@ Agent tool-definition APIs filter disabled built-ins, and direct execution rejec
 | `DELETE` | `/api/v1/app/knowledge-bases/:knowledgeBaseId` | Delete a knowledge base |
 | `GET` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents` | List knowledge documents |
 | `POST` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents` | Create a knowledge document |
+| `POST` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents/upload` | Parse an uploaded document and enqueue durable ingestion |
+| `GET` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents/ingestion-jobs` | List durable upload ingestion jobs and status |
 | `PUT` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents/:documentId` | Update a knowledge document |
 | `DELETE` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents/:documentId` | Delete a knowledge document |
 | `POST` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/retrieve` | Retrieve relevant document chunks |
 
-Knowledge document create and update paths index document chunks with the configured Relay embedding model. Retrieval embeds the query through Relay `/v1/embeddings`, searches `knowledge_document_chunks.embedding` with pgvector under organization scope, and returns source-cited RAG results. The service does not fall back to text search while customer-facing copy claims RAG.
+Knowledge document create and update paths index document chunks with the configured Relay embedding model. Multipart upload parses the submitted file, persists the raw upload bytes and source metadata on a durable `knowledge_ingestion_jobs` record, and returns `202 Accepted` with job status metadata instead of synchronously creating chunks in the request path. The ingestion worker can replay parsing from the persisted raw payload before chunk/embed/create. Retrieval embeds the query through Relay `/v1/embeddings`, searches `knowledge_document_chunks.embedding` with pgvector under organization scope, and returns source-cited RAG results. The service does not fall back to text search while customer-facing copy claims RAG.
+
+`POST /api/v1/app/knowledge-bases/:knowledgeBaseId/documents/upload` response data includes ingestion status metadata only; parsed document content and raw upload bytes are not echoed back:
+
+| Field | Description |
+| --- | --- |
+| `id` | Durable ingestion job ID |
+| `knowledgeBaseId` | Target knowledge base ID |
+| `documentId` | Created document ID once the worker succeeds |
+| `title` | Parsed or user-supplied document title |
+| `status` | `pending`, `processing`, `succeeded`, `failed`, or `dead_letter` |
+| `attempts` | Number of worker attempts |
+| `maxAttempts` | Maximum worker attempts before dead-letter |
+| `error` | Last worker error for failed/dead-letter jobs |
+
+`GET /api/v1/app/knowledge-bases/:knowledgeBaseId/documents/ingestion-jobs` returns the same status shape ordered by latest update so the UI/operator path can track async upload recovery.
 
 `POST /api/v1/app/knowledge-bases/:knowledgeBaseId/retrieve` response items include:
 

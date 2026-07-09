@@ -61,9 +61,27 @@ func registerKnowledgeAliasRoutes(mux *stdhttp.ServeMux, authMiddleware sessionM
 			return
 		}
 
+		if len(parts) == 3 && parts[1] == "documents" && parts[2] == "ingestion-jobs" {
+			if r.Method == stdhttp.MethodGet {
+				knowledgeHandler.listKnowledgeDocumentIngestionJobs(w, r, knowledgeBaseID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		if len(parts) == 2 && parts[1] == "retrieve" {
 			if r.Method == stdhttp.MethodPost {
 				knowledgeHandler.retrieveKnowledge(w, r, knowledgeBaseID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[1] == "retrieve" && parts[2] == "debug" {
+			if r.Method == stdhttp.MethodPost {
+				knowledgeHandler.retrieveKnowledgeDebug(w, r, knowledgeBaseID)
 			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}

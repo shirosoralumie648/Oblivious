@@ -18,6 +18,7 @@ func NewProcessor(embedder Embedder, qdrant KnowledgeVectorStore) *Processor {
 
 type Document struct {
 	ID              string
+	Title           string
 	Content         []byte
 	Format          string
 	ChunkStrategy   string
@@ -40,6 +41,7 @@ func (p *Processor) Process(ctx context.Context, doc *Document) error {
 	}
 
 	log.Printf("deepdoc parsed format=%s, sections=%d, tables=%d", parsed.Format, countSections(parsed.Root), countTables(parsed.Root))
+	documentTitle := processorDocumentTitle(doc, parsed)
 
 	var chunks []Chunk
 	switch doc.ChunkStrategy {
@@ -62,9 +64,10 @@ func (p *Processor) Process(ctx context.Context, doc *Document) error {
 		}
 
 		err = p.qdrant.UpsertKnowledgeDocumentChunks(ctx, "default", "kb_default", doc.ID, []KnowledgeDocumentChunk{{
-			ChunkIndex: i,
-			Content:    chunk.Content,
-			Embedding:  embedding,
+			ChunkIndex:    i,
+			Content:       chunk.Content,
+			DocumentTitle: documentTitle,
+			Embedding:     embedding,
 			Metadata: KnowledgeChunkMetadata{
 				Extra: map[string]any{
 					"section":    chunk.Section,
@@ -79,6 +82,29 @@ func (p *Processor) Process(ctx context.Context, doc *Document) error {
 	}
 
 	return nil
+}
+
+func processorDocumentTitle(doc *Document, parsed *DocumentStructure) string {
+	if doc != nil {
+		if title := strings.TrimSpace(doc.Title); title != "" {
+			return title
+		}
+	}
+	if parsed != nil && parsed.Root != nil {
+		for _, child := range parsed.Root.Children {
+			if child != nil {
+				if title := strings.TrimSpace(child.Title); title != "" {
+					return title
+				}
+			}
+		}
+	}
+	if doc != nil {
+		if title := strings.TrimSpace(doc.ID); title != "" {
+			return title
+		}
+	}
+	return "Untitled document"
 }
 
 func (p *Processor) chunkFixedSize(parsed *DocumentStructure, chunkSize, overlap int) []Chunk {

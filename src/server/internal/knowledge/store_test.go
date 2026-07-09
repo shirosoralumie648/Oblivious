@@ -222,6 +222,7 @@ func TestSQLStoreRetrieveKnowledgeWithOptionsWithoutEmbeddingUsesKeywordOnlyQuer
 
 	queryer.mu.Lock()
 	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
 	queryer.mu.Unlock()
 
 	if strings.Contains(query, "<=>") {
@@ -229,6 +230,64 @@ func TestSQLStoreRetrieveKnowledgeWithOptionsWithoutEmbeddingUsesKeywordOnlyQuer
 	}
 	if !strings.Contains(query, "websearch_to_tsquery") || !strings.Contains(query, "organization_id = $1") {
 		t.Fatalf("expected keyword fallback query to use tenant-scoped full text search, got %s", query)
+	}
+	if got := knowledgeRetrievalArgString(args, 6); got != KnowledgeRetrievalMethodKeyword {
+		t.Fatalf("expected keyword retrieval method arg, got %q", got)
+	}
+}
+
+func TestSQLStoreFilterReadyKnowledgeRetrievalResultsKeepsOnlyLiveReadyChunks(t *testing.T) {
+	driverName := "knowledge_filter_ready_retrieval_results_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"WITH candidate": {
+				{"doc_ready", "chunk_ready"},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	results, err := NewSQLStore(db).FilterReadyKnowledgeRetrievalResults(context.Background(), " org_1 ", " kb_1 ", []KnowledgeRetrievalResult{
+		{DocumentID: "doc_deleted", ChunkID: "chunk_deleted", Snippet: "deleted stale vector"},
+		{DocumentID: "doc_pending", ChunkID: "chunk_pending", Snippet: "pending stale vector"},
+		{DocumentID: "doc_ready", ChunkID: "chunk_ready", Snippet: "current vector"},
+	})
+	if err != nil {
+		t.Fatalf("filter ready retrieval results: %v", err)
+	}
+	if len(results) != 1 || results[0].DocumentID != "doc_ready" || results[0].ChunkID != "chunk_ready" {
+		t.Fatalf("expected only live ready chunk, got %+v", results)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"WITH candidate",
+		"JOIN knowledge_documents d",
+		"JOIN knowledge_document_chunks kdc",
+		"JOIN knowledge_bases kb",
+		"COALESCE(d.index_status, '') = $3",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected ready filter query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != KnowledgeDocumentIndexStatusReady {
+		t.Fatalf("index status arg = %q, want ready", got)
 	}
 }
 
@@ -511,6 +570,107 @@ func TestSQLStoreCreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndE
 	}
 }
 
+func TestSQLStoreCreateKnowledgeDocumentWithOptionsCreatesTransactionalIndexOutbox(t *testing.T) {
+	driverName := "knowledge_create_transactional_index_outbox_test"
+	now := time.Date(2026, time.July, 2, 11, 0, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"INSERT INTO knowledge_index_jobs": {
+				{
+					"kij_tx_create",
+					"org_1",
+					"kb_1",
+					"doc_tx_create",
+					KnowledgeIndexJobOperationUpsertDocument,
+					KnowledgeIndexJobStatusPending,
+					"",
+					int64(0),
+					int64(defaultKnowledgeIndexJobMaxAttempts),
+					nil,
+					"",
+					now,
+					nil,
+					now,
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	options := KnowledgeDocumentOptions{DocumentVersion: "v3", UpdateStrategy: KnowledgeUpdateStrategyFullReplace}
+	options.createIndexJob = true
+	document, err := NewSQLStore(db).CreateKnowledgeDocumentWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"Transactional Outbox Runbook",
+		"Transactional outbox content",
+		[]KnowledgeDocumentChunk{{ChunkIndex: 0, Content: "Transactional outbox content", DocumentVersion: "v3"}},
+		options,
+	)
+	if err != nil {
+		t.Fatalf("create knowledge document with transactional outbox: %v", err)
+	}
+	if document.IndexStatus != KnowledgeDocumentIndexStatusPending {
+		t.Fatalf("expected pending document index status, got %+v", document)
+	}
+
+	documentQuery, documentArgs := knowledgeRetrievalExecForQuery(t, queryer, "INSERT INTO knowledge_documents")
+	for _, want := range []string{
+		"index_status",
+		"index_error",
+		"indexed_at",
+		"SELECT $1, $2, kb.id",
+	} {
+		if !strings.Contains(documentQuery, want) {
+			t.Fatalf("expected document insert to include %q, got %s", want, documentQuery)
+		}
+	}
+	if got := knowledgeRetrievalArgString(documentArgs, 8); got != KnowledgeDocumentIndexStatusPending {
+		t.Fatalf("document index status arg = %q, want pending", got)
+	}
+
+	queryer.mu.Lock()
+	jobQuery := queryer.query
+	jobArgs := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"INSERT INTO knowledge_index_jobs",
+		"JOIN knowledge_bases kb",
+		"WHERE d.organization_id = $2",
+		"RETURNING id, organization_id, knowledge_base_id, document_id",
+	} {
+		if !strings.Contains(jobQuery, want) {
+			t.Fatalf("expected transactional outbox job query to include %q, got %s", want, jobQuery)
+		}
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 2); got != "org_1" {
+		t.Fatalf("job organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 3); got != "kb_1" {
+		t.Fatalf("job knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 4); got != document.ID {
+		t.Fatalf("job document arg = %q, want returned document id %q", got, document.ID)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 5); got != KnowledgeIndexJobOperationUpsertDocument {
+		t.Fatalf("job operation arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 6); got != KnowledgeIndexJobStatusPending {
+		t.Fatalf("job status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgInt(jobArgs, 7); got != defaultKnowledgeIndexJobMaxAttempts {
+		t.Fatalf("job max attempts arg = %d", got)
+	}
+}
+
 func TestSQLStoreUpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunks(t *testing.T) {
 	driverName := "knowledge_update_versioned_options_test"
 	queryer := &knowledgeRetrievalQueryer{}
@@ -555,6 +715,177 @@ func TestSQLStoreUpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunk
 	}
 	if got := knowledgeRetrievalArgString(deleteArgs, 2); got != "v2" {
 		t.Fatalf("delete version arg = %q, want v2", got)
+	}
+}
+
+func TestSQLStoreUpdateKnowledgeDocumentWithOptionsCreatesTransactionalIndexOutbox(t *testing.T) {
+	driverName := "knowledge_update_transactional_index_outbox_test"
+	now := time.Date(2026, time.July, 2, 11, 30, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"INSERT INTO knowledge_index_jobs": {
+				{
+					"kij_tx_update",
+					"org_1",
+					"kb_1",
+					"doc_1",
+					KnowledgeIndexJobOperationUpsertDocument,
+					KnowledgeIndexJobStatusPending,
+					"",
+					int64(0),
+					int64(defaultKnowledgeIndexJobMaxAttempts),
+					nil,
+					"",
+					now,
+					nil,
+					now,
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	options := KnowledgeDocumentOptions{DocumentVersion: "v4", UpdateStrategy: KnowledgeUpdateStrategyFullReplace}
+	options.createIndexJob = true
+	document, err := NewSQLStore(db).UpdateKnowledgeDocumentWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"doc_1",
+		"Transactional Update Runbook",
+		"Updated transactional outbox content",
+		[]KnowledgeDocumentChunk{{ChunkIndex: 0, Content: "Updated transactional outbox content", DocumentVersion: "v4"}},
+		options,
+	)
+	if err != nil {
+		t.Fatalf("update knowledge document with transactional outbox: %v", err)
+	}
+	if document.IndexStatus != KnowledgeDocumentIndexStatusPending {
+		t.Fatalf("expected pending document index status, got %+v", document)
+	}
+
+	updateQuery, updateArgs := knowledgeRetrievalExecForQuery(t, queryer, "UPDATE knowledge_documents")
+	for _, want := range []string{
+		"index_status = $8",
+		"index_error = ''",
+		"indexed_at = NULL",
+	} {
+		if !strings.Contains(updateQuery, want) {
+			t.Fatalf("expected document update to include %q, got %s", want, updateQuery)
+		}
+	}
+	if got := knowledgeRetrievalArgString(updateArgs, 8); got != KnowledgeDocumentIndexStatusPending {
+		t.Fatalf("document index status arg = %q, want pending", got)
+	}
+
+	queryer.mu.Lock()
+	jobQuery := queryer.query
+	jobArgs := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	if !strings.Contains(jobQuery, "INSERT INTO knowledge_index_jobs") {
+		t.Fatalf("expected transactional outbox job insert, got %s", jobQuery)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 4); got != "doc_1" {
+		t.Fatalf("job document arg = %q, want doc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 6); got != KnowledgeIndexJobStatusPending {
+		t.Fatalf("job status arg = %q", got)
+	}
+}
+
+func TestSQLStoreDeleteKnowledgeDocumentWithOptionsCreatesTransactionalDeleteIndexOutbox(t *testing.T) {
+	driverName := "knowledge_delete_transactional_index_outbox_test"
+	now := time.Date(2026, time.July, 2, 12, 0, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"INSERT INTO knowledge_index_jobs": {
+				{
+					"kij_tx_delete",
+					"org_1",
+					"kb_1",
+					"doc_1",
+					KnowledgeIndexJobOperationDeleteDocument,
+					KnowledgeIndexJobStatusPending,
+					"",
+					int64(0),
+					int64(defaultKnowledgeIndexJobMaxAttempts),
+					nil,
+					"",
+					now,
+					nil,
+					now,
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	options := KnowledgeDocumentOptions{}
+	options.createIndexJob = true
+	if err := NewSQLStore(db).DeleteKnowledgeDocumentWithOptions(context.Background(), "org_1", "kb_1", "doc_1", options); err != nil {
+		t.Fatalf("delete knowledge document with transactional outbox: %v", err)
+	}
+
+	queryer.mu.Lock()
+	jobQuery := queryer.query
+	jobArgs := append([]driver.NamedValue(nil), queryer.args...)
+	calls := append([]string(nil), queryer.calls...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"INSERT INTO knowledge_index_jobs",
+		"JOIN knowledge_bases kb",
+		"WHERE d.organization_id = $2",
+		"RETURNING id, organization_id, knowledge_base_id, document_id",
+	} {
+		if !strings.Contains(jobQuery, want) {
+			t.Fatalf("expected transactional delete outbox job query to include %q, got %s", want, jobQuery)
+		}
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 2); got != "org_1" {
+		t.Fatalf("job organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 3); got != "kb_1" {
+		t.Fatalf("job knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 4); got != "doc_1" {
+		t.Fatalf("job document arg = %q, want doc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 5); got != KnowledgeIndexJobOperationDeleteDocument {
+		t.Fatalf("job operation arg = %q, want delete_document", got)
+	}
+	if got := knowledgeRetrievalArgString(jobArgs, 6); got != KnowledgeIndexJobStatusPending {
+		t.Fatalf("job status arg = %q", got)
+	}
+
+	deleteQuery, deleteArgs := knowledgeRetrievalExecForQuery(t, queryer, "DELETE FROM knowledge_documents")
+	if !strings.Contains(deleteQuery, "USING knowledge_bases kb") {
+		t.Fatalf("expected tenant-scoped document delete, got %s", deleteQuery)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 1); got != "org_1" {
+		t.Fatalf("delete scope arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 2); got != "kb_1" {
+		t.Fatalf("delete knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 3); got != "doc_1" {
+		t.Fatalf("delete document arg = %q, want doc_1", got)
+	}
+	if len(calls) < 2 || !strings.Contains(calls[0], "INSERT INTO knowledge_index_jobs") || !strings.Contains(calls[1], "DELETE FROM knowledge_documents") {
+		t.Fatalf("expected delete outbox job to be inserted before deleting SQL document, calls=%v", calls)
 	}
 }
 
@@ -688,6 +1019,7 @@ func TestSQLStoreListKnowledgeDocumentChunksReturnsTenantScopedChunkViews(t *tes
 					"kdc_1",
 					int64(2),
 					"Deployment rollback chunk.",
+					"Deployment Runbook",
 					"v2",
 					[]byte(`{"documentVersion":"v2","pageNumber":7,"sourceUrl":"https://docs.example/runbook.md"}`),
 				},
@@ -712,6 +1044,9 @@ func TestSQLStoreListKnowledgeDocumentChunksReturnsTenantScopedChunkViews(t *tes
 	if chunks[0].ChunkID != "kdc_1" || chunks[0].ChunkIndex != 2 || chunks[0].CharCount != 26 || chunks[0].EstimatedTokenCount == 0 {
 		t.Fatalf("unexpected chunk view: %+v", chunks[0])
 	}
+	if chunks[0].DocumentTitle != "Deployment Runbook" {
+		t.Fatalf("expected document title to be preserved, got %q", chunks[0].DocumentTitle)
+	}
 	if chunks[0].Metadata.PageNumber != 7 || chunks[0].Metadata.SourceURL != "https://docs.example/runbook.md" {
 		t.Fatalf("expected metadata to be decoded, got %+v", chunks[0].Metadata)
 	}
@@ -720,7 +1055,7 @@ func TestSQLStoreListKnowledgeDocumentChunksReturnsTenantScopedChunkViews(t *tes
 	query := queryer.query
 	args := append([]driver.NamedValue(nil), queryer.args...)
 	queryer.mu.Unlock()
-	for _, want := range []string{"JOIN knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "kb.id = $2", "d.id = $3", "ORDER BY c.chunk_index ASC"} {
+	for _, want := range []string{"d.title", "JOIN knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "kb.id = $2", "d.id = $3", "ORDER BY c.chunk_index ASC"} {
 		if !strings.Contains(query, want) {
 			t.Fatalf("expected list chunks query to include %q, got %s", want, query)
 		}
@@ -745,6 +1080,7 @@ func TestSQLStoreUpdateKnowledgeDocumentChunkUpdatesContentHashAndReturnsChunk(t
 					"kdc_1",
 					int64(1),
 					"Updated chunk content.",
+					"Deployment Runbook",
 					"v2",
 					[]byte(`{"documentVersion":"v2","pageNumber":8}`),
 				},
@@ -763,7 +1099,7 @@ func TestSQLStoreUpdateKnowledgeDocumentChunkUpdatesContentHashAndReturnsChunk(t
 	if err != nil {
 		t.Fatalf("update document chunk: %v", err)
 	}
-	if chunk.ChunkID != "kdc_1" || chunk.Content != "Updated chunk content." || chunk.DocumentVersion != "v2" {
+	if chunk.ChunkID != "kdc_1" || chunk.Content != "Updated chunk content." || chunk.DocumentTitle != "Deployment Runbook" || chunk.DocumentVersion != "v2" {
 		t.Fatalf("unexpected updated chunk: %+v", chunk)
 	}
 
@@ -771,7 +1107,7 @@ func TestSQLStoreUpdateKnowledgeDocumentChunkUpdatesContentHashAndReturnsChunk(t
 	query := queryer.query
 	args := append([]driver.NamedValue(nil), queryer.args...)
 	queryer.mu.Unlock()
-	for _, want := range []string{"UPDATE knowledge_document_chunks", "FROM knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "c.id = $4", "metadata", "RETURNING"} {
+	for _, want := range []string{"UPDATE knowledge_document_chunks", "FROM knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "c.id = $4", "metadata", "RETURNING", "d.title"} {
 		if !strings.Contains(query, want) {
 			t.Fatalf("expected update chunk query to include %q, got %s", want, query)
 		}
@@ -804,8 +1140,8 @@ func TestSQLStoreSplitKnowledgeDocumentChunkReindexesFollowingChunks(t *testing.
 				},
 			},
 			"ORDER BY c.chunk_index ASC": {
-				{"kdc_left", int64(1), "Alpha beta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
-				{"kdc_right", int64(2), "gamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+				{"kdc_left", int64(1), "Alpha beta", "Deployment Runbook", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+				{"kdc_right", int64(2), "gamma delta", "Deployment Runbook", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
 			},
 		},
 	}
@@ -863,7 +1199,7 @@ func TestSQLStoreMergeKnowledgeDocumentChunksCombinesNeighborAndReindexes(t *tes
 				{"kdc_next", int64(2), "gamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3,"startRune":111,"endRune":122}`)},
 			},
 			"ORDER BY c.chunk_index ASC": {
-				{"kdc_current", int64(1), "Alpha beta\n\ngamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+				{"kdc_current", int64(1), "Alpha beta\n\ngamma delta", "Deployment Runbook", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
 			},
 		},
 	}
@@ -973,6 +1309,730 @@ func TestSQLStoreListKnowledgeDocumentVersionsReturnsTenantScopedHistory(t *test
 	}
 }
 
+func TestSQLStoreCreateKnowledgeIngestionJobPersistsDurablePayload(t *testing.T) {
+	driverName := "knowledge_ingestion_job_create_test"
+	now := time.Date(2026, time.July, 2, 13, 30, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"INSERT INTO knowledge_ingestion_jobs": {
+				{
+					"kig_1",
+					"org_1",
+					"kb_1",
+					"",
+					"Async Runbook",
+					"Durable upload content",
+					[]byte("# Async Runbook\n\nDurable upload content"),
+					"runbook.md",
+					"text/markdown",
+					int64(len("# Async Runbook\n\nDurable upload content")),
+					"v2",
+					KnowledgeUpdateStrategyVersioned,
+					"https://docs.example/upload.pdf",
+					int64(7),
+					KnowledgeIngestionJobStatusPending,
+					"",
+					int64(0),
+					int64(defaultKnowledgeIngestionJobMaxAttempts),
+					nil,
+					"",
+					now,
+					nil,
+					now,
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	job, err := NewSQLStore(db).CreateKnowledgeIngestionJob(context.Background(), CreateKnowledgeIngestionJobRequest{
+		OrganizationID:  "org_1",
+		KnowledgeBaseID: "kb_1",
+		Title:           " Async Runbook ",
+		Content:         " Durable upload content ",
+		RawContent:      []byte("# Async Runbook\n\nDurable upload content"),
+		RawFilename:     " runbook.md ",
+		RawContentType:  " text/markdown ",
+		Options: KnowledgeDocumentOptions{
+			DocumentVersion: "v2",
+			PageNumber:      7,
+			SourceURL:       " https://docs.example/upload.pdf ",
+			UpdateStrategy:  KnowledgeUpdateStrategyVersioned,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create knowledge ingestion job: %v", err)
+	}
+	if job.ID != "kig_1" || job.Status != KnowledgeIngestionJobStatusPending || job.Options.DocumentVersion != "v2" || job.Options.PageNumber != 7 {
+		t.Fatalf("unexpected ingestion job: %+v", job)
+	}
+	if string(job.RawContent) != "# Async Runbook\n\nDurable upload content" || job.RawFilename != "runbook.md" || job.RawContentType != "text/markdown" || job.RawSizeBytes != int64(len("# Async Runbook\n\nDurable upload content")) {
+		t.Fatalf("unexpected raw ingestion payload: raw=%q filename=%q contentType=%q size=%d", string(job.RawContent), job.RawFilename, job.RawContentType, job.RawSizeBytes)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"INSERT INTO knowledge_ingestion_jobs",
+		"raw_content",
+		"raw_filename",
+		"raw_content_type",
+		"raw_size_bytes",
+		"FROM knowledge_bases kb",
+		"WHERE kb.organization_id = $2",
+		"RETURNING id, organization_id, knowledge_base_id",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected ingestion job insert query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != "Async Runbook" {
+		t.Fatalf("title arg = %q, want Async Runbook", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 5); got != "Durable upload content" {
+		t.Fatalf("content arg = %q, want Durable upload content", got)
+	}
+	if got := knowledgeRetrievalArgBytes(args, 6); string(got) != "# Async Runbook\n\nDurable upload content" {
+		t.Fatalf("raw content arg = %q", string(got))
+	}
+	if got := knowledgeRetrievalArgString(args, 7); got != "runbook.md" {
+		t.Fatalf("raw filename arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 8); got != "text/markdown" {
+		t.Fatalf("raw content type arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgInt(args, 9); got != len("# Async Runbook\n\nDurable upload content") {
+		t.Fatalf("raw size arg = %d", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 10); got != "v2" {
+		t.Fatalf("document version arg = %q, want v2", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 11); got != KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("update strategy arg = %q, want versioned", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 12); got != "https://docs.example/upload.pdf" {
+		t.Fatalf("source URL arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgInt(args, 13); got != 7 {
+		t.Fatalf("page number arg = %d, want 7", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 14); got != KnowledgeIngestionJobStatusPending {
+		t.Fatalf("status arg = %q", got)
+	}
+}
+
+func TestSQLStoreClaimKnowledgeIngestionJobsRecoversExpiredLeasesWithOwnerAndMaxAttempts(t *testing.T) {
+	driverName := "knowledge_ingestion_jobs_claim_test"
+	now := time.Date(2026, time.July, 2, 14, 0, 0, 0, time.UTC)
+	leaseUntil := now.Add(defaultKnowledgeIngestionJobClaimLease)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM updated": {
+				{
+					"kig_1",
+					"org_1",
+					"kb_1",
+					"",
+					"Async Runbook",
+					"Durable upload content",
+					[]byte("raw durable upload content"),
+					"runbook.md",
+					"text/markdown",
+					int64(len("raw durable upload content")),
+					"v3",
+					KnowledgeUpdateStrategyFullReplace,
+					"https://docs.example/upload.md",
+					int64(4),
+					KnowledgeIngestionJobStatusProcessing,
+					"previous failure",
+					int64(2),
+					int64(5),
+					now,
+					"worker_ingest_1",
+					leaseUntil,
+					nil,
+					now.Add(-time.Hour),
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	jobs, err := NewSQLStore(db).ClaimKnowledgeIngestionJobs(context.Background(), now, 2, "worker_ingest_1")
+	if err != nil {
+		t.Fatalf("claim knowledge ingestion jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected one claimed ingestion job, got %+v", jobs)
+	}
+	job := jobs[0]
+	if job.ID != "kig_1" || job.Status != KnowledgeIngestionJobStatusProcessing || job.Attempts != 2 || job.MaxAttempts != 5 {
+		t.Fatalf("unexpected claimed ingestion job: %+v", job)
+	}
+	if string(job.RawContent) != "raw durable upload content" || job.RawFilename != "runbook.md" || job.RawContentType != "text/markdown" || job.RawSizeBytes != int64(len("raw durable upload content")) {
+		t.Fatalf("expected claimed raw ingestion payload to round trip, got raw=%q filename=%q contentType=%q size=%d", string(job.RawContent), job.RawFilename, job.RawContentType, job.RawSizeBytes)
+	}
+	if job.LockedBy != "worker_ingest_1" || job.LockedAt == nil || !job.LockedAt.Equal(now) || !job.AvailableAt.Equal(leaseUntil) {
+		t.Fatalf("expected claimed ingestion lease owner and deadline, got %+v", job)
+	}
+	if job.Options.DocumentVersion != "v3" || job.Options.PageNumber != 4 || job.Options.SourceURL != "https://docs.example/upload.md" {
+		t.Fatalf("expected ingestion options to round trip, got %+v", job.Options)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"FROM knowledge_ingestion_jobs",
+		"status IN ($2, $3)",
+		"status = $4",
+		"attempts <= max_attempts",
+		"FOR UPDATE SKIP LOCKED",
+		"locked_at = $1",
+		"locked_by = $6",
+		"available_at = $7",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected ingestion claim query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != KnowledgeIngestionJobStatusPending {
+		t.Fatalf("pending status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != KnowledgeIngestionJobStatusFailed {
+		t.Fatalf("failed status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIngestionJobStatusProcessing {
+		t.Fatalf("processing status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgInt(args, 5); got != 2 {
+		t.Fatalf("limit arg = %d, want 2", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 6); got != "worker_ingest_1" {
+		t.Fatalf("worker owner arg = %q", got)
+	}
+}
+
+func TestSQLStoreClaimKnowledgeIngestionJobsRecoversExhaustedExpiredLeaseForDeadLetter(t *testing.T) {
+	driverName := "knowledge_ingestion_jobs_exhausted_claim_test"
+	now := time.Date(2026, time.July, 2, 15, 0, 0, 0, time.UTC)
+	leaseUntil := now.Add(defaultKnowledgeIngestionJobClaimLease)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM updated": {
+				{
+					"kig_exhausted",
+					"org_1",
+					"kb_1",
+					"",
+					"Broken Upload",
+					"",
+					[]byte("malformed raw payload"),
+					"broken.pdf",
+					"application/pdf",
+					int64(len("malformed raw payload")),
+					"v1",
+					KnowledgeUpdateStrategyFullReplace,
+					"",
+					int64(0),
+					KnowledgeIngestionJobStatusProcessing,
+					"parser failed before process restart",
+					int64(5),
+					int64(5),
+					now,
+					"worker_ingest_recovery",
+					leaseUntil,
+					nil,
+					now.Add(-time.Hour),
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	jobs, err := NewSQLStore(db).ClaimKnowledgeIngestionJobs(context.Background(), now, 1, "worker_ingest_recovery")
+	if err != nil {
+		t.Fatalf("claim exhausted knowledge ingestion job: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected one exhausted ingestion job to be recovered, got %+v", jobs)
+	}
+	job := jobs[0]
+	if job.ID != "kig_exhausted" || job.Attempts != 5 || job.MaxAttempts != 5 || job.Status != KnowledgeIngestionJobStatusProcessing {
+		t.Fatalf("unexpected exhausted ingestion job recovery: %+v", job)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"status = $4",
+		"available_at <= $1",
+		"attempts <= max_attempts",
+		"FOR UPDATE SKIP LOCKED",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected exhausted ingestion claim query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIngestionJobStatusProcessing {
+		t.Fatalf("processing status arg = %q", got)
+	}
+}
+
+func TestSQLStoreListKnowledgeIngestionJobsScopesByOrganizationAndKnowledgeBase(t *testing.T) {
+	driverName := "knowledge_ingestion_jobs_list_test"
+	completedAt := time.Date(2026, time.July, 3, 11, 5, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_ingestion_jobs": {
+				{
+					"kig_ready",
+					"org_1",
+					"kb_1",
+					"doc_ready",
+					"Async Runbook",
+					"Durable upload content",
+					[]byte("raw listed upload content"),
+					"upload.md",
+					"text/markdown",
+					int64(len("raw listed upload content")),
+					"v4",
+					KnowledgeUpdateStrategyFullReplace,
+					"https://docs.example/upload.md",
+					int64(9),
+					KnowledgeIngestionJobStatusSucceeded,
+					"",
+					int64(2),
+					int64(5),
+					nil,
+					"",
+					completedAt,
+					completedAt,
+					completedAt.Add(-10 * time.Minute),
+					completedAt,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	jobs, err := NewSQLStore(db).ListKnowledgeIngestionJobs(context.Background(), " org_1 ", " kb_1 ")
+	if err != nil {
+		t.Fatalf("list knowledge ingestion jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected one ingestion job, got %+v", jobs)
+	}
+	job := jobs[0]
+	if job.ID != "kig_ready" || job.DocumentID != "doc_ready" || job.Status != KnowledgeIngestionJobStatusSucceeded {
+		t.Fatalf("unexpected listed ingestion job: %+v", job)
+	}
+	if string(job.RawContent) != "raw listed upload content" || job.RawFilename != "upload.md" || job.RawContentType != "text/markdown" || job.RawSizeBytes != int64(len("raw listed upload content")) {
+		t.Fatalf("expected listed raw ingestion payload to round trip, got raw=%q filename=%q contentType=%q size=%d", string(job.RawContent), job.RawFilename, job.RawContentType, job.RawSizeBytes)
+	}
+	if job.Options.DocumentVersion != "v4" || job.Options.PageNumber != 9 || job.Options.SourceURL != "https://docs.example/upload.md" {
+		t.Fatalf("expected listed ingestion options to round trip, got %+v", job.Options)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"FROM knowledge_ingestion_jobs",
+		"WHERE organization_id = $1",
+		"AND knowledge_base_id = $2",
+		"ORDER BY updated_at DESC, created_at DESC, id DESC",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected ingestion list query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+}
+
+func TestSQLStoreClaimKnowledgeIndexJobsRecoversExpiredLeasesWithOwnerAndMaxAttempts(t *testing.T) {
+	driverName := "knowledge_index_jobs_claim_test"
+	now := time.Date(2026, time.July, 2, 9, 0, 0, 0, time.UTC)
+	leaseUntil := now.Add(defaultKnowledgeIndexJobClaimLease)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM updated": {
+				{
+					"kij_1",
+					"org_1",
+					"kb_1",
+					"doc_1",
+					KnowledgeIndexJobOperationUpsertDocument,
+					KnowledgeIndexJobStatusProcessing,
+					"previous failure",
+					int64(2),
+					int64(5),
+					now,
+					"worker_rag_1",
+					leaseUntil,
+					nil,
+					now.Add(-time.Hour),
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	jobs, err := NewSQLStore(db).ClaimKnowledgeIndexJobs(context.Background(), now, 2, "worker_rag_1")
+	if err != nil {
+		t.Fatalf("claim knowledge index jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected one claimed job, got %+v", jobs)
+	}
+	job := jobs[0]
+	if job.ID != "kij_1" || job.Status != KnowledgeIndexJobStatusProcessing || job.Attempts != 2 || job.MaxAttempts != 5 {
+		t.Fatalf("unexpected claimed job: %+v", job)
+	}
+	if job.LockedBy != "worker_rag_1" || job.LockedAt == nil || !job.LockedAt.Equal(now) || !job.AvailableAt.Equal(leaseUntil) {
+		t.Fatalf("expected claimed lease owner and deadline, got %+v", job)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"status IN ($2, $3)",
+		"status = $4",
+		"attempts <= max_attempts",
+		"FOR UPDATE SKIP LOCKED",
+		"locked_at = $1",
+		"locked_by = $6",
+		"available_at = $7",
+		"completed_at = NULL",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected claim query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != KnowledgeIndexJobStatusPending {
+		t.Fatalf("pending status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != KnowledgeIndexJobStatusFailed {
+		t.Fatalf("failed status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIndexJobStatusProcessing {
+		t.Fatalf("processing status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgInt(args, 5); got != 2 {
+		t.Fatalf("limit arg = %d, want 2", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 6); got != "worker_rag_1" {
+		t.Fatalf("worker owner arg = %q", got)
+	}
+}
+
+func TestSQLStoreClaimKnowledgeIndexJobsRecoversExhaustedExpiredLeaseForDeadLetter(t *testing.T) {
+	driverName := "knowledge_index_jobs_exhausted_claim_test"
+	now := time.Date(2026, time.July, 2, 9, 30, 0, 0, time.UTC)
+	leaseUntil := now.Add(defaultKnowledgeIndexJobClaimLease)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM updated": {
+				{
+					"kij_exhausted",
+					"org_1",
+					"kb_1",
+					"doc_1",
+					KnowledgeIndexJobOperationUpsertDocument,
+					KnowledgeIndexJobStatusProcessing,
+					"qdrant timeout before process restart",
+					int64(5),
+					int64(5),
+					now,
+					"worker_rag_recovery",
+					leaseUntil,
+					nil,
+					now.Add(-time.Hour),
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	jobs, err := NewSQLStore(db).ClaimKnowledgeIndexJobs(context.Background(), now, 1, "worker_rag_recovery")
+	if err != nil {
+		t.Fatalf("claim exhausted knowledge index job: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected one exhausted index job to be recovered, got %+v", jobs)
+	}
+	job := jobs[0]
+	if job.ID != "kij_exhausted" || job.Attempts != 5 || job.MaxAttempts != 5 || job.Status != KnowledgeIndexJobStatusProcessing {
+		t.Fatalf("unexpected exhausted index job recovery: %+v", job)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"status = $4",
+		"available_at <= $1",
+		"attempts <= max_attempts",
+		"FOR UPDATE SKIP LOCKED",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected exhausted index claim query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIndexJobStatusProcessing {
+		t.Fatalf("processing status arg = %q", got)
+	}
+}
+
+func TestSQLStoreMarksKnowledgeIndexJobDeadLetterWithOwnerGuard(t *testing.T) {
+	driverName := "knowledge_index_jobs_dead_letter_test"
+	queryer := &knowledgeRetrievalQueryer{}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	completedAt := time.Date(2026, time.July, 2, 10, 0, 0, 0, time.UTC)
+	err = NewSQLStore(db).MarkKnowledgeIndexJobDeadLetter(context.Background(), "org_1", "kij_1", "worker_rag_1", "dead_letter: qdrant unavailable", completedAt)
+	if err != nil {
+		t.Fatalf("mark knowledge index job dead-letter: %v", err)
+	}
+
+	query, args := knowledgeRetrievalExecForQuery(t, queryer, "UPDATE knowledge_index_jobs")
+	for _, want := range []string{
+		"status = $4",
+		"error = $5",
+		"locked_at = NULL",
+		"locked_by = ''",
+		"available_at = $6",
+		"completed_at = $6",
+		"AND ($3 = '' OR locked_by = $3)",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected dead-letter query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "worker_rag_1" {
+		t.Fatalf("worker owner arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIndexJobStatusDeadLetter {
+		t.Fatalf("status arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 5); got != "dead_letter: qdrant unavailable" {
+		t.Fatalf("reason arg = %q", got)
+	}
+}
+
+func TestSQLStoreMarksKnowledgeIndexJobSucceededPreservesCompletedByAndReleasesLease(t *testing.T) {
+	driverName := "knowledge_index_jobs_succeeded_completed_by_test"
+	queryer := &knowledgeRetrievalQueryer{}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	completedAt := time.Date(2026, time.July, 2, 11, 0, 0, 0, time.UTC)
+	err = NewSQLStore(db).MarkKnowledgeIndexJobSucceeded(context.Background(), "org_1", "kij_1", "worker_rag_1", completedAt)
+	if err != nil {
+		t.Fatalf("mark knowledge index job succeeded: %v", err)
+	}
+
+	query, args := knowledgeRetrievalExecForQuery(t, queryer, "UPDATE knowledge_index_jobs")
+	for _, want := range []string{
+		"status = $4",
+		"error = ''",
+		"locked_at = NULL",
+		"completed_by = CASE",
+		"ELSE $3",
+		"locked_by = ''",
+		"available_at = $5",
+		"completed_at = $5",
+		"AND ($3 = '' OR locked_by = $3)",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected succeeded query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "worker_rag_1" {
+		t.Fatalf("worker owner arg = %q", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != KnowledgeIndexJobStatusSucceeded {
+		t.Fatalf("status arg = %q", got)
+	}
+}
+
+func TestKnowledgeIndexJobsMigrationsDeclareDeadLetterLeaseAndAttemptFields(t *testing.T) {
+	baselineRaw, err := os.ReadFile("../../migrations/0083_knowledge_index_jobs.sql")
+	if err != nil {
+		t.Fatalf("read knowledge index jobs baseline migration: %v", err)
+	}
+	upgradeRaw, err := os.ReadFile("../../migrations/0086_knowledge_index_jobs_dead_letter.sql")
+	if err != nil {
+		t.Fatalf("read knowledge index jobs dead-letter migration: %v", err)
+	}
+	completedByRaw, err := os.ReadFile("../../migrations/0100_knowledge_index_jobs_completed_by.sql")
+	if err != nil {
+		t.Fatalf("read knowledge index jobs completed-by migration: %v", err)
+	}
+	migration := string(baselineRaw) + "\n" + string(upgradeRaw) + "\n" + string(completedByRaw)
+
+	for _, want := range []string{
+		"max_attempts INTEGER NOT NULL DEFAULT 5",
+		"locked_at TIMESTAMPTZ",
+		"locked_by TEXT NOT NULL DEFAULT ''",
+		"completed_by TEXT NOT NULL DEFAULT ''",
+		"completed_at TIMESTAMPTZ",
+		"'dead_letter'",
+		"attempts >= max_attempts",
+		"SET completed_by = locked_by",
+	} {
+		if !strings.Contains(migration, want) {
+			t.Fatalf("expected knowledge index job migrations to contain %q, got:\n%s", want, migration)
+		}
+	}
+}
+
+func TestKnowledgeIndexJobsMigrationsDeclareDeleteDocumentJobsSurviveDeletedDocuments(t *testing.T) {
+	baselineRaw, err := os.ReadFile("../../migrations/0083_knowledge_index_jobs.sql")
+	if err != nil {
+		t.Fatalf("read knowledge index jobs baseline migration: %v", err)
+	}
+	deleteOperationRaw, err := os.ReadFile("../../migrations/0092_knowledge_index_jobs_delete_operation.sql")
+	if err != nil {
+		t.Fatalf("read knowledge index jobs delete-operation migration: %v", err)
+	}
+	baseline := string(baselineRaw)
+	deleteOperation := string(deleteOperationRaw)
+
+	if strings.Contains(baseline, "document_id TEXT NOT NULL REFERENCES knowledge_documents") {
+		t.Fatalf("baseline index jobs migration must not keep a document FK that would delete vector cleanup jobs:\n%s", baseline)
+	}
+	for _, want := range []string{
+		"document_id TEXT NOT NULL",
+		"CHECK (operation IN ('upsert_document', 'delete_document'))",
+	} {
+		if !strings.Contains(baseline, want) {
+			t.Fatalf("expected baseline knowledge index job migration to contain %q, got:\n%s", want, baseline)
+		}
+	}
+	for _, want := range []string{
+		"DROP CONSTRAINT IF EXISTS knowledge_index_jobs_document_id_fkey",
+		"DROP CONSTRAINT IF EXISTS knowledge_index_jobs_operation_check",
+		"CHECK (operation IN ('upsert_document', 'delete_document'))",
+	} {
+		if !strings.Contains(deleteOperation, want) {
+			t.Fatalf("expected delete-operation migration to contain %q, got:\n%s", want, deleteOperation)
+		}
+	}
+}
+
+func TestKnowledgeIngestionJobsMigrationDeclaresDurableWorkerFields(t *testing.T) {
+	raw, err := os.ReadFile("../../migrations/0093_knowledge_ingestion_jobs.sql")
+	if err != nil {
+		t.Fatalf("read knowledge ingestion jobs migration: %v", err)
+	}
+	ownershipRaw, err := os.ReadFile("../../migrations/microservices/table-ownership.json")
+	if err != nil {
+		t.Fatalf("read table ownership: %v", err)
+	}
+	migration := string(raw)
+
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS knowledge_ingestion_jobs",
+		"organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE",
+		"knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE",
+		"document_id TEXT NOT NULL DEFAULT ''",
+		"raw_content BYTEA NOT NULL DEFAULT ''",
+		"raw_filename TEXT NOT NULL DEFAULT ''",
+		"raw_content_type TEXT NOT NULL DEFAULT ''",
+		"raw_size_bytes BIGINT NOT NULL DEFAULT 0",
+		"document_version TEXT NOT NULL DEFAULT 'v1'",
+		"update_strategy TEXT NOT NULL DEFAULT 'full_replace'",
+		"source_url TEXT NOT NULL DEFAULT ''",
+		"page_number INTEGER NOT NULL DEFAULT 0",
+		"max_attempts INTEGER NOT NULL DEFAULT 5",
+		"locked_at TIMESTAMPTZ",
+		"locked_by TEXT NOT NULL DEFAULT ''",
+		"completed_at TIMESTAMPTZ",
+		"CHECK (status IN ('pending', 'processing', 'succeeded', 'failed', 'dead_letter'))",
+		"CHECK (raw_size_bytes >= 0)",
+	} {
+		if !strings.Contains(migration, want) {
+			t.Fatalf("expected knowledge ingestion job migration to contain %q, got:\n%s", want, migration)
+		}
+	}
+	if !strings.Contains(string(ownershipRaw), `"knowledge_ingestion_jobs"`) {
+		t.Fatalf("expected table ownership to include knowledge_ingestion_jobs, got:\n%s", ownershipRaw)
+	}
+}
+
 func TestKnowledgeDocumentVersionHistoryMigrationBackfillsExistingDocuments(t *testing.T) {
 	raw, err := os.ReadFile("../../migrations/0075_knowledge_document_version_history.sql")
 	if err != nil {
@@ -1010,6 +2070,7 @@ type knowledgeRetrievalQueryer struct {
 	rows           [][]driver.Value
 	rowsByQuery    map[string][][]driver.Value
 	columnsByQuery map[string][]string
+	calls          []string
 	execQueries    []string
 	execArgs       [][]driver.NamedValue
 }
@@ -1054,6 +2115,7 @@ func (c knowledgeRetrievalConn) Begin() (driver.Tx, error) {
 
 func (c knowledgeRetrievalConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	c.queryer.mu.Lock()
+	c.queryer.calls = append(c.queryer.calls, "exec:"+query)
 	c.queryer.execQueries = append(c.queryer.execQueries, query)
 	c.queryer.execArgs = append(c.queryer.execArgs, append([]driver.NamedValue(nil), args...))
 	c.queryer.mu.Unlock()
@@ -1062,6 +2124,7 @@ func (c knowledgeRetrievalConn) ExecContext(_ context.Context, query string, arg
 
 func (c knowledgeRetrievalConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	c.queryer.mu.Lock()
+	c.queryer.calls = append(c.queryer.calls, "query:"+query)
 	c.queryer.query = query
 	c.queryer.args = append([]driver.NamedValue(nil), args...)
 	rows := append([][]driver.Value(nil), c.queryer.rows...)
@@ -1099,6 +2162,7 @@ func (knowledgeRetrievalTx) Rollback() error {
 
 func (tx knowledgeRetrievalTx) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	tx.queryer.mu.Lock()
+	tx.queryer.calls = append(tx.queryer.calls, "exec:"+query)
 	tx.queryer.execQueries = append(tx.queryer.execQueries, query)
 	tx.queryer.execArgs = append(tx.queryer.execArgs, append([]driver.NamedValue(nil), args...))
 	tx.queryer.mu.Unlock()
@@ -1107,6 +2171,7 @@ func (tx knowledgeRetrievalTx) ExecContext(_ context.Context, query string, args
 
 func (tx knowledgeRetrievalTx) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	tx.queryer.mu.Lock()
+	tx.queryer.calls = append(tx.queryer.calls, "query:"+query)
 	tx.queryer.query = query
 	tx.queryer.args = append([]driver.NamedValue(nil), args...)
 	rows := append([][]driver.Value(nil), tx.queryer.rows...)
@@ -1181,6 +2246,21 @@ func knowledgeRetrievalArgString(args []driver.NamedValue, ordinal int) string {
 		}
 	}
 	return ""
+}
+
+func knowledgeRetrievalArgBytes(args []driver.NamedValue, ordinal int) []byte {
+	for _, arg := range args {
+		if arg.Ordinal != ordinal {
+			continue
+		}
+		switch value := arg.Value.(type) {
+		case []byte:
+			return append([]byte(nil), value...)
+		case string:
+			return []byte(value)
+		}
+	}
+	return nil
 }
 
 func knowledgeRetrievalArgInt(args []driver.NamedValue, ordinal int) int {
