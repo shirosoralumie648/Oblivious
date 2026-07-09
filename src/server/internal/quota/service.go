@@ -122,6 +122,10 @@ type Store interface {
 
 var ErrUsageLimited = errors.New("usage limit exceeded")
 
+type billingSessionPreauthorizer interface {
+	PreauthorizeBillingSession(ctx context.Context, session *BillingSession) (*BillingSession, error)
+}
+
 const defaultUsageLimitWindowSeconds = 60
 const (
 	quotaScopeOrganization = "organization"
@@ -397,6 +401,37 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 	if organizationID == "" {
 		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, fmt.Errorf("organization_id is required")
+	}
+	if amount <= 0 {
+		metrics.RecordQuotaSettlementFailure("preauthorization")
+		return nil, fmt.Errorf("preauthorized amount must be positive")
+	}
+
+	if preauthorizer, ok := s.store.(billingSessionPreauthorizer); ok {
+		sessionID, err := auth.NewID("bill")
+		if err != nil {
+			metrics.RecordQuotaSettlementFailure("preauthorization")
+			return nil, err
+		}
+		session := &BillingSession{
+			ID:               sessionID,
+			OrganizationID:   organizationID,
+			UserID:           userID,
+			ChannelID:        channelID,
+			Model:            model,
+			APIType:          apiType,
+			IdempotencyKey:   idempotencyKey,
+			PreAuthorizedAmt: amount,
+			Status:           "preauthorized",
+			CreatedAt:        time.Now().UTC(),
+		}
+		created, err := preauthorizer.PreauthorizeBillingSession(ctx, session)
+		if err != nil {
+			metrics.RecordQuotaSettlementFailure("preauthorization")
+			return nil, err
+		}
+		metrics.RecordBillingLifecycleEvent("quota_preauthorization", "preauthorized")
+		return created, nil
 	}
 
 	// 检查幂等性
@@ -698,6 +733,120 @@ func (s *SQLStore) CreateBillingSession(ctx context.Context, session *BillingSes
 	return session, nil
 }
 
+// PreauthorizeBillingSession creates the billing session and reserves quota in
+// one transaction so concurrent Relay requests cannot overspend the balance.
+func (s *SQLStore) PreauthorizeBillingSession(ctx context.Context, session *BillingSession) (*BillingSession, error) {
+	if session == nil {
+		return nil, fmt.Errorf("billing session is required")
+	}
+	if session.OrganizationID == "" {
+		return nil, fmt.Errorf("organization_id is required")
+	}
+	if session.PreAuthorizedAmt <= 0 {
+		return nil, fmt.Errorf("preauthorized amount must be positive")
+	}
+	if session.ID == "" {
+		id, err := auth.NewID("bill")
+		if err != nil {
+			return nil, err
+		}
+		session.ID = id
+	}
+	if session.Status == "" {
+		session.Status = "preauthorized"
+	}
+	now := time.Now().UTC()
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+
+	if session.IdempotencyKey != "" {
+		existing, err := s.GetBillingSessionByIdempotencyKey(ctx, session.IdempotencyKey, session.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+
+	quota, err := s.GetOrCreateQuota(ctx, session.UserID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := s.quotaBalanceScope(ctx, session.UserID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin preauthorization: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO billing_sessions (id, organization_id, user_id, channel_id, model, api_type, idempotency_key, pre_authorized_amt, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, session.ID, session.OrganizationID, session.UserID, session.ChannelID, session.Model, session.APIType, session.IdempotencyKey, session.PreAuthorizedAmt, session.Status, session.CreatedAt)
+	if err != nil {
+		if isPostgresUniqueViolation(err) && session.IdempotencyKey != "" {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				return nil, fmt.Errorf("rollback duplicate preauthorization: %w", rollbackErr)
+			}
+			existing, lookupErr := s.GetBillingSessionByIdempotencyKey(ctx, session.IdempotencyKey, session.OrganizationID)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if existing != nil {
+				return existing, nil
+			}
+		}
+		return nil, fmt.Errorf("insert billing session: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE quotas
+		SET balance = balance - $4,
+			used = used + $4,
+			updated_at = $5
+		WHERE organization_id = $1
+		  AND scope = $2
+		  AND ($2 = 'organization' OR user_id = $3)
+		  AND balance >= $4
+	`, session.OrganizationID, scope, session.UserID, session.PreAuthorizedAmt, now)
+	if err != nil {
+		return nil, fmt.Errorf("reserve quota: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("reserve quota rows affected: %w", err)
+	}
+	if rows == 0 {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return nil, fmt.Errorf("rollback insufficient balance preauthorization: %w", rollbackErr)
+		}
+		currentBalance := quota.Balance
+		_ = s.db.QueryRowContext(ctx, `
+			SELECT balance FROM quotas
+			WHERE organization_id = $1
+			  AND scope = $2
+			  AND ($2 = 'organization' OR user_id = $3)
+		`, session.OrganizationID, scope, session.UserID).Scan(&currentBalance)
+		return nil, fmt.Errorf("insufficient balance: have %.6f, need %.6f", currentBalance, session.PreAuthorizedAmt)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit preauthorization: %w", err)
+	}
+	return session, nil
+}
+
+func isPostgresUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505"
+}
+
 // GetBillingSessionByIdempotencyKey 通过幂等键获取会话
 func (s *SQLStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, organizationID string) (*BillingSession, error) {
 	var session BillingSession
@@ -725,13 +874,25 @@ func (s *SQLStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, o
 
 // SettleBillingSession 结算会话
 func (s *SQLStore) SettleBillingSession(ctx context.Context, id, organizationID string, settledAmt float64) error {
+	if settledAmt < 0 {
+		return fmt.Errorf("settled amount must be non-negative")
+	}
 	now := time.Now().UTC()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin settlement: %w", err)
+	}
+	defer tx.Rollback()
 
 	// 获取会话信息
 	var session BillingSession
-	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1 AND organization_id = $2
-	`, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
+	err = tx.QueryRowContext(ctx, `
+                SELECT user_id, organization_id, pre_authorized_amt, status
+                FROM billing_sessions
+                WHERE id = $1 AND organization_id = $2
+                FOR UPDATE
+        `, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -742,23 +903,36 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id, organizationID 
 	}
 
 	// 计算退款金额
+	if settledAmt > session.PreAuthorizedAmt {
+		return fmt.Errorf("settled amount %.6f exceeds preauthorized amount %.6f", settledAmt, session.PreAuthorizedAmt)
+	}
 	refundAmt := session.PreAuthorizedAmt - settledAmt
 
 	// 更新会话状态
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE billing_sessions SET status = 'settled', settled_amt = $3, settled_at = $4 WHERE id = $1 AND organization_id = $2
-	`, id, organizationID, settledAmt, now)
+	result, err := tx.ExecContext(ctx, `
+                UPDATE billing_sessions
+                SET status = 'settled', settled_amt = $3, settled_at = $4
+                WHERE id = $1 AND organization_id = $2 AND status = 'preauthorized'
+        `, id, organizationID, settledAmt, now)
 	if err != nil {
 		return fmt.Errorf("update session: %w", err)
 	}
-
-	// 如果有差额，退还
-	if refundAmt > 0 {
-		if err := s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, refundAmt); err != nil {
-			return fmt.Errorf("refund difference: %w", err)
-		}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("settlement session rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("session already settled or refunded")
 	}
 
+	// 如果有差额，退还
+	if err := s.refundReservedQuotaTx(ctx, tx, session.UserID, session.OrganizationID, refundAmt, now); err != nil {
+		return fmt.Errorf("refund settlement difference: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit settlement: %w", err)
+	}
 	return nil
 }
 
@@ -766,11 +940,20 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id, organizationID 
 func (s *SQLStore) RefundBillingSession(ctx context.Context, id, organizationID string) error {
 	now := time.Now().UTC()
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin refund: %w", err)
+	}
+	defer tx.Rollback()
+
 	// 获取会话信息
 	var session BillingSession
-	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1 AND organization_id = $2
-	`, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
+	err = tx.QueryRowContext(ctx, `
+                SELECT user_id, organization_id, pre_authorized_amt, status
+                FROM billing_sessions
+                WHERE id = $1 AND organization_id = $2
+                FOR UPDATE
+        `, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -781,19 +964,84 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id, organizationID 
 	}
 
 	// 更新会话状态
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE billing_sessions SET status = 'refunded', settled_at = $3 WHERE id = $1 AND organization_id = $2
-	`, id, organizationID, now)
+	result, err := tx.ExecContext(ctx, `
+                UPDATE billing_sessions
+                SET status = 'refunded', settled_at = $3
+                WHERE id = $1 AND organization_id = $2 AND status = 'preauthorized'
+        `, id, organizationID, now)
 	if err != nil {
 		return fmt.Errorf("update session: %w", err)
 	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("refund session rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("session already settled or refunded")
+	}
 
 	// 退还全额
-	if err := s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, session.PreAuthorizedAmt); err != nil {
+	if err := s.refundReservedQuotaTx(ctx, tx, session.UserID, session.OrganizationID, session.PreAuthorizedAmt, now); err != nil {
 		return fmt.Errorf("refund: %w", err)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit refund: %w", err)
+	}
 	return nil
+}
+
+func (s *SQLStore) refundReservedQuotaTx(ctx context.Context, tx *sql.Tx, userID, organizationID string, amount float64, now time.Time) error {
+	if amount <= 0 {
+		return nil
+	}
+	scope, err := quotaBalanceScopeTx(ctx, tx, userID, organizationID)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+                UPDATE quotas
+                SET balance = balance + $4,
+                    used = GREATEST(used - $4, 0),
+                    updated_at = $5
+                WHERE organization_id = $1
+                  AND scope = $2
+                  AND ($2 = 'organization' OR user_id = $3)
+        `, organizationID, scope, userID, amount, now)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("quota refund rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func quotaBalanceScopeTx(ctx context.Context, tx *sql.Tx, userID, organizationID string) (string, error) {
+	if userID == "" {
+		return quotaScopeOrganization, nil
+	}
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `
+                SELECT EXISTS (
+                        SELECT 1 FROM concurrency_limits
+                        WHERE organization_id = $1 AND user_id = $2
+                        UNION ALL
+                        SELECT 1 FROM token_rate_limits
+                        WHERE organization_id = $1 AND user_id = $2
+                        LIMIT 1
+                )
+        `, organizationID, userID).Scan(&exists); err != nil {
+		return "", fmt.Errorf("resolve quota balance scope: %w", err)
+	}
+	if exists {
+		return quotaScopeUser, nil
+	}
+	return quotaScopeOrganization, nil
 }
 
 // ListPackages 列出套餐

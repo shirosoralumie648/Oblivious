@@ -32,10 +32,15 @@ func newMemoryWebhookLedger() *memoryWebhookLedger {
 }
 
 func (s *memoryWebhookLedger) RecordWebhookEvent(_ context.Context, event WebhookEvent) (bool, error) {
-	if _, ok := s.events[event.EventID]; ok {
+	provider := strings.TrimSpace(event.Provider)
+	if provider == "" {
+		provider = "stripe"
+	}
+	key := provider + "\x00" + strings.TrimSpace(event.EventID)
+	if _, ok := s.events[key]; ok {
 		return false, nil
 	}
-	s.events[event.EventID] = event
+	s.events[key] = event
 	return true, nil
 }
 
@@ -114,7 +119,7 @@ func TestWebhookRecordsSignedEventOnce(t *testing.T) {
 	if !data.Received {
 		t.Fatalf("expected signed webhook response data.received=true, got body %s", recorder.Body.String())
 	}
-	event, ok := ledger.events["evt_phase17_checkout"]
+	event, ok := ledger.events["stripe\x00evt_phase17_checkout"]
 	if !ok {
 		t.Fatal("expected signed webhook event to be recorded")
 	}

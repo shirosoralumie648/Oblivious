@@ -77,6 +77,9 @@ func (s *fakeStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, 
 }
 
 func (s *fakeStore) SettleBillingSession(ctx context.Context, id, organizationID string, settledAmt float64) error {
+	if settledAmt < 0 {
+		return fmt.Errorf("settled amount must be non-negative")
+	}
 	session, ok := s.billingSessions[id]
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -87,13 +90,21 @@ func (s *fakeStore) SettleBillingSession(ctx context.Context, id, organizationID
 	if session.Status != "preauthorized" {
 		return fmt.Errorf("session already settled or refunded")
 	}
+	if settledAmt > session.PreAuthorizedAmt {
+		return fmt.Errorf("settled amount %.6f exceeds preauthorized amount %.6f", settledAmt, session.PreAuthorizedAmt)
+	}
 	session.Status = "settled"
 	session.SettledAmt = settledAmt
 
 	// Refund difference.
 	refund := session.PreAuthorizedAmt - settledAmt
 	if refund > 0 {
-		s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, refund)
+		q, _ := s.GetOrCreateQuota(ctx, session.UserID, session.OrganizationID)
+		q.Balance += refund
+		q.Used -= refund
+		if q.Used < 0 {
+			q.Used = 0
+		}
 	}
 	return nil
 }
@@ -110,7 +121,12 @@ func (s *fakeStore) RefundBillingSession(ctx context.Context, id, organizationID
 		return fmt.Errorf("session already settled or refunded")
 	}
 	session.Status = "refunded"
-	s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, session.PreAuthorizedAmt)
+	q, _ := s.GetOrCreateQuota(ctx, session.UserID, session.OrganizationID)
+	q.Balance += session.PreAuthorizedAmt
+	q.Used -= session.PreAuthorizedAmt
+	if q.Used < 0 {
+		q.Used = 0
+	}
 	return nil
 }
 
@@ -250,6 +266,22 @@ func TestPreConsume_InsufficientBalance(t *testing.T) {
 	q, _ := store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
 	if q.Balance != 100.0 {
 		t.Fatalf("expected balance unchanged at 100.0, got %f", q.Balance)
+	}
+}
+
+func TestPreConsumeRejectsNonPositiveAmount(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+
+	if _, err := svc.PreConsume(context.Background(), "user_1", "org_1", 0, "idem_zero", "ch_1", "gpt-4o", "chat"); err == nil {
+		t.Fatal("expected zero preauthorization amount to fail")
+	} else if !strings.Contains(err.Error(), "preauthorized amount must be positive") {
+		t.Fatalf("expected positive amount validation error, got %v", err)
+	}
+
+	q, _ := store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
+	if q.Balance != 100.0 || q.Used != 0 {
+		t.Fatalf("expected balance to remain unchanged after invalid amount, got %+v", q)
 	}
 }
 
@@ -401,8 +433,31 @@ func TestSettle_PartialAmountRefundsDifference(t *testing.T) {
 
 	// 7.0 should be refunded: balance = 100 - 10 + 7 = 97.
 	q, _ := store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
-	if q.Balance != 97.0 {
-		t.Fatalf("expected balance 97.0 after partial settle refund, got %f", q.Balance)
+	if q.Balance != 97.0 || q.Used != 3.0 {
+		t.Fatalf("expected balance 97.0 and used 3.0 after partial settle refund, got %+v", q)
+	}
+}
+
+func TestSettleRejectsAmountAbovePreauthorization(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+
+	session, _ := svc.PreConsume(context.Background(), "user_1", "org_1", 10.0, "idem_over_settle", "ch_1", "gpt-4o", "chat")
+
+	err := svc.Settle(context.Background(), "org_1", session.ID, 12.0)
+	if err == nil {
+		t.Fatal("expected over-preauthorization settlement to fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds preauthorized amount") {
+		t.Fatalf("expected over-preauthorization error, got %v", err)
+	}
+	updated := store.billingSessions[session.ID]
+	if updated.Status != "preauthorized" || updated.SettledAmt != 0 {
+		t.Fatalf("expected failed over-settle to preserve session, got %+v", updated)
+	}
+	q, _ := store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
+	if q.Balance != 90.0 || q.Used != 10.0 {
+		t.Fatalf("expected failed over-settle to preserve quota reservation, got %+v", q)
 	}
 }
 
@@ -424,8 +479,8 @@ func TestRefund_FullRefund(t *testing.T) {
 
 	// Full refund: balance should be back to 100.0.
 	q, _ := store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
-	if q.Balance != 100.0 {
-		t.Fatalf("expected balance 100.0 after full refund, got %f", q.Balance)
+	if q.Balance != 100.0 || q.Used != 0 {
+		t.Fatalf("expected balance 100.0 and used 0 after full refund, got %+v", q)
 	}
 }
 
@@ -877,6 +932,114 @@ func TestSQLStoreUserQuotaModeUsesUserScopedBalance(t *testing.T) {
 	}
 }
 
+func TestSQLStorePreConsumeIdempotencyDoesNotDoubleReserve(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	svc := NewService(store)
+
+	if err := svc.Topup(ctx, "user_1", "org_1", 100); err != nil {
+		t.Fatalf("top up quota: %v", err)
+	}
+
+	session1, err := svc.PreConsume(ctx, "user_1", "org_1", 30, "sql_idem_once", "ch_1", "gpt-4o", "chat")
+	if err != nil {
+		t.Fatalf("first preconsume: %v", err)
+	}
+	session2, err := svc.PreConsume(ctx, "user_1", "org_1", 30, "sql_idem_once", "ch_1", "gpt-4o", "chat")
+	if err != nil {
+		t.Fatalf("idempotent preconsume: %v", err)
+	}
+	if session1.ID != session2.ID {
+		t.Fatalf("expected idempotent preconsume to return session %s, got %s", session1.ID, session2.ID)
+	}
+
+	assertSQLQuotaBalance(t, store, ctx, "org_1", 70)
+
+	var count int
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM billing_sessions
+		WHERE organization_id = 'org_1' AND idempotency_key = 'sql_idem_once'
+	`).Scan(&count); err != nil {
+		t.Fatalf("count idempotent billing sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one billing session for idempotency key, got %d", count)
+	}
+}
+
+func TestSQLStorePreConsumeAtomicallyReservesQuota(t *testing.T) {
+	store, baseCtx := testSQLQuotaStore(t)
+	store.db.SetMaxOpenConns(4)
+	store.db.SetMaxIdleConns(4)
+	ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
+	defer cancel()
+	svc := NewService(store)
+
+	if err := svc.Topup(ctx, "user_1", "org_1", 100); err != nil {
+		t.Fatalf("top up quota: %v", err)
+	}
+
+	type result struct {
+		session *BillingSession
+		err     error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		idempotencyKey := fmt.Sprintf("sql_atomic_%d", i)
+		go func() {
+			<-start
+			session, err := svc.PreConsume(ctx, "user_1", "org_1", 80, idempotencyKey, "ch_1", "gpt-4o", "chat")
+			results <- result{session: session, err: err}
+		}()
+	}
+	close(start)
+
+	successes := 0
+	insufficient := 0
+	for i := 0; i < 2; i++ {
+		got := <-results
+		if got.err == nil {
+			successes++
+			if got.session == nil || got.session.Status != "preauthorized" {
+				t.Fatalf("expected preauthorized session, got %+v", got.session)
+			}
+			continue
+		}
+		if strings.Contains(got.err.Error(), "insufficient balance") {
+			insufficient++
+			continue
+		}
+		t.Fatalf("unexpected preconsume error: %v", got.err)
+	}
+	if successes != 1 || insufficient != 1 {
+		t.Fatalf("expected one success and one insufficient balance failure, got successes=%d insufficient=%d", successes, insufficient)
+	}
+
+	assertSQLQuotaBalance(t, store, ctx, "org_1", 20)
+
+	var used float64
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT used FROM quotas
+		WHERE organization_id = 'org_1' AND scope = 'organization'
+	`).Scan(&used); err != nil {
+		t.Fatalf("query quota used: %v", err)
+	}
+	if used != 80 {
+		t.Fatalf("expected used amount 80 after one reservation, got %.2f", used)
+	}
+
+	var count int
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM billing_sessions
+		WHERE organization_id = 'org_1' AND status = 'preauthorized'
+	`).Scan(&count); err != nil {
+		t.Fatalf("count preauthorized billing sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one committed preauthorized billing session, got %d", count)
+	}
+}
+
 func TestSQLStoreBillingSessionsAreOrganizationScoped(t *testing.T) {
 	store, ctx := testSQLQuotaStore(t)
 	svc := NewService(store)
@@ -920,6 +1083,7 @@ func TestSQLStoreBillingSessionsAreOrganizationScoped(t *testing.T) {
 		t.Fatalf("settle org_1 session: %v", err)
 	}
 	assertSQLQuotaBalance(t, store, ctx, "org_1", 80)
+	assertSQLQuotaLedger(t, store, ctx, "org_1", 80, 20)
 	assertSQLBillingSession(t, store, ctx, org1Session.ID, "org_1", "settled", 20)
 
 	if err := svc.Refund(ctx, "org_1", org2Session.ID); err == nil {
@@ -932,6 +1096,7 @@ func TestSQLStoreBillingSessionsAreOrganizationScoped(t *testing.T) {
 		t.Fatalf("refund org_2 session: %v", err)
 	}
 	assertSQLQuotaBalance(t, store, ctx, "org_2", 80)
+	assertSQLQuotaLedger(t, store, ctx, "org_2", 80, 0)
 	assertSQLBillingSession(t, store, ctx, org2Session.ID, "org_2", "refunded", 0)
 }
 
@@ -1072,6 +1237,21 @@ func assertSQLQuotaBalance(t *testing.T, store *SQLStore, ctx context.Context, o
 	}
 	if got != want {
 		t.Fatalf("expected %s quota balance %.2f, got %.2f", organizationID, want, got)
+	}
+}
+
+func assertSQLQuotaLedger(t *testing.T, store *SQLStore, ctx context.Context, organizationID string, wantBalance, wantUsed float64) {
+	t.Helper()
+
+	var gotBalance, gotUsed float64
+	if err := store.db.QueryRowContext(ctx, `
+                SELECT balance, used FROM quotas
+                WHERE organization_id = $1 AND scope = 'organization'
+        `, organizationID).Scan(&gotBalance, &gotUsed); err != nil {
+		t.Fatalf("query %s quota ledger: %v", organizationID, err)
+	}
+	if gotBalance != wantBalance || gotUsed != wantUsed {
+		t.Fatalf("expected %s quota ledger balance=%.2f used=%.2f, got balance=%.2f used=%.2f", organizationID, wantBalance, wantUsed, gotBalance, gotUsed)
 	}
 }
 

@@ -27,12 +27,12 @@ type WebhookEvent struct {
 	ProcessedAt     *time.Time
 }
 
-// WebhookLedger records provider webhook events exactly once per provider event ID.
+// WebhookLedger records webhook events exactly once per provider event ID.
 type WebhookLedger interface {
 	RecordWebhookEvent(ctx context.Context, event WebhookEvent) (bool, error)
 }
 
-// SQLWebhookLedger stores Stripe webhook events in PostgreSQL.
+// SQLWebhookLedger stores provider webhook events in PostgreSQL.
 type SQLWebhookLedger struct {
 	db *sql.DB
 }
@@ -61,7 +61,7 @@ func (s *SQLWebhookLedger) RecordWebhookEvent(ctx context.Context, event Webhook
 			payment_intent_id, payload, error, received_at, processed_at
 		)
 		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, NULLIF($10, ''), $11, $12)
-		ON CONFLICT (event_id) DO NOTHING
+		ON CONFLICT (provider, event_id) DO NOTHING
 	`, id, provider, event.EventID, event.EventType, event.Status, event.OrganizationID, event.UserID, event.PaymentIntentID, event.Payload, event.Error, receivedAt, event.ProcessedAt)
 	if err != nil {
 		return false, fmt.Errorf("insert stripe webhook event: %w", err)

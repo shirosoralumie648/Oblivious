@@ -329,7 +329,11 @@ func testUsageDailyAggregateSQLStore(t *testing.T) (*SQLStore, context.Context) 
 			request_id TEXT,
 			error_code TEXT,
 			total_tokens INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			price_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+			price_currency TEXT NOT NULL DEFAULT '',
+			price_source TEXT NOT NULL DEFAULT '',
+			price_effective_from TIMESTAMPTZ
 		)`,
 		`INSERT INTO users (id, email, name) VALUES ('user_daily', 'daily@example.test', 'Daily User')`,
 		`INSERT INTO organizations (id, name) VALUES ('org_daily', 'Daily Org')`,

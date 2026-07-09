@@ -110,6 +110,100 @@ func TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount(t *testing.T) {
 	}
 }
 
+func TestSQLStoreGetRelayUsagePriceReconciliationReturnsSummaryAndIssues(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	from := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)WITH scoped.*COUNT\(\*\).*FROM classified`).
+		WithArgs("org_1", "chat", from, to).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"checked_records",
+			"missing_snapshot_records",
+			"mismatched_records",
+			"ledger_total_cost",
+			"snapshot_total_cost",
+			"delta_cost",
+		}).AddRow(3, 1, 1, 1.25, 0.75, 0.50))
+	mock.ExpectQuery(`(?s)WITH scoped.*WHERE snapshot_missing OR cost_mismatch.*LIMIT \$5 OFFSET \$6`).
+		WithArgs("org_1", "chat", from, to, 25, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"organization_id",
+			"user_id",
+			"api_token_id",
+			"request_id",
+			"api_type",
+			"feature_type",
+			"quota_mode",
+			"model_id",
+			"channel_id",
+			"provider",
+			"status",
+			"cost",
+			"snapshot_total_cost",
+			"delta_cost",
+			"price_currency",
+			"price_source",
+			"issue",
+			"created_at",
+		}).AddRow(
+			"usage_1",
+			"org_1",
+			"user_1",
+			"tok_1",
+			"req_1",
+			"chat",
+			"workspace_chat",
+			"relay_billing",
+			"gpt-4o",
+			"ch_1",
+			"openai",
+			"success",
+			0.55,
+			0.50,
+			0.05,
+			"quota",
+			"initial_catalog",
+			"cost_mismatch",
+			createdAt,
+		))
+
+	summary, err := NewSQLStore(db).GetRelayUsagePriceReconciliation(context.Background(), RelayUsagePriceReconciliationFilter{
+		OrganizationID: " org_1 ",
+		APIType:        " chat ",
+		From:           from,
+		To:             to,
+		Limit:          25,
+		Offset:         5,
+	})
+	if err != nil {
+		t.Fatalf("get relay usage price reconciliation: %v", err)
+	}
+	if summary.CheckedRecords != 3 || summary.MatchedRecords != 1 || summary.MissingSnapshotRecords != 1 || summary.MismatchedRecords != 1 {
+		t.Fatalf("unexpected reconciliation counts: %+v", summary)
+	}
+	if summary.LedgerTotalCost != 1.25 || summary.SnapshotTotalCost != 0.75 || summary.DeltaCost != 0.50 {
+		t.Fatalf("unexpected reconciliation totals: %+v", summary)
+	}
+	if summary.Limit != 25 || summary.Offset != 5 || len(summary.Issues) != 1 {
+		t.Fatalf("expected limit/offset and one issue, got %+v", summary)
+	}
+	if issue := summary.Issues[0]; issue.ID != "usage_1" || issue.Issue != "cost_mismatch" || issue.DeltaCost != 0.05 || !issue.CreatedAt.Equal(createdAt) {
+		t.Fatalf("unexpected reconciliation issue: %+v", issue)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
 func TestRecordTopupRefundRejectsConflictingProviderRefundEvidence(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
