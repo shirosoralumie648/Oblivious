@@ -505,6 +505,7 @@ func (r *Router) RouteWithBilling(
 				record.ErrorCode = resp.Error.Code
 			}
 		}
+		recordRequestLogBillingMetadata(ctx, model, billingSessionID, tokenPreauthorizedAmount, record)
 		_ = r.recordUsage(ctx, record)
 		r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, statusCode, "miss", startedAt)
 
@@ -515,6 +516,37 @@ func (r *Router) RouteWithBilling(
 		return nil, lastErr
 	}
 	return lastResp, nil
+}
+
+func recordRequestLogBillingMetadata(ctx context.Context, requestedModel string, billingSessionID string, preauthorizedAmount float64, record RelayUsageLogRecord) {
+	scope, ok := types.RequestLogScopeFromContext(ctx)
+	if !ok {
+		return
+	}
+	tokenPreauthorizedAmount := 0.0
+	if record.APITokenID != "" {
+		tokenPreauthorizedAmount = preauthorizedAmount
+	}
+	scope.Record(types.RequestLogMetadata{
+		RequestID:                record.RequestID,
+		OrganizationID:           record.OrganizationID,
+		UserID:                   record.UserID,
+		Model:                    record.Model,
+		RequestedModel:           requestedModel,
+		ResolvedModel:            record.Model,
+		ChannelID:                record.ChannelID,
+		Provider:                 record.Provider,
+		BillingSessionID:         billingSessionID,
+		PreauthorizedAmount:      preauthorizedAmount,
+		TokenPreauthorizedAmount: tokenPreauthorizedAmount,
+		Cost:                     record.Cost,
+		ChannelCost:              record.ChannelCost,
+		RequestTokens:            record.PromptTokens,
+		ResponseTokens:           record.CompletionTokens,
+		TotalTokens:              record.TotalTokens,
+		Status:                   string(record.Status),
+		ErrorCode:                record.ErrorCode,
+	})
 }
 
 func (r *Router) sleepBeforeRetry(attempt int) {

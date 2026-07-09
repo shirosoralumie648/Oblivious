@@ -1,12 +1,17 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"oblivious/server/internal/quota"
 	serverrelay "oblivious/server/internal/relay"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 func TestCombineHandlersRelayAliasesRouteToOpenAICompatiblePaths(t *testing.T) {
@@ -127,8 +132,130 @@ func TestCombineHandlersRelayAliasesRouteToOpenAICompatiblePaths(t *testing.T) {
 	}
 }
 
+func TestRelayChatRequestLogJoinsUsageLedgerByRequestID(t *testing.T) {
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", "test-internal-token")
+
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected upstream path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_test","choices":[{"message":{"role":"assistant","content":"pong"}}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`))
+	}))
+	defer upstream.Close()
+
+	pool := serverrelay.NewChannelPool()
+	pool.AddChannel(&relaytypes.Channel{
+		ID:             "ch_request_log_join",
+		OrganizationID: "org_join",
+		Name:           "Request Log Join",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-test",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
+	}, 100)
+	pricing := serverrelay.NewPricingStore()
+	pricing.SetPrice("gpt-4o-mini", relaytypes.APITypeChat, relaytypes.DimPromptTokens, 0.01)
+	pricing.SetPrice("gpt-4o-mini", relaytypes.APITypeChat, relaytypes.DimCompletionTokens, 0.01)
+	pricing.SetPrice("gpt-4o-mini", relaytypes.APITypeChat, relaytypes.DimTotalTokens, 0.01)
+	relayInstance, err := serverrelay.NewRelay(&serverrelay.Config{
+		Pool:         pool,
+		Production:   true,
+		PricingStore: pricing,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+	usageLogger := &requestLogJoinUsageLogger{}
+	quotaManager := &requestLogJoinQuotaManager{}
+	tokenQuotaManager := &requestLogJoinAPITokenQuotaManager{}
+	relayInstance.Router().SetUsageLogger(usageLogger)
+	relayInstance.Router().SetQuotaManager(quotaManager)
+	relayInstance.Router().SetAPITokenQuotaManager(tokenQuotaManager)
+
+	sink := &captureMiddlewareRequestLogSink{}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	handler := withRequestID(withLogging(relayInstance.Engine()))
+	requestBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"ping"}]}`
+	request := httptest.NewRequest(stdhttp.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(relaytypes.HeaderInternalAuth, "test-internal-token")
+	request.Header.Set(relaytypes.HeaderInternalUserID, "user_join")
+	request.Header.Set(relaytypes.HeaderInternalOrganization, "org_join")
+	request.Header.Set(relaytypes.HeaderInternalFeatureType, "chat")
+	request.Header.Set(relaytypes.HeaderRequestID, "req_join_live")
+	request.Header.Set("Idempotency-Key", "idem_join_live")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected relay success, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected one usage ledger record, got %+v", usageLogger.records)
+	}
+	usage := usageLogger.records[0]
+	if usage.RequestID != "req_join_live" ||
+		usage.OrganizationID != "org_join" ||
+		usage.UserID != "user_join" ||
+		usage.ChannelID != "ch_request_log_join" ||
+		usage.Provider != "openai" ||
+		usage.TotalTokens != 20 ||
+		usage.Cost != 0.2 ||
+		usage.Status != serverrelay.RelayUsageStatusSuccess {
+		t.Fatalf("unexpected usage ledger record: %+v", usage)
+	}
+	if quotaManager.settleCalls != 1 || tokenQuotaManager.settleCalls != 0 {
+		t.Fatalf("expected org quota settlement only, quota=%+v token=%+v", quotaManager, tokenQuotaManager)
+	}
+	if len(sink.rows) != 1 {
+		t.Fatalf("expected one HTTP request log row, got %+v", sink.rows)
+	}
+	row := sink.rows[0]
+	if row.RequestID != usage.RequestID ||
+		row.OrganizationID != "00000000-0000-0000-0000-000000000000" ||
+		row.UserID != "00000000-0000-0000-0000-000000000000" ||
+		row.Service != "relay" ||
+		row.Endpoint != "/v1/chat/completions" ||
+		row.Model != "gpt-4o-mini" ||
+		row.RequestTokens != uint32(usage.PromptTokens) ||
+		row.ResponseTokens != uint32(usage.CompletionTokens) ||
+		row.CostUSD != usage.Cost {
+		t.Fatalf("request log row does not join usage ledger: row=%+v usage=%+v", row, usage)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		t.Fatalf("request log metadata should be JSON: %v\n%s", err, row.Metadata)
+	}
+	for key, want := range map[string]any{
+		"provider":              "openai",
+		"channel_id":            "ch_request_log_join",
+		"billing_session_id":    "bill_join",
+		"relay_usage_status":    "success",
+		"relay_organization_id": "org_join",
+		"relay_user_id":         "user_join",
+		"preauthorized_amount":  quotaManager.preconsumeAmount,
+		"total_tokens":          float64(20),
+	} {
+		if metadata[key] != want {
+			t.Fatalf("metadata[%s] = %#v, want %#v; metadata=%+v", key, metadata[key], want, metadata)
+		}
+	}
+	if _, ok := metadata["token_preauthorized_amount"]; ok {
+		t.Fatalf("internal trusted Relay request should not record API token preauthorization metadata: %+v", metadata)
+	}
+}
+
 func TestCombineHandlersRelayAliasesReachProductionRelayPolicy(t *testing.T) {
-	relayInstance, err := serverrelay.NewRelay(&serverrelay.Config{Production: true})
+	relayInstance, err := serverrelay.NewRelay(&serverrelay.Config{
+		Production:   true,
+		PricingStore: serverrelay.NewPricingStoreWithDefaults(),
+	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
 	}
@@ -170,6 +297,77 @@ func TestCombineHandlersRelayAliasesReachProductionRelayPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+type requestLogJoinUsageLogger struct {
+	records []serverrelay.RelayUsageLogRecord
+}
+
+func (l *requestLogJoinUsageLogger) RecordRelayUsage(_ context.Context, record serverrelay.RelayUsageLogRecord) error {
+	l.records = append(l.records, record)
+	return nil
+}
+
+func (l *requestLogJoinUsageLogger) ReplaceRelayUsage(_ context.Context, record serverrelay.RelayUsageLogRecord) error {
+	for index := range l.records {
+		if l.records[index].RequestID == record.RequestID {
+			l.records[index] = record
+			return nil
+		}
+	}
+	l.records = append(l.records, record)
+	return nil
+}
+
+type requestLogJoinQuotaManager struct {
+	preconsumeAmount float64
+	settleCalls      int
+	settledAmount    float64
+}
+
+func (m *requestLogJoinQuotaManager) PreConsume(_ context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
+	m.preconsumeAmount = amount
+	return &quota.BillingSession{
+		ID:               "bill_join",
+		UserID:           userID,
+		OrganizationID:   organizationID,
+		ChannelID:        channelID,
+		Model:            model,
+		APIType:          apiType,
+		IdempotencyKey:   idempotencyKey,
+		PreAuthorizedAmt: amount,
+		Status:           "preauthorized",
+		CreatedAt:        time.Now().UTC(),
+	}, nil
+}
+
+func (m *requestLogJoinQuotaManager) Settle(_ context.Context, _ string, _ string, actualAmount float64) error {
+	m.settleCalls++
+	m.settledAmount = actualAmount
+	return nil
+}
+
+func (m *requestLogJoinQuotaManager) Refund(context.Context, string, string) error {
+	return nil
+}
+
+type requestLogJoinAPITokenQuotaManager struct {
+	preauthorizedAmount float64
+	settleCalls         int
+}
+
+func (m *requestLogJoinAPITokenQuotaManager) PreAuthorizeRelayAPITokenQuota(_ context.Context, _ string, amount float64) error {
+	m.preauthorizedAmount = amount
+	return nil
+}
+
+func (m *requestLogJoinAPITokenQuotaManager) SettleRelayAPITokenQuota(context.Context, string, float64, float64) error {
+	m.settleCalls++
+	return nil
+}
+
+func (m *requestLogJoinAPITokenQuotaManager) RefundRelayAPITokenQuota(context.Context, string, float64) error {
+	return nil
 }
 
 func TestCombineHandlersDoesNotBroadenRelayAliasesToUnsupportedSurfaces(t *testing.T) {
