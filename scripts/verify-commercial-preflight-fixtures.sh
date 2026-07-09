@@ -235,6 +235,8 @@ if report.get("status") != "pass":
     raise SystemExit(f"expected pass status, got {report.get('status')!r}")
 if report.get("failures") != []:
     raise SystemExit(f"expected no failures, got {report.get('failures')!r}")
+if report.get("blockers") != []:
+    raise SystemExit(f"expected no blockers, got {report.get('blockers')!r}")
 if report.get("mode") != "target-evidence-only":
     raise SystemExit(f"expected target-evidence-only mode, got {report.get('mode')!r}")
 labels = {entry.get("label") for entry in report.get("checks", [])}
@@ -378,6 +380,15 @@ if report.get("status") != "fail":
 failures = report.get("failures", [])
 if not any(item.get("label") == "target artifact body coverage" and "sha256 mismatch" in item.get("detail", "") for item in failures):
     raise SystemExit(f"expected target artifact sha256 failure, got {failures!r}")
+blockers = report.get("blockers", [])
+artifact_blocker = next((item for item in blockers if item.get("label") == "target artifact body coverage"), None)
+if not artifact_blocker:
+    raise SystemExit(f"expected target artifact body coverage blocker, got {blockers!r}")
+if artifact_blocker.get("owner") != "Release evidence owner":
+    raise SystemExit(f"expected release evidence owner, got {artifact_blocker!r}")
+commands = "\n".join(artifact_blocker.get("nextCommands", []))
+if "collect-target-release-artifacts.sh" not in commands or "compute-target-release-digests.sh" not in commands:
+    raise SystemExit(f"expected artifact collection and digest commands, got {commands!r}")
 if report.get("summary", {}).get("fail", 0) < 1:
     raise SystemExit(f"expected failure count in summary, got {report.get('summary')!r}")
 PY
@@ -418,5 +429,26 @@ labels = {entry.get("label") for entry in failures}
 missing = sorted(expected - labels)
 if missing:
     raise SystemExit(f"missing expected failure labels: {missing!r}; got {sorted(labels)!r}")
+blockers = report.get("blockers", [])
+blocker_labels = {entry.get("label") for entry in blockers}
+missing_blockers = sorted(expected - blocker_labels)
+if missing_blockers:
+    raise SystemExit(f"missing expected blocker labels: {missing_blockers!r}; got {sorted(blocker_labels)!r}")
+for entry in blockers:
+    if entry.get("severity") != "P0":
+        raise SystemExit(f"expected P0 blocker severity, got {entry!r}")
+    if entry.get("ownerStatus") != "required-before-final-commercial-readiness":
+        raise SystemExit(f"expected owner status on blocker, got {entry!r}")
+    if not entry.get("acceptanceArtifacts"):
+        raise SystemExit(f"expected acceptance artifacts on blocker, got {entry!r}")
+    if not entry.get("nextCommands"):
+        raise SystemExit(f"expected next commands on blocker, got {entry!r}")
+owners = {entry.get("label"): entry.get("owner") for entry in blockers}
+if owners.get("env TEST_DATABASE_URL") != "Database owner":
+    raise SystemExit(f"expected Database owner for TEST_DATABASE_URL, got {owners!r}")
+if owners.get("Kubernetes secret file") != "Platform owner":
+    raise SystemExit(f"expected Platform owner for Kubernetes secret, got {owners!r}")
+if owners.get("target evidence manifest") != "Release evidence owner":
+    raise SystemExit(f"expected Release evidence owner for target manifest, got {owners!r}")
 PY
 echo "[commercial-preflight-fixtures] wrote missing-input JSON blocker report"

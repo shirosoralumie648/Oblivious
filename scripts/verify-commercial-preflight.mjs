@@ -67,6 +67,97 @@ function fail(label, detail) {
   record('FAIL', label, detail);
 }
 
+function blockerHandoff(result) {
+  const base = {
+    label: result.label,
+    detail: result.detail,
+    owner: 'Release owner',
+    ownerStatus: 'required-before-final-commercial-readiness',
+    severity: 'P0',
+    acceptanceArtifacts: [],
+    nextCommands: [],
+    handoffNotes: [],
+  };
+
+  switch (result.label) {
+    case 'env TEST_DATABASE_URL':
+      return {
+        ...base,
+        owner: 'Database owner',
+        acceptanceArtifacts: ['External PostgreSQL URL with pgvector enabled and reachable by the strict verifier'],
+        nextCommands: ['export TEST_DATABASE_URL=postgres://oblivious:...@target-db.example.com:5432/oblivious?sslmode=require'],
+        handoffNotes: ['Do not use an in-repository fixture or a DB that cannot support the DB-backed commercial journey proof.'],
+      };
+    case 'env COMMERCIAL_COMPLETION_RUN_DEPLOY':
+    case 'env COMMERCIAL_COMPLETION_RUN_K8S':
+    case 'env COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE':
+    case 'env COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE': {
+      const envName = result.label.replace('env ', '');
+      return {
+        ...base,
+        owner: 'Release operator',
+        acceptanceArtifacts: [`${envName}=true in the final no-skip verifier environment`],
+        nextCommands: [`export ${envName}=true`],
+        handoffNotes: ['All four final gate flags must be true in the same strict verifier run.'],
+      };
+    }
+    case 'Kubernetes secret file':
+      return {
+        ...base,
+        owner: 'Platform owner',
+        acceptanceArtifacts: ['External filled Kubernetes secret YAML outside the repository'],
+        nextCommands: ['export OBLIVIOUS_K8S_SECRET_FILE=/path/outside/git/oblivious-release/secret.yaml'],
+        handoffNotes: [
+          'The file must not be deploy/kubernetes/secret.example.yaml, must not live inside the repository, and must not contain placeholder values.',
+        ],
+      };
+    case 'target evidence manifest':
+      return {
+        ...base,
+        owner: 'Release evidence owner',
+        acceptanceArtifacts: ['External target-release-evidence.json assembled from real target proof'],
+        nextCommands: [
+          'pnpm init:target-release:evidence -- --workdir /path/outside/git/oblivious-release',
+          'bash scripts/assemble-target-release-evidence.sh --output /path/outside/git/oblivious-release/target-release-evidence.json --validate ...',
+        ],
+        handoffNotes: ['The manifest must be outside the repository and must not contain placeholders, fixtures, localhost evidence, or stale commit metadata.'],
+      };
+    case 'target artifact body directory':
+    case 'target artifact body coverage':
+      return {
+        ...base,
+        owner: 'Release evidence owner',
+        acceptanceArtifacts: ['External artifact directory containing every downloaded <artifact-id>.json body referenced by the target manifest'],
+        nextCommands: [
+          'bash scripts/collect-target-release-artifacts.sh --manifest /path/outside/git/oblivious-release/target-release-evidence.json --artifact-dir /path/outside/git/oblivious-release/artifacts ...',
+          'bash scripts/compute-target-release-digests.sh --manifest /path/outside/git/oblivious-release/target-release-evidence.json --artifact-dir /path/outside/git/oblivious-release/artifacts --write',
+        ],
+        handoffNotes: ['Artifact bodies must be collected from target URLs or protected target Admin APIs for final readiness, not file fixtures.'],
+      };
+    case 'target evidence verifier':
+      return {
+        ...base,
+        owner: 'Release evidence owner',
+        acceptanceArtifacts: ['Full target evidence verifier pass against the external manifest and artifact body directory'],
+        nextCommands: [
+          'OBLIVIOUS_TARGET_ARTIFACT_DIR=/path/outside/git/oblivious-release/artifacts bash scripts/verify-target-release-evidence.sh /path/outside/git/oblivious-release/target-release-evidence.json',
+        ],
+        handoffNotes: ['This check must pass before running the expensive final commercial verifier path.'],
+      };
+    default:
+      return {
+        ...base,
+        acceptanceArtifacts: ['Resolve the failing preflight check with current target-environment evidence'],
+        nextCommands: ['COREPACK_HOME="$PWD/.tmp/corepack" pnpm verify:commercial:blockers'],
+        handoffNotes: ['Re-run the blocker report after resolving this check.'],
+      };
+  }
+}
+
+function blockerHandoffs(failures) {
+  return failures.map(blockerHandoff);
+}
+
 function repoPath(...segments) {
   return path.join(repoRoot, ...segments);
 }
@@ -457,6 +548,7 @@ function finishPreflight() {
   const failures = results.filter((result) => result.status === 'FAIL');
   const warnings = results.filter((result) => result.status === 'WARN');
   const passCount = results.length - failures.length - warnings.length;
+  const blockers = blockerHandoffs(failures);
   console.log(`[commercial-preflight] SUMMARY pass=${passCount} warn=${warnings.length} fail=${failures.length}`);
   if (jsonOutputArgIndex >= 0) {
     if (!jsonOutputPath) {
@@ -482,6 +574,7 @@ function finishPreflight() {
           checks: results,
           failures,
           warnings,
+          blockers,
         },
         null,
         2,
