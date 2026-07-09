@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,12 @@ var (
 )
 
 const KnowledgeRetrievalMethodEmbeddingRAG = "embedding_rag"
+
+const (
+	KnowledgeDocumentIndexStatusIndexing = "indexing"
+	KnowledgeDocumentIndexStatusReady    = "ready"
+	KnowledgeDocumentIndexStatusFailed   = "failed"
+)
 
 type KnowledgeBase struct {
 	ChunkOverlap   int       `json:"chunkOverlap,omitempty"`
@@ -795,6 +802,10 @@ func (s *Service) upsertDocumentChunks(ctx context.Context, organizationID, know
 	return s.vectorStore.UpsertKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
 }
 
+func (s *Service) upsertDocumentChunksDirect(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error {
+	return s.upsertDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
+}
+
 func (s *Service) upsertEditedDocumentChunk(ctx context.Context, session auth.Session, organizationID, knowledgeBaseID, documentID string, view KnowledgeDocumentChunkView) error {
 	if s == nil || s.vectorStore == nil || s.embedder == nil {
 		return nil
@@ -853,6 +864,20 @@ func (s *Service) reindexDocumentChunkViews(ctx context.Context, session auth.Se
 		}
 	}
 	return s.upsertDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
+}
+
+func (s *Service) deleteDocumentVectors(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
+	if s == nil || s.vectorStore == nil {
+		return nil
+	}
+	deleter, ok := s.vectorStore.(KnowledgeDocumentVectorDeleter)
+	if !ok {
+		return nil
+	}
+	if err := deleter.DeleteKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID); err != nil {
+		return fmt.Errorf("delete knowledge document vectors: %w", err)
+	}
+	return nil
 }
 
 func knowledgeDocumentChunkFromView(view KnowledgeDocumentChunkView) KnowledgeDocumentChunk {
