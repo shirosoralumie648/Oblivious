@@ -7673,6 +7673,46 @@ func TestRunnerInjectsUserManagedAgentMemoriesIntoPrompt(t *testing.T) {
 	}
 }
 
+func TestRunnerRunRejectsToolEnabledAgent(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{plainReply: "plain fallback"}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	result, err := runner.Run(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"what time is it?",
+	)
+
+	if !errors.Is(err, ErrStructuredGatewayRequired) {
+		t.Fatalf("expected ErrStructuredGatewayRequired, got result=%+v err=%v", result, err)
+	}
+	if gateway.plainCalls != 0 {
+		t.Fatalf("expected plain gateway not to be called for tool-enabled agent, got %d calls", gateway.plainCalls)
+	}
+	if len(store.messages) != 0 {
+		t.Fatalf("expected no messages persisted before fail-closed guard, got %+v", store.messages)
+	}
+}
+
 func TestRunnerInjectsLongTermAgentMemoriesFromTextFallback(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
@@ -8067,9 +8107,9 @@ func TestRunWithToolsStreaming(t *testing.T) {
 	}
 }
 
-// TestRunWithToolsFallbackStreaming verifies that the non-structured
-// gateway fallback path still calls onChunk when provided.
-func TestRunWithToolsFallbackStreaming(t *testing.T) {
+// TestRunWithToolsRejectsPlainGateway verifies that tool-enabled runs fail
+// closed instead of silently completing through a non-structured gateway.
+func TestRunWithToolsRejectsPlainGateway(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
 			ID:           "agent_1",
@@ -8099,7 +8139,6 @@ func TestRunWithToolsFallbackStreaming(t *testing.T) {
 		},
 	}
 
-	// Gateway that does NOT implement StructuredReplyGenerator
 	gateway := &plainOnlyGateway{reply: "fallback reply"}
 
 	service := NewService(store, gateway)
@@ -8112,21 +8151,25 @@ func TestRunWithToolsFallbackStreaming(t *testing.T) {
 		chunks = append(chunks, chunk)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("SendMessageStream returned error: %v", err)
+	if !errors.Is(err, ErrStructuredGatewayRequired) {
+		t.Fatalf("expected ErrStructuredGatewayRequired, got %v", err)
 	}
 
-	if len(chunks) == 0 {
-		t.Fatal("expected at least one chunk in fallback path, got none")
+	if len(chunks) != 0 {
+		t.Fatalf("expected no streamed chunks on structured gateway failure, got %v", chunks)
 	}
-	if chunks[0] != "fallback reply" {
-		t.Fatalf("expected 'fallback reply', got %q", chunks[0])
+	if gateway.lastConfig.ModelID != "" {
+		t.Fatalf("expected plain gateway not to be called, got config %+v", gateway.lastConfig)
 	}
-	if !strings.Contains(gateway.lastConfig.SystemPromptOverride, "Weather: Provide weather-specific checks") {
-		t.Fatalf("expected fallback config to include selected skill instructions, got %q", gateway.lastConfig.SystemPromptOverride)
+	if len(store.runs) != 1 {
+		t.Fatalf("expected one failed run, got %d", len(store.runs))
 	}
-	if strings.Contains(gateway.lastConfig.SystemPromptOverride, "Calculator: Perform math checks") {
-		t.Fatalf("expected fallback config to respect maxSkills=1, got %q", gateway.lastConfig.SystemPromptOverride)
+	run := store.runs[0]
+	if run.Status != RunStatusFailed || run.CompletedAt == nil {
+		t.Fatalf("expected failed completed run, got %+v", run)
+	}
+	if run.Error != ErrStructuredGatewayRequired.Error() {
+		t.Fatalf("expected structured gateway error on run, got %q", run.Error)
 	}
 }
 
@@ -8514,6 +8557,39 @@ func TestExecuteToolRejectsDisabledCommercialBuiltinBeforeCallingTool(t *testing
 	}
 	if recording.called {
 		t.Fatal("disabled commercial builtin was called before executor rejected it")
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("Execute result = %+v, want disabled tool error result", result)
+	}
+	if !strings.Contains(strings.ToLower(result.Content), "disabled") {
+		t.Fatalf("Execute result content = %q, want disabled message", result.Content)
+	}
+}
+
+func TestExecuteToolRejectsLoremIpsumDemoBuiltinBeforeCallingTool(t *testing.T) {
+	recording := &recordingBuiltinTool{name: "lorem_ipsum"}
+	executor := &ToolExecutor{
+		builtinTools: map[string]mcp.BuiltinTool{
+			"lorem_ipsum": recording,
+		},
+	}
+	agent := &Agent{
+		ID: "agent_policy",
+		Tools: []Tool{
+			{Name: "lorem_ipsum", Type: "builtin", Enabled: true},
+		},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:        "call_lorem",
+		Name:      "lorem_ipsum",
+		Arguments: map[string]any{"paragraphs": float64(1)},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned transport error: %v", err)
+	}
+	if recording.called {
+		t.Fatal("demo-only lorem_ipsum builtin was called before executor rejected it")
 	}
 	if result == nil || !result.IsError {
 		t.Fatalf("Execute result = %+v, want disabled tool error result", result)

@@ -236,7 +236,7 @@ func (r *DockerSandboxRunner) timeout(req workflow.WorkflowCodeRequest) time.Dur
 	return time.Duration(timeoutMS) * time.Millisecond
 }
 
-func (r *DockerSandboxRunner) dockerArgs(spec languageSpec, inputsJSON string) []string {
+func (r *DockerSandboxRunner) dockerArgs(spec languageSpec, inputsJSON, executionContextJSON string) []string {
 	return []string{
 		"run", "--rm", "-i",
 		"--network=none",
@@ -254,6 +254,7 @@ func (r *DockerSandboxRunner) dockerArgs(spec languageSpec, inputsJSON string) [
 		"--env", "HOME=/sandbox",
 		"--env", "GOCACHE=/sandbox/.gocache",
 		"--env", "OBLIVIOUS_INPUTS=" + inputsJSON,
+		"--env", "OBLIVIOUS_EXECUTION_CONTEXT=" + executionContextJSON,
 		spec.image,
 		"sh", "-c", spec.script,
 	}
@@ -286,6 +287,11 @@ func (r *DockerSandboxRunner) RunWorkflowCode(ctx context.Context, req workflow.
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: cannot encode inputs: %w", err)
 	}
+	executionContext := sandboxExecutionContext(req)
+	executionContextJSON, err := json.Marshal(executionContext)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: cannot encode execution context: %w", err)
+	}
 
 	timeout := r.timeout(req)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -294,17 +300,21 @@ func (r *DockerSandboxRunner) RunWorkflowCode(ctx context.Context, req workflow.
 	stdout := &limitWriter{limit: r.config.MaxOutputBytes}
 	stderr := &limitWriter{limit: r.config.MaxOutputBytes}
 
-	cmd := r.command(runCtx, r.config.DockerBinary, r.dockerArgs(spec, string(inputsJSON))...)
+	cmd := r.command(runCtx, r.config.DockerBinary, r.dockerArgs(spec, string(inputsJSON), string(executionContextJSON))...)
 	cmd.Stdin = strings.NewReader(req.Code)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
 	started := time.Now()
 	runErr := cmd.Run()
-	durationMS := time.Since(started).Milliseconds()
+	finished := time.Now()
+	durationMS := finished.Sub(started).Milliseconds()
 
-	if runCtx.Err() == context.DeadlineExceeded {
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return nil, fmt.Errorf("sandbox: execution timed out after %dms", timeout.Milliseconds())
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		return nil, fmt.Errorf("sandbox: execution cancelled: %w", runCtx.Err())
 	}
 
 	exitCode := 0
@@ -317,24 +327,81 @@ func (r *DockerSandboxRunner) RunWorkflowCode(ctx context.Context, req workflow.
 		}
 	}
 
-	logs := sandboxLogs(stderr.String(), stdout.truncated, stderr.truncated)
+	stdoutText := stdout.String()
+	stderrText := stderr.String()
+	logs := sandboxLogs(stderrText, stdout.truncated, stderr.truncated)
+	evidence := sandboxExecutionEvidence(req, executionContext, len(inputsJSON), timeout, started, finished, durationMS, stdoutText, stderrText, logs, stdout.truncated, stderr.truncated, r.config.MaxOutputBytes)
 
 	return &workflow.WorkflowCodeResult{
 		Output: map[string]any{
-			"stdout":   stdout.String(),
-			"stderr":   stderr.String(),
+			"stdout":   stdoutText,
+			"stderr":   stderrText,
 			"exitCode": exitCode,
 		},
 		Logs: logs,
 		Raw: map[string]any{
-			"language":        canonical,
-			"image":           spec.image,
-			"exitCode":        exitCode,
-			"durationMs":      durationMS,
-			"stdoutTruncated": stdout.truncated,
-			"stderrTruncated": stderr.truncated,
+			"language":         canonical,
+			"image":            spec.image,
+			"exitCode":         exitCode,
+			"durationMs":       durationMS,
+			"stdoutTruncated":  stdout.truncated,
+			"stderrTruncated":  stderr.truncated,
+			"executionContext": executionContext,
+			"evidence":         evidence,
 		},
 	}, nil
+}
+
+func sandboxExecutionContext(req workflow.WorkflowCodeRequest) map[string]string {
+	context := map[string]string{}
+	add := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			context[key] = value
+		}
+	}
+	add("agentId", req.AgentID)
+	add("runId", req.RunID)
+	add("toolRunId", req.ToolRunID)
+	add("toolCallId", req.ToolCallID)
+	add("toolName", req.ToolName)
+	add("requestId", req.RequestID)
+	return context
+}
+
+func sandboxExecutionEvidence(
+	req workflow.WorkflowCodeRequest,
+	executionContext map[string]string,
+	inputBytes int,
+	timeout time.Duration,
+	started time.Time,
+	finished time.Time,
+	durationMS int64,
+	stdoutText string,
+	stderrText string,
+	logs []string,
+	stdoutTruncated bool,
+	stderrTruncated bool,
+	maxOutputBytes int,
+) map[string]any {
+	return map[string]any{
+		"executionContext": executionContext,
+		"startedAt":        started.UTC().Format(time.RFC3339Nano),
+		"finishedAt":       finished.UTC().Format(time.RFC3339Nano),
+		"durationMs":       durationMS,
+		"timeoutMs":        timeout.Milliseconds(),
+		"codeBytes":        len(req.Code),
+		"inputsBytes":      inputBytes,
+		"stdoutBytes":      len(stdoutText),
+		"stderrBytes":      len(stderrText),
+		"stdoutTruncated":  stdoutTruncated,
+		"stderrTruncated":  stderrTruncated,
+		"logLines":         len(logs),
+		"logRetention": map[string]any{
+			"maxStderrLines": maxSandboxLogLines,
+			"maxOutputBytes": maxOutputBytes,
+		},
+	}
 }
 
 const maxSandboxLogLines = 50

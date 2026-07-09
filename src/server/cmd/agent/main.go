@@ -21,6 +21,8 @@ import (
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/mcp/websearch"
 	"oblivious/server/internal/memory"
+	"oblivious/server/internal/workflow"
+	"oblivious/server/internal/workflow/sandbox"
 	pkgagent "oblivious/server/pkg/agent"
 	agentconfig "oblivious/server/pkg/config"
 
@@ -130,12 +132,93 @@ func buildAgentRuntimeService(cfg config.Config, database *sql.DB) *internalagen
 	if provider := buildAgentWebSearchProvider(cfg); provider != nil {
 		agentService.SetWebSearchProvider(provider)
 	}
+	if runner := buildAgentCustomPythonSandboxRunner(cfg); runner != nil {
+		agentService.SetCustomPythonSandboxRunner(runner)
+	}
 	return agentService
 }
 
+func buildAgentCustomPythonSandboxRunner(cfg config.Config) internalagent.CustomPythonSandboxRunner {
+	if !cfg.WorkflowSandboxEnabled {
+		return nil
+	}
+	var allowedLanguages []string
+	for _, language := range strings.Split(cfg.WorkflowSandboxAllowedLanguages, ",") {
+		language = strings.TrimSpace(language)
+		if language != "" {
+			allowedLanguages = append(allowedLanguages, language)
+		}
+	}
+	return agentCustomPythonSandboxRunner{runner: sandbox.NewDockerSandboxRunner(sandbox.Config{
+		Enabled:          true,
+		AllowedLanguages: allowedLanguages,
+		MemoryMB:         cfg.WorkflowSandboxMemoryMB,
+		CPUs:             float64(cfg.WorkflowSandboxCPUs),
+		DefaultTimeoutMS: cfg.WorkflowSandboxDefaultTimeoutMS,
+		MaxTimeoutMS:     cfg.WorkflowSandboxMaxTimeoutMS,
+	})}
+}
+
+type agentCustomPythonSandboxRunner struct {
+	runner workflow.CodeRunner
+}
+
+func (r agentCustomPythonSandboxRunner) RunCustomPython(ctx context.Context, req internalagent.CustomPythonSandboxRequest) (*internalagent.CustomPythonSandboxResult, error) {
+	result, err := r.runner.RunWorkflowCode(ctx, workflow.WorkflowCodeRequest{
+		OrganizationID: req.OrganizationID,
+		UserID:         req.UserID,
+		AgentID:        req.AgentID,
+		RunID:          req.RunID,
+		ToolRunID:      req.ToolRunID,
+		ToolCallID:     req.ToolCallID,
+		ToolName:       req.ToolName,
+		RequestID:      req.RequestID,
+		Language:       "python",
+		Code:           req.Code,
+		Inputs:         req.Inputs,
+		TimeoutMS:      req.TimeoutMS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, nil
+	}
+	return &internalagent.CustomPythonSandboxResult{
+		Stdout:   stringFromWorkflowOutput(result.Output, "stdout"),
+		Stderr:   stringFromWorkflowOutput(result.Output, "stderr"),
+		ExitCode: intFromWorkflowOutput(result.Output, "exitCode"),
+		Logs:     result.Logs,
+		Raw:      result.Raw,
+	}, nil
+}
+
+func stringFromWorkflowOutput(output map[string]any, key string) string {
+	if value, ok := output[key].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func intFromWorkflowOutput(output map[string]any, key string) int {
+	switch value := output[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
 func buildAgentGateway(cfg config.Config) chat.ChatGateway {
-	localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 	if !cfg.RelayEnabled {
+		if cfg.Env == "production" {
+			return chat.NewLocalGateway(nil)
+		}
+		localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 		return chat.NewLocalGateway(localGenerator)
 	}
 	relayGateway := chat.NewRelayGateway(
@@ -143,6 +226,7 @@ func buildAgentGateway(cfg config.Config) chat.ChatGateway {
 		chat.WithDefaultModel(cfg.RelayDefaultModel),
 	)
 	if cfg.Env != "production" {
+		localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 		return chat.NewCompositeGateway(relayGateway, localGenerator)
 	}
 	return relayGateway

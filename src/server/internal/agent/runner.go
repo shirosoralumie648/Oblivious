@@ -28,6 +28,11 @@ var ErrTokenBudgetExceeded = errors.New("token budget exceeded")
 // the workflow is waiting for explicit approval before execution.
 var ErrToolApprovalRequired = errors.New("tool execution requires approval")
 
+// ErrStructuredGatewayRequired is returned when a tool-enabled Agent run cannot
+// continue because the configured chat gateway cannot produce structured tool
+// call responses.
+var ErrStructuredGatewayRequired = errors.New("structured reply gateway required for tool execution")
+
 // RunnerConfig Agent 运行配置
 type RunnerConfig struct {
 	MaxIterations int // 最大工具调用迭代次数
@@ -371,6 +376,10 @@ type memoryEvidence struct {
 // Run 执行 Agent 对话（轻量路径，无工具调用支持）。
 // 始终通过 Runner 路由以确保消息持久化发生在正确的位置且仅发生一次。
 func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, conversationID string, userContent string) (*RunResult, error) {
+	if hasEnabledTools(agent) {
+		return nil, ErrStructuredGatewayRequired
+	}
+
 	result := &RunResult{}
 
 	// 保存用户消息
@@ -436,6 +445,10 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 
 // RunStream 流式执行 Agent 对话
 func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Agent, conversationID string, userContent string, onChunk func(string) error) (*RunResult, error) {
+	if hasEnabledTools(agent) {
+		return r.RunWithTools(ctx, session, agent, conversationID, userContent, onChunk)
+	}
+
 	result := &RunResult{}
 
 	// 保存用户消息
@@ -862,32 +875,8 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
-		// Gateway does not support structured replies (tool calls).
-		// Fall back to a plain-text path but still honor the streaming
-		// callback so SendMessageStream consumers are not starved.
-		iterationConfig, _ := r.runtimeIterationConfig(agent, config, nil, userContent, 1, false)
-		reply, err := r.gateway.GenerateReply(ctx, chatMessages, iterationConfig)
-		if err != nil {
-			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
-			return nil, fmt.Errorf("generate reply: %w", err)
-		}
-		if onChunk != nil {
-			if err := onChunk(reply); err != nil {
-				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
-				return nil, err
-			}
-		}
-		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply, nil, "")
-		if err != nil {
-			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
-			return nil, fmt.Errorf("save assistant message: %w", err)
-		}
-		if err := r.completeRun(ctx, session.OrganizationID, run.ID, 1, result.ToolCalls, assistantMsg.ID); err != nil {
-			return nil, err
-		}
-		result.Message = assistantMsg
-		r.storeLongTermInteractionMemory(ctx, session, agent, conversationID, userContent, reply)
-		return result, nil
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, ErrStructuredGatewayRequired.Error(), 0, result.ToolCalls)
+		return nil, ErrStructuredGatewayRequired
 	}
 
 	tools, err := r.BuildOpenAITools(ctx, agent)
@@ -960,7 +949,6 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		// streaming UX.
 		if onChunk != nil && reply.Content != "" {
 			if err := streamContent(reply.Content, onChunk); err != nil {
-				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 				return nil, err
 			}
 		}
@@ -1013,28 +1001,8 @@ func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, ses
 	}
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
-		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
-		if err != nil {
-			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
-			return nil, fmt.Errorf("generate reply: %w", err)
-		}
-		estimatedTokens := estimateChatMessageTokens(append(chatMessages, chat.Message{Role: "assistant", Content: reply}))
-		if tokenBudget > 0 && estimatedTokens > tokenBudget {
-			message := fmt.Sprintf("token_budget_exceeded: estimated %d tokens exceeds budget %d", estimatedTokens, tokenBudget)
-			_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, run.IterationCount+1, run.ToolCallCount)
-			return nil, fmt.Errorf("%w: estimated %d tokens exceeds budget %d", ErrTokenBudgetExceeded, estimatedTokens, tokenBudget)
-		}
-		assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply, nil, "")
-		if err != nil {
-			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
-			return nil, fmt.Errorf("save assistant message: %w", err)
-		}
-		result.Message = assistantMsg
-		if err := r.completeRun(ctx, session.OrganizationID, run.ID, run.IterationCount+1, run.ToolCallCount, assistantMsg.ID); err != nil {
-			return nil, err
-		}
-		r.storeLongTermInteractionMemory(ctx, session, agent, run.ConversationID, lastUserMessageContent(messages), reply)
-		return result, nil
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, ErrStructuredGatewayRequired.Error(), run.IterationCount, run.ToolCallCount)
+		return nil, ErrStructuredGatewayRequired
 	}
 
 	tools, err := r.BuildOpenAITools(ctx, agent)
@@ -1193,6 +1161,9 @@ func (r *Runner) handleStructuredToolCalls(ctx context.Context, session auth.Ses
 			}
 			return totalToolCallCount, ErrToolApprovalRequired
 		}
+		toolCall.RunID = run.ID
+		toolCall.ToolRunID = toolRun.ID
+		toolCall.RequestID = run.RequestID
 		execResult, err := r.ExecuteTool(ctx, agent, &toolCall)
 		if err != nil {
 			_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
@@ -2061,22 +2032,8 @@ func (r *Runner) ExecuteReAct(ctx context.Context, req *RunRequest) (*RunResult,
 
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
-		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
-		if err != nil {
-			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
-			return nil, fmt.Errorf("generate reply: %w", err)
-		}
-		assistantMsg, err := r.store.CreateMessage(ctx, req.ConversationID, req.Session.OrganizationID, "assistant", reply, nil, "")
-		if err != nil {
-			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
-			return nil, fmt.Errorf("save assistant message: %w", err)
-		}
-		if err := r.completeRun(ctx, req.Session.OrganizationID, run.ID, 1, result.ToolCalls, assistantMsg.ID); err != nil {
-			return nil, err
-		}
-		result.Message = assistantMsg
-		r.storeLongTermInteractionMemory(ctx, req.Session, req.Agent, req.ConversationID, req.InputText, reply)
-		return result, nil
+		_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, ErrStructuredGatewayRequired.Error(), 0, result.ToolCalls)
+		return nil, ErrStructuredGatewayRequired
 	}
 
 	tools, err := r.BuildOpenAITools(ctx, req.Agent)
@@ -2175,7 +2132,6 @@ func (r *Runner) ExecuteReAct(ctx context.Context, req *RunRequest) (*RunResult,
 
 		if req.OnChunk != nil && reply.Content != "" {
 			if err := streamContent(reply.Content, req.OnChunk); err != nil {
-				_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 				return nil, err
 			}
 		}

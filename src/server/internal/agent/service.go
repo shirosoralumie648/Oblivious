@@ -41,6 +41,7 @@ type Service struct {
 	memory            MemorySearcher
 	memoryEmbedder    MemoryEmbedder
 	webSearchProvider mcp.WebSearchProvider
+	pythonSandbox     CustomPythonSandboxRunner
 	runner            *Runner
 	planStepExecutor  PlanStepExecutor
 }
@@ -112,6 +113,8 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 			ID:        "plan_step_" + step.ID,
 			Name:      step.ToolName,
 			Arguments: arguments,
+			RunID:     step.RunID,
+			RequestID: run.RequestID,
 		})
 		if err != nil {
 			return nil, err
@@ -191,6 +194,7 @@ func NewServiceWithMemory(store Store, gateway chat.ChatGateway, mcpClient *mcp.
 func (s *Service) initRunner() {
 	executor := NewToolExecutor(s.mcpClient)
 	executor.SetWebSearchProvider(s.webSearchProvider)
+	executor.SetCustomPythonSandboxRunner(s.pythonSandbox)
 	s.runner = NewRunner(s.store, s.gateway, executor, s.memory, DefaultRunnerConfig())
 	s.runner.SetMemoryEmbedder(s.memoryEmbedder)
 	if s.planStepExecutor == nil {
@@ -230,10 +234,22 @@ func (s *Service) SetWebSearchProvider(provider mcp.WebSearchProvider) {
 	}
 }
 
+func (s *Service) SetCustomPythonSandboxRunner(runner CustomPythonSandboxRunner) {
+	s.pythonSandbox = runner
+	if s.runner != nil && s.runner.executor != nil {
+		s.runner.executor.SetCustomPythonSandboxRunner(runner)
+	}
+	if executor, ok := s.planStepExecutor.(defaultPlanStepExecutor); ok && executor.executor != nil {
+		executor.executor.SetCustomPythonSandboxRunner(runner)
+		s.planStepExecutor = executor
+	}
+}
+
 func (s *Service) SetPlanStepExecutor(executor PlanStepExecutor) {
 	if executor == nil {
 		toolExecutor := NewToolExecutor(s.mcpClient)
 		toolExecutor.SetWebSearchProvider(s.webSearchProvider)
+		toolExecutor.SetCustomPythonSandboxRunner(s.pythonSandbox)
 		s.planStepExecutor = defaultPlanStepExecutor{executor: toolExecutor, store: s.store, gateway: s.gateway}
 		return
 	}
@@ -2672,6 +2688,9 @@ func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Sess
 		ID:        toolRun.ToolCallID,
 		Name:      toolRun.ToolName,
 		Arguments: toolRun.Arguments,
+		RunID:     run.ID,
+		ToolRunID: toolRun.ID,
+		RequestID: run.RequestID,
 	}
 	if toolCall.Arguments == nil {
 		toolCall.Arguments = map[string]any{}

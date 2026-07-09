@@ -322,6 +322,43 @@ func TestServiceRunExecutionUntilBlockedAdvancesReadyDAGNodesToSuccess(t *testin
 	}
 }
 
+func TestServiceRunExecutionUntilBlockedRejectsStaleCompletionSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&runLoopCompletionRaceStore{memoryWorkflowStore: store}, WithNodeExecutors(NewNodeExecutorRegistry(
+		StaticNodeExecutor("manual", map[string]any{"ok": true}),
+	)))
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Completion Race Flow",
+		Status:         WorkflowStatusPublished,
+		Definition:     workflowDefinitionWithNodes("start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("RunExecutionUntilBlocked stale completion err=%v, want ErrInvalidTransition", err)
+	}
+	if completed != nil {
+		t.Fatalf("stale completion guard must not return updated execution, got %+v", completed)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale completion guard must not overwrite cancelled execution, got %s", unchanged.Status)
+	}
+}
+
 func TestServiceWorkflowSuccessRateEvidenceGate(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
@@ -1198,6 +1235,46 @@ func TestServiceResumeExecutionRejectsUserInputMissingRequiredFields(t *testing.
 	}
 }
 
+func TestServiceRunReadyNodeRejectsUserInputWaitForTerminalExecution(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		UserInputNodeExecutor(),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Terminal Approval Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG([]map[string]any{{
+			"id":   "approval",
+			"type": "user_input",
+			"input": map[string]any{
+				"prompt": "Approve?",
+			},
+		}}, nil),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution := store.addWorkflowExecution(ctx, workflow.ID, "org_1", workflow.Definition, ExecutionStatusFailed)
+
+	err = service.RunReadyNode(ctx, "org_1", execution.ID, "approval")
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("RunReadyNode terminal user-input wait err=%v, want ErrInvalidTransition", err)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusFailed {
+		t.Fatalf("terminal user-input wait must not change execution status, got %s", unchanged.Status)
+	}
+	approvalNodes := workflowNodeExecutionsByID(unchanged.NodeExecutions, "approval")
+	if len(approvalNodes) != 1 {
+		t.Fatalf("terminal user-input wait must not create pending node, got %+v", approvalNodes)
+	}
+}
+
 func TestServiceRunExecutionUntilBlockedContinuesAfterSkipOnFailure(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	notifyRuns := 0
@@ -1412,6 +1489,52 @@ func TestServiceRunExecutionUntilBlockedAllowsExecutionAtNodeLimit(t *testing.T)
 	}
 	if completed.Status != ExecutionStatusSucceeded {
 		t.Fatalf("expected exact node limit execution to succeed, got %+v", completed)
+	}
+}
+
+func TestServiceRunExecutionUntilBlockedRejectsStaleMaxIterationsSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&runLoopMaxIterationsRaceStore{memoryWorkflowStore: store}, WithNodeExecutors(NewNodeExecutorRegistry(
+		EchoNodeExecutor("start"),
+		EchoNodeExecutor("agent"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Max Iterations Race Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: map[string]any{
+			"max_node_executions": float64(1),
+			"nodes": []any{
+				map[string]any{"id": "start", "type": "start"},
+				map[string]any{"id": "enrich", "type": "agent"},
+			},
+			"edges": []any{
+				map[string]any{"from": "start", "to": "enrich"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	blocked, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("RunExecutionUntilBlocked stale max-iterations err=%v, want ErrInvalidTransition", err)
+	}
+	if blocked != nil {
+		t.Fatalf("stale max-iterations guard must not return updated execution, got %+v", blocked)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale max-iterations guard must not overwrite cancelled execution, got %s", unchanged.Status)
 	}
 }
 

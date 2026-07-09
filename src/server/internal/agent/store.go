@@ -138,6 +138,9 @@ type ToolCall struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	RunID     string         `json:"runId,omitempty"`
+	ToolRunID string         `json:"toolRunId,omitempty"`
+	RequestID string         `json:"requestId,omitempty"`
 }
 
 const (

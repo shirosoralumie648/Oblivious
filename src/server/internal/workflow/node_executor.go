@@ -15,6 +15,7 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/knowledge"
+	workflowexecutor "oblivious/server/internal/workflow/executor"
 )
 
 var (
@@ -179,6 +180,12 @@ type WorkflowCodeRequest struct {
 	OrganizationID string
 	UserID         string
 	WorkspaceID    string
+	AgentID        string
+	RunID          string
+	ToolRunID      string
+	ToolCallID     string
+	ToolName       string
+	RequestID      string
 	Language       string
 	Code           string
 	Inputs         map[string]any
@@ -1047,6 +1054,14 @@ func (s *Service) RunReadyNode(ctx context.Context, organizationID, executionID,
 }
 
 func (s *Service) recordRuntimeUserInputWait(ctx context.Context, organizationID string, execution *WorkflowExecution, node Node, input map[string]any, output map[string]any) error {
+	stateMachine := workflowexecutor.NewStateMachineWithStatus(string(execution.Status))
+	if _, err := stateMachine.Transition(string(StateEventPause)); err != nil {
+		if errors.Is(err, workflowexecutor.ErrInvalidStateTransition) || errors.Is(err, workflowexecutor.ErrStateMachineLocked) {
+			return fmt.Errorf("%w: %v", ErrInvalidTransition, err)
+		}
+		return err
+	}
+
 	nodeType := node.Type
 	if strings.TrimSpace(nodeType) == "" {
 		nodeType = "user_input"
@@ -1070,7 +1085,7 @@ func (s *Service) recordRuntimeUserInputWait(ctx context.Context, organizationID
 	}); err != nil {
 		return err
 	}
-	if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusPaused, nil); err != nil {
+	if _, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventPause, nil); err != nil {
 		return err
 	}
 	return ErrWorkflowUserInputRequired

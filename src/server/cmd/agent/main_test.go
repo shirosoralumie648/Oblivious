@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	internalagent "oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
 	agentv1 "oblivious/server/internal/grpc/agentv1"
+	"oblivious/server/internal/workflow"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,6 +42,140 @@ func TestAgentRelayBaseURLUsesDedicatedRuntimeURL(t *testing.T) {
 	}
 	if got := agentRelayBaseURL(config.Config{}); got != "http://localhost:8080/v1" {
 		t.Fatalf("default agentRelayBaseURL = %q", got)
+	}
+}
+
+func TestBuildAgentGatewayProductionRelayDisabledFailsClosed(t *testing.T) {
+	gateway := buildAgentGateway(agentGatewayConfig("production", false))
+	messages := []chat.Message{{Role: "user", Content: "hello"}}
+
+	reply, err := gateway.GenerateReply(context.Background(), messages, chat.ConversationConfig{})
+	if !errors.Is(err, chat.ErrModelGatewayUnavailable) {
+		t.Fatalf("expected production agent gateway to fail closed when Relay is disabled, got reply=%q err=%v", reply, err)
+	}
+	if strings.Contains(reply, "Assistant reply") {
+		t.Fatalf("production Relay-disabled agent gateway must not use demo text, got %q", reply)
+	}
+
+	var stream strings.Builder
+	err = gateway.GenerateReplyStream(context.Background(), messages, chat.ConversationConfig{}, func(chunk string) error {
+		_, _ = stream.WriteString(chunk)
+		return nil
+	})
+	if !errors.Is(err, chat.ErrModelGatewayUnavailable) {
+		t.Fatalf("expected production agent stream to fail closed when Relay is disabled, got stream=%q err=%v", stream.String(), err)
+	}
+	if strings.Contains(stream.String(), "Assistant reply") {
+		t.Fatalf("production Relay-disabled agent stream must not use demo text, got %q", stream.String())
+	}
+}
+
+func TestBuildAgentGatewayDevelopmentRelayDisabledKeepsDemoFallback(t *testing.T) {
+	gateway := buildAgentGateway(agentGatewayConfig("development", false))
+	reply, err := gateway.GenerateReply(context.Background(), []chat.Message{{Role: "user", Content: "hello"}}, chat.ConversationConfig{})
+	if err != nil {
+		t.Fatalf("expected development agent gateway demo reply, got err=%v", err)
+	}
+	if reply != "Assistant reply: hello" {
+		t.Fatalf("expected development demo reply, got %q", reply)
+	}
+}
+
+func TestBuildAgentCustomPythonSandboxRunnerDisabledByDefault(t *testing.T) {
+	if runner := buildAgentCustomPythonSandboxRunner(config.Config{}); runner != nil {
+		t.Fatalf("expected nil runner when workflow sandbox disabled, got %#v", runner)
+	}
+}
+
+func TestBuildAgentCustomPythonSandboxRunnerEnabled(t *testing.T) {
+	runner := buildAgentCustomPythonSandboxRunner(config.Config{
+		WorkflowSandboxEnabled:          true,
+		WorkflowSandboxAllowedLanguages: "python, javascript",
+		WorkflowSandboxMemoryMB:         512,
+		WorkflowSandboxCPUs:             2,
+		WorkflowSandboxDefaultTimeoutMS: 5000,
+		WorkflowSandboxMaxTimeoutMS:     20000,
+	})
+	if runner == nil {
+		t.Fatal("expected custom Python sandbox runner when workflow sandbox enabled")
+	}
+	if _, ok := runner.(agentCustomPythonSandboxRunner); !ok {
+		t.Fatalf("expected agentCustomPythonSandboxRunner, got %T", runner)
+	}
+}
+
+func TestAgentCustomPythonSandboxRunnerMapsWorkflowResult(t *testing.T) {
+	workflowRunner := &recordingAgentWorkflowCodeRunner{
+		result: &workflow.WorkflowCodeResult{
+			Output: map[string]any{
+				"stdout":   `{"ok":true}`,
+				"stderr":   "warning",
+				"exitCode": float64(3),
+			},
+			Logs: []string{"warning"},
+			Raw:  map[string]any{"image": "python:3.12-alpine"},
+		},
+	}
+	runner := agentCustomPythonSandboxRunner{runner: workflowRunner}
+
+	result, err := runner.RunCustomPython(context.Background(), internalagent.CustomPythonSandboxRequest{
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		AgentID:        "agent_1",
+		RunID:          "run_1",
+		ToolRunID:      "tool_run_1",
+		ToolCallID:     "tool_call_1",
+		ToolName:       "sum_order",
+		RequestID:      "req_1",
+		Code:           "print('ok')",
+		Inputs:         map[string]any{"x": 1},
+		TimeoutMS:      1500,
+	})
+	if err != nil {
+		t.Fatalf("RunCustomPython returned error: %v", err)
+	}
+	if workflowRunner.calls != 1 {
+		t.Fatalf("workflow runner calls = %d, want 1", workflowRunner.calls)
+	}
+	if workflowRunner.request.OrganizationID != "org_1" || workflowRunner.request.UserID != "user_1" {
+		t.Fatalf("workflow identity = %q/%q", workflowRunner.request.OrganizationID, workflowRunner.request.UserID)
+	}
+	if workflowRunner.request.AgentID != "agent_1" ||
+		workflowRunner.request.RunID != "run_1" ||
+		workflowRunner.request.ToolRunID != "tool_run_1" ||
+		workflowRunner.request.ToolCallID != "tool_call_1" ||
+		workflowRunner.request.ToolName != "sum_order" ||
+		workflowRunner.request.RequestID != "req_1" {
+		t.Fatalf("workflow execution context = agent:%q run:%q toolRun:%q toolCall:%q tool:%q request:%q",
+			workflowRunner.request.AgentID,
+			workflowRunner.request.RunID,
+			workflowRunner.request.ToolRunID,
+			workflowRunner.request.ToolCallID,
+			workflowRunner.request.ToolName,
+			workflowRunner.request.RequestID,
+		)
+	}
+	if workflowRunner.request.Language != "python" || workflowRunner.request.Code != "print('ok')" {
+		t.Fatalf("workflow language/code = %q/%q", workflowRunner.request.Language, workflowRunner.request.Code)
+	}
+	if workflowRunner.request.TimeoutMS != 1500 || workflowRunner.request.Inputs["x"] != 1 {
+		t.Fatalf("workflow timeout/inputs = %d/%+v", workflowRunner.request.TimeoutMS, workflowRunner.request.Inputs)
+	}
+	if result.Stdout != `{"ok":true}` || result.Stderr != "warning" || result.ExitCode != 3 {
+		t.Fatalf("mapped sandbox result = %+v", result)
+	}
+	if len(result.Logs) != 1 || result.Logs[0] != "warning" || result.Raw["image"] != "python:3.12-alpine" {
+		t.Fatalf("mapped logs/raw = %+v/%+v", result.Logs, result.Raw)
+	}
+}
+
+func agentGatewayConfig(env string, relayEnabled bool) config.Config {
+	return config.Config{
+		Env:               env,
+		RelayEnabled:      relayEnabled,
+		RelayDefaultModel: "gpt-4o-mini",
+		ModelDefaultName:  "demo-reply",
+		LLMTimeoutMS:      30000,
 	}
 }
 
@@ -232,6 +370,19 @@ type fakePlanStepAction struct {
 	session    auth.Session
 	planStepID string
 	reason     string
+}
+
+type recordingAgentWorkflowCodeRunner struct {
+	calls   int
+	request workflow.WorkflowCodeRequest
+	result  *workflow.WorkflowCodeResult
+	err     error
+}
+
+func (r *recordingAgentWorkflowCodeRunner) RunWorkflowCode(ctx context.Context, req workflow.WorkflowCodeRequest) (*workflow.WorkflowCodeResult, error) {
+	r.calls++
+	r.request = req
+	return r.result, r.err
 }
 
 func (f *fakeAgentRuntimeService) StartRun(context.Context, auth.Session, internalagent.StartRunRequest) (*internalagent.RunWithMessages, error) {

@@ -59,7 +59,7 @@ func TestSandboxHelperProcess(t *testing.T) {
 }
 
 func enabledConfig() Config {
-	return Config{Enabled: true}
+	return Config{Enabled: true, DefaultTimeoutMS: 30_000}
 }
 
 func runRequest(language, code string) workflow.WorkflowCodeRequest {
@@ -262,6 +262,30 @@ func TestTimeoutKillsExecution(t *testing.T) {
 	}
 }
 
+func TestCancellationStopsExecution(t *testing.T) {
+	captured := &capturedCommand{}
+	runner := NewDockerSandboxRunner(enabledConfig(), WithCommandFactory(fakeCommandFactory(captured, "SANDBOX_HELPER_MODE=sleep")))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.RunWorkflowCode(ctx, runRequest("python", "import time; time.sleep(60)"))
+		done <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "execution cancelled") {
+			t.Fatalf("expected cancellation error, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sandbox cancellation did not stop execution")
+	}
+}
+
 func TestNonZeroExitSurfacedInResult(t *testing.T) {
 	captured := &capturedCommand{}
 	runner := NewDockerSandboxRunner(enabledConfig(), WithCommandFactory(fakeCommandFactory(captured, "SANDBOX_HELPER_MODE=fail")))
@@ -336,6 +360,56 @@ func TestInputsPassedAsJSONEnv(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(captured.args, " "), `OBLIVIOUS_INPUTS={"ticket":"T-42"}`) {
 		t.Fatalf("inputs env missing: %s", strings.Join(captured.args, " "))
+	}
+}
+
+func TestExecutionContextPassedAsJSONEnvAndRawEvidence(t *testing.T) {
+	captured := &capturedCommand{}
+	runner := NewDockerSandboxRunner(enabledConfig(), WithCommandFactory(fakeCommandFactory(captured)))
+
+	req := runRequest("python", "print(1)")
+	req.AgentID = "agent_1"
+	req.RunID = "run_1"
+	req.ToolRunID = "tool_run_1"
+	req.ToolCallID = "tool_call_1"
+	req.ToolName = "sum_order"
+	req.RequestID = "req_1"
+	result, err := runner.RunWorkflowCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	wantContextJSON := `OBLIVIOUS_EXECUTION_CONTEXT={"agentId":"agent_1","requestId":"req_1","runId":"run_1","toolCallId":"tool_call_1","toolName":"sum_order","toolRunId":"tool_run_1"}`
+	if !strings.Contains(strings.Join(captured.args, " "), wantContextJSON) {
+		t.Fatalf("execution context env missing: %s", strings.Join(captured.args, " "))
+	}
+	rawContext, ok := result.Raw["executionContext"].(map[string]string)
+	if !ok {
+		t.Fatalf("execution context raw type = %T, value=%+v", result.Raw["executionContext"], result.Raw["executionContext"])
+	}
+	if rawContext["agentId"] != "agent_1" ||
+		rawContext["runId"] != "run_1" ||
+		rawContext["toolRunId"] != "tool_run_1" ||
+		rawContext["toolCallId"] != "tool_call_1" ||
+		rawContext["toolName"] != "sum_order" ||
+		rawContext["requestId"] != "req_1" {
+		t.Fatalf("execution context raw = %+v", rawContext)
+	}
+
+	evidence, ok := result.Raw["evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("evidence raw type = %T, value=%+v", result.Raw["evidence"], result.Raw["evidence"])
+	}
+	evidenceContext, ok := evidence["executionContext"].(map[string]string)
+	if !ok || evidenceContext["requestId"] != "req_1" || evidenceContext["toolRunId"] != "tool_run_1" {
+		t.Fatalf("evidence execution context = %+v", evidence["executionContext"])
+	}
+	logRetention, ok := evidence["logRetention"].(map[string]any)
+	if !ok || logRetention["maxStderrLines"] != maxSandboxLogLines || logRetention["maxOutputBytes"] != 64*1024 {
+		t.Fatalf("log retention evidence = %+v", evidence["logRetention"])
+	}
+	if evidence["codeBytes"] != len(req.Code) || evidence["inputsBytes"] != len(`{}`) {
+		t.Fatalf("size evidence = %+v", evidence)
 	}
 }
 

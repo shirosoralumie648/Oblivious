@@ -92,13 +92,16 @@ func TestToolExecutorExecutesCustomPythonTool(t *testing.T) {
 			Runtime:        "python",
 			SourceCode:     "def main(args):\n    return {\"total\": args[\"subtotal\"] + args[\"shipping\"]}",
 			Enabled:        true,
-			TimeoutSeconds: 2,
+			TimeoutSeconds: 15,
 		}},
 	}
 
 	result, err := executor.Execute(context.Background(), agent, &ToolCall{
-		ID:   "call_sum_order",
-		Name: "sum_order",
+		ID:        "call_sum_order",
+		Name:      "sum_order",
+		RunID:     "run_custom_python",
+		ToolRunID: "tool_run_custom_python",
+		RequestID: "req_custom_python",
 		Arguments: map[string]any{
 			"shipping": 2,
 			"subtotal": 5,
@@ -109,6 +112,140 @@ func TestToolExecutorExecutesCustomPythonTool(t *testing.T) {
 	}
 	if result == nil || result.IsError || !strings.Contains(result.Content, `"total": 7`) {
 		t.Fatalf("custom Python result = %+v, want JSON total 7", result)
+	}
+}
+
+func TestToolExecutorRejectsCustomPythonInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_python_production",
+		OrganizationID: "org_1",
+		Tools: []Tool{{
+			Name:       "sum_order",
+			Type:       "custom",
+			Runtime:    "python",
+			SourceCode: "def main(args):\n    return 7",
+			Enabled:    true,
+		}},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:        "call_sum_order",
+		Name:      "sum_order",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || !result.IsError || !strings.Contains(result.Content, "disabled in production") {
+		t.Fatalf("custom Python production result = %+v, want fail-closed disabled result", result)
+	}
+}
+
+func TestToolExecutorUsesCustomPythonSandboxRunnerInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+
+	runner := &recordingCustomPythonSandboxRunner{
+		result: &CustomPythonSandboxResult{Stdout: `{"total":7}`, ExitCode: 0},
+	}
+	executor := NewToolExecutor(nil)
+	executor.SetCustomPythonSandboxRunner(runner)
+	agent := &Agent{
+		ID:             "agent_custom_python_production_sandbox",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Tools: []Tool{{
+			Name:           "sum_order",
+			Type:           "custom",
+			Runtime:        "python",
+			SourceCode:     "def main(args):\n    return {\"total\": args[\"subtotal\"] + args[\"shipping\"]}",
+			Enabled:        true,
+			TimeoutSeconds: 15,
+		}},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:        "call_sum_order",
+		Name:      "sum_order",
+		RunID:     "run_custom_python",
+		ToolRunID: "tool_run_custom_python",
+		RequestID: "req_custom_python",
+		Arguments: map[string]any{
+			"shipping": 2,
+			"subtotal": 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || result.IsError || result.Content != `{"total":7}` {
+		t.Fatalf("custom Python sandbox result = %+v, want sandbox stdout", result)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("sandbox calls = %d, want 1", runner.calls)
+	}
+	if runner.request.OrganizationID != "org_1" || runner.request.UserID != "user_1" {
+		t.Fatalf("sandbox identity = %q/%q, want org_1/user_1", runner.request.OrganizationID, runner.request.UserID)
+	}
+	if runner.request.AgentID != "agent_custom_python_production_sandbox" ||
+		runner.request.RunID != "run_custom_python" ||
+		runner.request.ToolRunID != "tool_run_custom_python" ||
+		runner.request.ToolCallID != "call_sum_order" ||
+		runner.request.ToolName != "sum_order" ||
+		runner.request.RequestID != "req_custom_python" {
+		t.Fatalf("sandbox execution context = agent:%q run:%q toolRun:%q toolCall:%q tool:%q request:%q",
+			runner.request.AgentID,
+			runner.request.RunID,
+			runner.request.ToolRunID,
+			runner.request.ToolCallID,
+			runner.request.ToolName,
+			runner.request.RequestID,
+		)
+	}
+	if runner.request.Language != "python" || runner.request.Code != agent.Tools[0].SourceCode {
+		t.Fatalf("sandbox language/code = %q/%q", runner.request.Language, runner.request.Code)
+	}
+	if runner.request.TimeoutMS != 15_000 {
+		t.Fatalf("sandbox timeout = %d, want 15000", runner.request.TimeoutMS)
+	}
+	if runner.request.Inputs["shipping"] != 2 || runner.request.Inputs["subtotal"] != 5 {
+		t.Fatalf("sandbox inputs = %+v, want tool call arguments", runner.request.Inputs)
+	}
+}
+
+func TestToolExecutorOmitsCustomPythonDefinitionsInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_python_definitions",
+		OrganizationID: "org_1",
+		Tools: []Tool{
+			{
+				Name:        "python_tool",
+				Type:        "custom",
+				Runtime:     "python",
+				Description: "host python should not be advertised",
+				Enabled:     true,
+			},
+			{
+				Name:        "api_tool",
+				Type:        "custom",
+				Runtime:     "api",
+				Description: "custom API remains available",
+				Enabled:     true,
+			},
+		},
+	}
+
+	definitions, err := executor.GetToolDefinitions(context.Background(), agent)
+	if err != nil {
+		t.Fatalf("GetToolDefinitions returned error: %v", err)
+	}
+	if len(definitions) != 1 || definitions[0].Name != "api_tool" {
+		t.Fatalf("expected only custom API definition in production, got %+v", definitions)
 	}
 }
 
@@ -141,6 +278,110 @@ func TestToolExecutorBlocksCustomPythonImports(t *testing.T) {
 	if strings.Contains(result.Content, "bin") || strings.Contains(result.Content, "etc") {
 		t.Fatalf("custom Python import appears to have listed host files: %+v", result)
 	}
+}
+
+func TestToolExecutorRejectsCustomPythonOversizedOutput(t *testing.T) {
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_python_output_limit",
+		OrganizationID: "org_1",
+		Tools: []Tool{{
+			Name:           "noisy_python",
+			Type:           "custom",
+			Runtime:        "python",
+			SourceCode:     "def main(args):\n    return 'x' * args['size']",
+			Enabled:        true,
+			TimeoutSeconds: 2,
+		}},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:   "call_noisy_python",
+		Name: "noisy_python",
+		Arguments: map[string]any{
+			"size": customPythonMaxOutputBytes + 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || !result.IsError || !strings.Contains(result.Content, "output exceeded") {
+		t.Fatalf("custom Python oversized output result = %+v, want output-limit error", result)
+	}
+	if result != nil && len(result.Content) > 256 {
+		t.Fatalf("custom Python output-limit error should not echo oversized output, got %d bytes", len(result.Content))
+	}
+}
+
+func TestToolExecutorRejectsCustomPythonOversizedSource(t *testing.T) {
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_python_source_limit",
+		OrganizationID: "org_1",
+		Tools: []Tool{{
+			Name:           "large_python",
+			Type:           "custom",
+			Runtime:        "python",
+			SourceCode:     strings.Repeat("x", customPythonMaxSourceBytes+1),
+			Enabled:        true,
+			TimeoutSeconds: 2,
+		}},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:        "call_large_python",
+		Name:      "large_python",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || !result.IsError || !strings.Contains(result.Content, "source exceeded") {
+		t.Fatalf("custom Python oversized source result = %+v, want source-limit error", result)
+	}
+}
+
+func TestToolExecutorRejectsCustomPythonOversizedArguments(t *testing.T) {
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_python_argument_limit",
+		OrganizationID: "org_1",
+		Tools: []Tool{{
+			Name:           "large_args_python",
+			Type:           "custom",
+			Runtime:        "python",
+			SourceCode:     "def main(args):\n    return {'ok': True}",
+			Enabled:        true,
+			TimeoutSeconds: 2,
+		}},
+	}
+
+	result, err := executor.Execute(context.Background(), agent, &ToolCall{
+		ID:   "call_large_args_python",
+		Name: "large_args_python",
+		Arguments: map[string]any{
+			"payload": strings.Repeat("x", customPythonMaxArgumentBytes+1),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result == nil || !result.IsError || !strings.Contains(result.Content, "arguments exceeded") {
+		t.Fatalf("custom Python oversized arguments result = %+v, want argument-limit error", result)
+	}
+}
+
+type recordingCustomPythonSandboxRunner struct {
+	calls   int
+	request CustomPythonSandboxRequest
+	result  *CustomPythonSandboxResult
+	err     error
+}
+
+func (r *recordingCustomPythonSandboxRunner) RunCustomPython(ctx context.Context, req CustomPythonSandboxRequest) (*CustomPythonSandboxResult, error) {
+	r.calls++
+	r.request = req
+	return r.result, r.err
 }
 
 func TestToolExecutorAllowsWebSearchWhenProviderConfigured(t *testing.T) {

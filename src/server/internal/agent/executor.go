@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -16,9 +17,10 @@ import (
 
 // ToolExecutor 工具执行器
 type ToolExecutor struct {
-	mcpClient         *mcp.Client
-	builtinTools      map[string]mcp.BuiltinTool
-	webSearchProvider mcp.WebSearchProvider
+	mcpClient                 *mcp.Client
+	builtinTools              map[string]mcp.BuiltinTool
+	webSearchProvider         mcp.WebSearchProvider
+	customPythonSandboxRunner CustomPythonSandboxRunner
 }
 
 // NewToolExecutor 创建工具执行器
@@ -33,10 +35,41 @@ func (e *ToolExecutor) SetWebSearchProvider(provider mcp.WebSearchProvider) {
 	e.webSearchProvider = provider
 }
 
+func (e *ToolExecutor) SetCustomPythonSandboxRunner(runner CustomPythonSandboxRunner) {
+	e.customPythonSandboxRunner = runner
+}
+
 // ExecuteResult 工具执行结果
 type ExecuteResult struct {
 	Content string `json:"content"`
 	IsError bool   `json:"isError,omitempty"`
+}
+
+type CustomPythonSandboxRequest struct {
+	OrganizationID string
+	UserID         string
+	AgentID        string
+	RunID          string
+	ToolRunID      string
+	ToolCallID     string
+	ToolName       string
+	RequestID      string
+	Language       string
+	Code           string
+	Inputs         map[string]any
+	TimeoutMS      int
+}
+
+type CustomPythonSandboxResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+	Logs     []string
+	Raw      map[string]any
+}
+
+type CustomPythonSandboxRunner interface {
+	RunCustomPython(ctx context.Context, req CustomPythonSandboxRequest) (*CustomPythonSandboxResult, error)
 }
 
 // Execute 执行工具调用
@@ -61,7 +94,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *Tool
 		return e.executeMCP(ctx, agent.OrganizationID, targetTool.ServerID, toolCall)
 	case "custom":
 		if normalizeCustomToolRuntime(targetTool.Runtime) == "python" {
-			return e.executeCustomPython(ctx, targetTool, toolCall)
+			return e.executeCustomPython(ctx, agent, targetTool, toolCall)
 		}
 		return e.executeCustomAPI(ctx, targetTool, toolCall)
 	default:
@@ -168,16 +201,43 @@ func (e *ToolExecutor) executeCustomAPI(ctx context.Context, tool *Tool, toolCal
 	}, nil
 }
 
-func (e *ToolExecutor) executeCustomPython(ctx context.Context, tool *Tool, toolCall *ToolCall) (*ExecuteResult, error) {
+func (e *ToolExecutor) executeCustomPython(ctx context.Context, agent *Agent, tool *Tool, toolCall *ToolCall) (*ExecuteResult, error) {
 	sourceCode := strings.TrimSpace(tool.SourceCode)
 	if sourceCode == "" {
 		return nil, fmt.Errorf("custom Python source code not specified")
+	}
+	if len(sourceCode) > customPythonMaxSourceBytes {
+		return &ExecuteResult{
+			Content: fmt.Sprintf("custom Python source exceeded %d bytes", customPythonMaxSourceBytes),
+			IsError: true,
+		}, nil
 	}
 	arguments := toolCall.Arguments
 	if arguments == nil {
 		arguments = map[string]any{}
 	}
+	argumentPayload, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, fmt.Errorf("marshal custom Python arguments: %w", err)
+	}
+	if len(argumentPayload) > customPythonMaxArgumentBytes {
+		return &ExecuteResult{
+			Content: fmt.Sprintf("custom Python arguments exceeded %d bytes", customPythonMaxArgumentBytes),
+			IsError: true,
+		}, nil
+	}
 	timeout := customPythonTimeout(tool.TimeoutSeconds)
+
+	if customPythonDisabledInProduction() {
+		if e.customPythonSandboxRunner == nil {
+			return &ExecuteResult{
+				Content: "custom Python tools are disabled in production until a container sandbox is configured",
+				IsError: true,
+			}, nil
+		}
+		return e.executeCustomPythonSandbox(ctx, agent, toolCall, sourceCode, arguments, timeout)
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -189,12 +249,25 @@ func (e *ToolExecutor) executeCustomPython(ctx context.Context, tool *Tool, tool
 		return nil, fmt.Errorf("marshal custom Python payload: %w", err)
 	}
 
-	cmd := exec.CommandContext(runCtx, "python3", "-I", "-S", "-c", customPythonWrapper)
+	pythonBin, err := customPythonBinary()
+	if err != nil {
+		return &ExecuteResult{
+			Content: err.Error(),
+			IsError: true,
+		}, nil
+	}
+	cmd := exec.CommandContext(runCtx, pythonBin, "-I", "-S", "-c", customPythonWrapper)
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if runCtx.Err() == context.DeadlineExceeded {
 		return &ExecuteResult{
 			Content: fmt.Sprintf("custom Python timed out after %s", timeout),
+			IsError: true,
+		}, nil
+	}
+	if len(output) > customPythonMaxOutputBytes {
+		return &ExecuteResult{
+			Content: fmt.Sprintf("custom Python output exceeded %d bytes", customPythonMaxOutputBytes),
 			IsError: true,
 		}, nil
 	}
@@ -208,6 +281,94 @@ func (e *ToolExecutor) executeCustomPython(ctx context.Context, tool *Tool, tool
 	return &ExecuteResult{
 		Content: strings.TrimSpace(string(output)),
 	}, nil
+}
+
+func (e *ToolExecutor) executeCustomPythonSandbox(ctx context.Context, agent *Agent, toolCall *ToolCall, sourceCode string, arguments map[string]any, timeout time.Duration) (*ExecuteResult, error) {
+	organizationID := ""
+	userID := ""
+	agentID := ""
+	if agent != nil {
+		organizationID = agent.OrganizationID
+		userID = agent.UserID
+		agentID = agent.ID
+	}
+	toolCallID := ""
+	toolName := ""
+	runID := ""
+	toolRunID := ""
+	requestID := ""
+	if toolCall != nil {
+		toolCallID = toolCall.ID
+		toolName = toolCall.Name
+		runID = toolCall.RunID
+		toolRunID = toolCall.ToolRunID
+		requestID = toolCall.RequestID
+	}
+	result, err := e.customPythonSandboxRunner.RunCustomPython(ctx, CustomPythonSandboxRequest{
+		OrganizationID: organizationID,
+		UserID:         userID,
+		AgentID:        agentID,
+		RunID:          runID,
+		ToolRunID:      toolRunID,
+		ToolCallID:     toolCallID,
+		ToolName:       toolName,
+		RequestID:      requestID,
+		Language:       "python",
+		Code:           sourceCode,
+		Inputs:         arguments,
+		TimeoutMS:      int(timeout / time.Millisecond),
+	})
+	if err != nil {
+		return &ExecuteResult{
+			Content: fmt.Sprintf("custom Python sandbox error: %s", err.Error()),
+			IsError: true,
+		}, nil
+	}
+	if result == nil {
+		return &ExecuteResult{
+			Content: "custom Python sandbox returned no result",
+			IsError: true,
+		}, nil
+	}
+	content := strings.TrimSpace(result.Stdout)
+	if result.ExitCode != 0 {
+		if content == "" {
+			content = strings.TrimSpace(result.Stderr)
+		}
+		if content == "" && len(result.Logs) > 0 {
+			content = strings.Join(result.Logs, "\n")
+		}
+		if content == "" {
+			content = fmt.Sprintf("sandbox exited with code %d", result.ExitCode)
+		}
+		return &ExecuteResult{
+			Content: "custom Python sandbox error: " + content,
+			IsError: true,
+		}, nil
+	}
+	return &ExecuteResult{Content: content}, nil
+}
+
+func customPythonBinary() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("OBLIVIOUS_CUSTOM_PYTHON_BIN")); configured != "" {
+		return configured, nil
+	}
+	for _, candidate := range []string{"python3", "python"} {
+		path, err := exec.LookPath(candidate)
+		if err != nil {
+			continue
+		}
+		if isWindowsPythonAppExecutionAlias(path) {
+			continue
+		}
+		return path, nil
+	}
+	return "", fmt.Errorf("custom Python runtime not found; set OBLIVIOUS_CUSTOM_PYTHON_BIN")
+}
+
+func isWindowsPythonAppExecutionAlias(path string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	return strings.Contains(normalized, "/windowsapps/python")
 }
 
 func customPythonTimeout(seconds int) time.Duration {
@@ -228,6 +389,16 @@ func normalizeCustomToolRuntime(runtime string) string {
 		return "api"
 	}
 }
+
+func customPythonDisabledInProduction() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+}
+
+const (
+	customPythonMaxSourceBytes   = 64 * 1024
+	customPythonMaxArgumentBytes = 64 * 1024
+	customPythonMaxOutputBytes   = 64 * 1024
+)
 
 const customPythonWrapper = `
 import json
@@ -322,6 +493,9 @@ func (e *ToolExecutor) GetToolDefinitions(ctx context.Context, agent *Agent) ([]
 				}
 			}
 		case "custom":
+			if normalizeCustomToolRuntime(t.Runtime) == "python" && customPythonDisabledInProduction() && e.customPythonSandboxRunner == nil {
+				continue
+			}
 			def.InputSchema = t.InputSchema
 		}
 
