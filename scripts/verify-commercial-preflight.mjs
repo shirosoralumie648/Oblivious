@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const finalMode = !process.argv.includes('--local');
 const targetEvidenceOnly = process.argv.includes('--target-evidence-only');
+const jsonOutputArgIndex = process.argv.indexOf('--json-output');
+const jsonOutputPath =
+  jsonOutputArgIndex >= 0 && process.argv[jsonOutputArgIndex + 1] && !process.argv[jsonOutputArgIndex + 1].startsWith('--')
+    ? path.resolve(process.argv[jsonOutputArgIndex + 1])
+    : '';
 const results = [];
 let targetEvidenceManifest = null;
 let targetEvidenceManifestPath = '';
@@ -451,7 +456,40 @@ function checkGrpcSmokeDeliverable() {
 function finishPreflight() {
   const failures = results.filter((result) => result.status === 'FAIL');
   const warnings = results.filter((result) => result.status === 'WARN');
-  console.log(`[commercial-preflight] SUMMARY pass=${results.length - failures.length - warnings.length} warn=${warnings.length} fail=${failures.length}`);
+  const passCount = results.length - failures.length - warnings.length;
+  console.log(`[commercial-preflight] SUMMARY pass=${passCount} warn=${warnings.length} fail=${failures.length}`);
+  if (jsonOutputArgIndex >= 0) {
+    if (!jsonOutputPath) {
+      console.error('[commercial-preflight] --json-output requires a file path');
+      process.exit(2);
+    }
+    fs.mkdirSync(path.dirname(jsonOutputPath), { recursive: true });
+    fs.writeFileSync(
+      jsonOutputPath,
+      JSON.stringify(
+        {
+          status: failures.length > 0 ? 'fail' : 'pass',
+          mode: targetEvidenceOnly ? 'target-evidence-only' : 'full',
+          finalMode,
+          repoRoot,
+          commit: currentCommit(),
+          generatedAt: new Date().toISOString(),
+          summary: {
+            pass: passCount,
+            warn: warnings.length,
+            fail: failures.length,
+          },
+          checks: results,
+          failures,
+          warnings,
+        },
+        null,
+        2,
+      ) + '\n',
+      'utf8',
+    );
+    console.log(`[commercial-preflight] JSON ${jsonOutputPath}`);
+  }
   if (failures.length > 0) {
     console.log('[commercial-preflight] RESULT: strict final commercial preflight failed.');
     process.exit(finalMode ? 1 : 0);

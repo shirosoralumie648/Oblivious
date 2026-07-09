@@ -7,6 +7,7 @@
     "test": "bash scripts/test.sh",
     "check": "bash scripts/check.sh",
     "check:security": "bash scripts/check.sh security",
+    "verify:commercial:blockers": "node scripts/verify-commercial-preflight.mjs --local --json-output .tmp/commercial-preflight-blockers.json",
     "dev:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web dev",
     "test:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web test",
     "test:e2e": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e",

@@ -48,6 +48,9 @@ inside_repo_manifest="$inside_repo_root/target-release-evidence.json"
 inside_repo_artifact_dir="$inside_repo_root/artifacts"
 inside_repo_manifest_output="$tmpdir/preflight-inside-repo-manifest.out"
 inside_repo_artifact_output="$tmpdir/preflight-inside-repo-artifacts.out"
+json_missing_inputs_report="$tmpdir/preflight-missing-inputs.json"
+json_target_valid_report="$tmpdir/preflight-target-valid.json"
+json_target_corrupt_report="$tmpdir/preflight-target-corrupt.json"
 
 if TEST_DATABASE_URL="postgres://oblivious:oblivious@127.0.0.1:5432/oblivious?sslmode=disable" \
   bash "$completion" >"$completion_missing_flags_output" 2>&1; then
@@ -142,6 +145,23 @@ run_preflight() {
     node "$preflight" --local >"$output" 2>&1
 }
 
+run_preflight_json() {
+  local output="$1"
+  local report="$2"
+  local bodies="$3"
+  local evidence="${4:-$manifest}"
+
+  TEST_DATABASE_URL="postgres://oblivious:oblivious@127.0.0.1:5432/oblivious?sslmode=disable" \
+    COMMERCIAL_COMPLETION_RUN_DEPLOY=true \
+    COMMERCIAL_COMPLETION_RUN_K8S=true \
+    COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \
+    COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
+    OBLIVIOUS_K8S_SECRET_FILE="$secret_file" \
+    OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
+    OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
+    node "$preflight" --local --json-output "$report" >"$output" 2>&1
+}
+
 run_target_preflight() {
   local output="$1"
   local bodies="$2"
@@ -151,6 +171,18 @@ run_target_preflight() {
     OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
     OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
     node "$preflight" --target-evidence-only >"$output" 2>&1
+}
+
+run_target_preflight_json() {
+  local output="$1"
+  local report="$2"
+  local bodies="$3"
+  local evidence="${4:-$manifest}"
+
+  COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
+    OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
+    OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
+    node "$preflight" --target-evidence-only --json-output "$report" >"$output" 2>&1
 }
 
 run_completion_target_preflight() {
@@ -183,6 +215,25 @@ if ! grep -Fq -- "PASS target evidence verifier" "$target_valid_output"; then
   cat "$target_valid_output" >&2
   fail "valid target-only preflight fixture did not run the full target evidence verifier"
 fi
+run_target_preflight_json "$target_valid_output.json.out" "$json_target_valid_report" "$artifact_dir"
+"$python_bin" - "$json_target_valid_report" <<'PY'
+import json
+import pathlib
+import sys
+
+report = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if report.get("status") != "pass":
+    raise SystemExit(f"expected pass status, got {report.get('status')!r}")
+if report.get("failures") != []:
+    raise SystemExit(f"expected no failures, got {report.get('failures')!r}")
+if report.get("mode") != "target-evidence-only":
+    raise SystemExit(f"expected target-evidence-only mode, got {report.get('mode')!r}")
+labels = {entry.get("label") for entry in report.get("checks", [])}
+for required in {"target evidence verifier", "target artifact body coverage", "env COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE"}:
+    if required not in labels:
+        raise SystemExit(f"missing check label {required!r}")
+PY
+echo "[commercial-preflight-fixtures] wrote valid target-only JSON preflight report"
 echo "[commercial-preflight-fixtures] accepted artifact body coverage"
 
 mkdir -p "$inside_repo_root"
@@ -303,4 +354,50 @@ if ! grep -Fq -- "sha256 mismatch" "$target_corrupt_output"; then
   cat "$target_corrupt_output" >&2
   fail "corrupt target-only preflight fixture did not report sha256 mismatch"
 fi
+if run_target_preflight_json "$target_corrupt_output.json.out" "$json_target_corrupt_report" "$corrupt_artifact_dir"; then
+  cat "$target_corrupt_output.json.out" >&2
+  fail "corrupt target-only JSON preflight unexpectedly passed"
+fi
+"$python_bin" - "$json_target_corrupt_report" <<'PY'
+import json
+import pathlib
+import sys
+
+report = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if report.get("status") != "fail":
+    raise SystemExit(f"expected fail status, got {report.get('status')!r}")
+failures = report.get("failures", [])
+if not any(item.get("label") == "target artifact body coverage" and "sha256 mismatch" in item.get("detail", "") for item in failures):
+    raise SystemExit(f"expected target artifact sha256 failure, got {failures!r}")
+if report.get("summary", {}).get("fail", 0) < 1:
+    raise SystemExit(f"expected failure count in summary, got {report.get('summary')!r}")
+PY
+echo "[commercial-preflight-fixtures] wrote corrupt JSON preflight report"
 echo "[commercial-preflight-fixtures] rejected corrupt artifact body SHA"
+
+node "$preflight" --local --json-output "$json_missing_inputs_report" >"$tmpdir/preflight-missing-inputs.out" 2>&1
+"$python_bin" - "$json_missing_inputs_report" <<'PY'
+import json
+import pathlib
+import sys
+
+report = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if report.get("status") != "fail":
+    raise SystemExit(f"expected fail status, got {report.get('status')!r}")
+failures = report.get("failures", [])
+expected = {
+    "env TEST_DATABASE_URL",
+    "env COMMERCIAL_COMPLETION_RUN_DEPLOY",
+    "env COMMERCIAL_COMPLETION_RUN_K8S",
+    "env COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE",
+    "env COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE",
+    "Kubernetes secret file",
+    "target evidence manifest",
+    "target artifact body directory",
+}
+labels = {entry.get("label") for entry in failures}
+missing = sorted(expected - labels)
+if missing:
+    raise SystemExit(f"missing expected failure labels: {missing!r}; got {sorted(labels)!r}")
+PY
+echo "[commercial-preflight-fixtures] wrote missing-input JSON blocker report"
