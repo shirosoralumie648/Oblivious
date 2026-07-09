@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: task
-        image: oblivious/task:latest
+        image: oblivious/task:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

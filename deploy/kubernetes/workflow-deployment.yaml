@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: workflow
-        image: oblivious/workflow:latest
+        image: oblivious/workflow:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -48,11 +48,18 @@ spec:
           value: "50064"
         - name: GRPC_PORT
           value: "50064"
+        - name: OBLIVIOUS_DB_MODE
+          value: "microservices"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: oblivious-secrets
               key: DATABASE_URL
+        - name: DB_URL_WORKFLOW
+          valueFrom:
+            secretKeyRef:
+              name: oblivious-secrets
+              key: DB_URL_WORKFLOW
         - name: REDIS_ADDR
           value: "oblivious-redis.oblivious.svc.cluster.local:6379"
         - name: KAFKA_BROKERS

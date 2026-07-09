@@ -33,6 +33,27 @@ jobs:
       - name: Verify Relay security boundary
         run: bash scripts/check.sh relay-security
 
+  target-release-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify target release evidence verifier fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/verify-target-release-evidence-fixtures.sh
+      - name: Verify target release evidence assembler fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/assemble-target-release-evidence-fixtures.sh
+      - name: Verify target release artifact collector fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/collect-target-release-artifacts-fixtures.sh
+      - name: Verify target release digest fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/compute-target-release-digests-fixtures.sh
+
   security:
     runs-on: ubuntu-latest
     steps:
@@ -92,6 +113,8 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
       - name: Install Chromium for Playwright
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: .tmp/ms-playwright
         run: pnpm --dir src/web exec playwright install --with-deps chromium
       - name: Run Admin and Marketplace E2E
         run: bash scripts/test.sh e2e

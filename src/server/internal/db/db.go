@@ -1,10 +1,20 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/lib/pq"
+)
+
+const (
+	defaultOpenTimeout     = 10 * time.Second
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 25
+	defaultConnMaxLifetime = 30 * time.Minute
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 type ServiceDB struct {
@@ -27,7 +37,14 @@ func Open(databaseURL string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	if err := db.Ping(); err != nil {
+	db.SetMaxOpenConns(defaultMaxOpenConns)
+	db.SetMaxIdleConns(defaultMaxIdleConns)
+	db.SetConnMaxLifetime(defaultConnMaxLifetime)
+	db.SetConnMaxIdleTime(defaultConnMaxIdleTime)
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultOpenTimeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: channel
-        image: oblivious/channel:latest
+        image: oblivious/channel:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

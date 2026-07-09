@@ -5,11 +5,23 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 hpa_file="$repo_root/deploy/kubernetes/hpa.yaml"
 server_deployment_file="$repo_root/deploy/kubernetes/app-deployment.yaml"
 
+file_matches() {
+  local pattern="$1"
+  local file="$2"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q -- "$pattern" "$file"
+    return
+  fi
+
+  grep -Eq -- "$pattern" "$file"
+}
+
 require_pattern() {
   local file="$1"
   local pattern="$2"
   local message="$3"
-  if ! rg -q -- "$pattern" "$file"; then
+  if ! file_matches "$pattern" "$file"; then
     echo "[k8s-recovery-policy] $message" >&2
     exit 1
   fi

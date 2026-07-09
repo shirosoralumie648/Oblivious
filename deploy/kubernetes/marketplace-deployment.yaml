@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: marketplace
-        image: oblivious/marketplace:latest
+        image: oblivious/marketplace:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

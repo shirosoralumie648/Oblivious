@@ -16,6 +16,7 @@ type Config struct {
 	SessionCookieName   string
 	SessionCookieSecure bool
 	SessionSecret       string
+	SecretEncryptionKey string
 	LLMBaseURL          string
 	LLMAPIKey           string
 	LLMTimeoutMS        int
@@ -25,7 +26,7 @@ type Config struct {
 	// It defaults in the runtime wiring when unset so monolith tests keep their historical env.
 	AgentRelayBaseURL string
 
-	// ChatRelayBaseURL points Chat runtimes at the Relay/OpenAI-compatible API.
+	// ChatRelayBaseURL points standalone Chat runtimes at the Relay/OpenAI-compatible API.
 	// It defaults in the runtime wiring when unset so monolith deployments keep using local Relay.
 	ChatRelayBaseURL string
 
@@ -40,7 +41,8 @@ type Config struct {
 	// by the google_cse web search provider.
 	AgentWebSearchGoogleCSEID string
 
-	// Qdrant vector database configuration. Disabled unless QDRANT_URL is set.
+	// Qdrant vector database configuration. Required in production so
+	// Knowledge/RAG routes cannot silently fall back to non-durable retrieval.
 	QdrantURL        string
 	QdrantAPIKey     string
 	QdrantVectorSize int
@@ -51,12 +53,31 @@ type Config struct {
 	RAGRerankerModel   string
 	RAGRerankerTopK    int
 
+	// Durable RAG index worker configuration. The worker replays failed vector
+	// indexing jobs when Qdrant-backed Knowledge indexing is enabled.
+	RAGIndexWorkerEnabled    bool
+	RAGIndexWorkerIntervalMS int
+	RAGIndexWorkerClaimLimit int
+	// Durable RAG ingestion worker configuration. The worker consumes
+	// persisted upload/content ingestion jobs and creates Knowledge documents.
+	RAGIngestionWorkerEnabled    bool
+	RAGIngestionWorkerIntervalMS int
+	RAGIngestionWorkerClaimLimit int
+
 	// Relay configuration
 	RelayEnabled                            bool
 	RelayDefaultModel                       string
 	RelayRateLimitBackend                   string
 	RelayRateLimitRedisKeyPrefix            string
 	RelaySemanticCacheBackend               string
+	RelayPricingMaintenanceEnabled          bool
+	RelayPricingMaintenanceIntervalMS       int
+	RelayPricingMaintenanceProvider         string
+	RelayPricingMaintenanceSource           string
+	RelayPricingMaintenanceSourceURL        string
+	RelayPricingMaintenanceModels           []string
+	RelayPricingMaintenanceMaxBytes         int64
+	RelayPricingReconciliationLimit         int
 	RelayBatchPollingWorkerEnabled          bool
 	RelayBatchPollingWorkerIntervalMS       int
 	RelayBatchPollingWorkerClaimLimit       int
@@ -82,6 +103,12 @@ type Config struct {
 	AlipayWebhookSecret      string
 	WeChatPayCheckoutBaseURL string
 	WeChatPayWebhookSecret   string
+
+	// Marketplace payout dispatch configuration. Local payout dispatch is
+	// only acceptable outside production.
+	MarketplacePayoutProvider      string
+	MarketplacePayoutWebhookURL    string
+	MarketplacePayoutWebhookSecret string
 
 	// Scheduled task worker configuration
 	ScheduleWorkerEnabled    bool
@@ -118,15 +145,16 @@ type Config struct {
 
 	// Observability request log configuration. ClickHouse is disabled unless
 	// explicitly selected because local/dev environments usually do not run it.
-	ObservabilityRequestLogBackend string
-	ClickHouseDSN                  string
-	ClickHouseDriver               string
-	ObservabilityHTTPAlertsEnabled bool
-	AlertWebhookURL                string
-	AlertWebhookSecret             string
+	ObservabilityRequestLogBackend         string
+	ClickHouseDSN                          string
+	ClickHouseDriver                       string
+	ObservabilityHTTPAlertsEnabled         bool
+	AlertWebhookURL                        string
+	AlertWebhookSecret                     string
+	ObservabilityHTTPLatencySLOThresholdMS int
 
-	// HTTP recovery currently records restart actions for 5xx alert audits. It
-	// does not execute infrastructure mutations.
+	// HTTP recovery audit records planned remediation actions for alert review.
+	// It does not execute infrastructure mutations.
 	ObservabilityHTTPRecoveryEnabled    bool
 	ObservabilityHTTPRecoveryCooldownMS int
 
@@ -183,6 +211,7 @@ func Load() (Config, error) {
 	if sessionSecret == "" {
 		return Config{}, fmt.Errorf("SESSION_SECRET is required")
 	}
+	secretEncryptionKey := strings.TrimSpace(os.Getenv("OBLIVIOUS_SECRET_ENCRYPTION_KEY"))
 
 	sessionCookieName := strings.TrimSpace(os.Getenv("SESSION_COOKIE_NAME"))
 	if sessionCookieName == "" {
@@ -190,6 +219,12 @@ func Load() (Config, error) {
 	}
 
 	sessionCookieSecure := strings.EqualFold(strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")), "true")
+	if err := validateProductionSessionConfig(env, sessionSecret, sessionCookieSecure); err != nil {
+		return Config{}, err
+	}
+	if err := validateProductionSecretEncryptionConfig(env, sessionSecret, secretEncryptionKey); err != nil {
+		return Config{}, err
+	}
 	llmBaseURL := strings.TrimSpace(os.Getenv("LLM_BASE_URL"))
 	llmAPIKey := strings.TrimSpace(os.Getenv("LLM_API_KEY"))
 	llmTimeoutMS := 30000
@@ -240,6 +275,9 @@ func Load() (Config, error) {
 		}
 		qdrantVectorSize = parsedSize
 	}
+	if strings.EqualFold(env, "production") && qdrantURL == "" {
+		return Config{}, fmt.Errorf("QDRANT_URL is required when APP_ENV=production for Knowledge/RAG routes")
+	}
 	ragRerankerBaseURL := strings.TrimSpace(os.Getenv("RAG_RERANKER_BASE_URL"))
 	ragRerankerAPIKey := strings.TrimSpace(os.Getenv("RAG_RERANKER_API_KEY"))
 	ragRerankerModel := strings.TrimSpace(os.Getenv("RAG_RERANKER_MODEL"))
@@ -255,11 +293,64 @@ func Load() (Config, error) {
 		}
 		ragRerankerTopK = parsedTopK
 	}
+	ragIndexWorkerEnabled := !strings.EqualFold(env, "test") && qdrantURL != ""
+	if raw := strings.TrimSpace(os.Getenv("RAG_INDEX_WORKER_ENABLED")); raw != "" {
+		ragIndexWorkerEnabled = strings.EqualFold(raw, "true")
+	}
+	ragIndexWorkerIntervalMS := 60000
+	ragIndexWorkerIntervalRaw := strings.TrimSpace(os.Getenv("RAG_INDEX_WORKER_INTERVAL_MS"))
+	if ragIndexWorkerIntervalRaw != "" {
+		parsedInterval, parseErr := strconv.Atoi(ragIndexWorkerIntervalRaw)
+		if parseErr != nil || parsedInterval < 1 {
+			return Config{}, fmt.Errorf("invalid RAG_INDEX_WORKER_INTERVAL_MS: %q", ragIndexWorkerIntervalRaw)
+		}
+		ragIndexWorkerIntervalMS = parsedInterval
+	}
+	ragIndexWorkerClaimLimit := 10
+	ragIndexWorkerClaimLimitRaw := strings.TrimSpace(os.Getenv("RAG_INDEX_WORKER_CLAIM_LIMIT"))
+	if ragIndexWorkerClaimLimitRaw != "" {
+		parsedLimit, parseErr := strconv.Atoi(ragIndexWorkerClaimLimitRaw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid RAG_INDEX_WORKER_CLAIM_LIMIT: %q", ragIndexWorkerClaimLimitRaw)
+		}
+		ragIndexWorkerClaimLimit = parsedLimit
+	}
+	if strings.EqualFold(env, "production") && qdrantURL != "" && !ragIndexWorkerEnabled {
+		return Config{}, fmt.Errorf("RAG_INDEX_WORKER_ENABLED=false is not allowed when APP_ENV=production and QDRANT_URL is set")
+	}
+	ragIngestionWorkerEnabled := !strings.EqualFold(env, "test")
+	if raw := strings.TrimSpace(os.Getenv("RAG_INGESTION_WORKER_ENABLED")); raw != "" {
+		ragIngestionWorkerEnabled = strings.EqualFold(raw, "true")
+	}
+	ragIngestionWorkerIntervalMS := 60000
+	ragIngestionWorkerIntervalRaw := strings.TrimSpace(os.Getenv("RAG_INGESTION_WORKER_INTERVAL_MS"))
+	if ragIngestionWorkerIntervalRaw != "" {
+		parsedInterval, parseErr := strconv.Atoi(ragIngestionWorkerIntervalRaw)
+		if parseErr != nil || parsedInterval < 1 {
+			return Config{}, fmt.Errorf("invalid RAG_INGESTION_WORKER_INTERVAL_MS: %q", ragIngestionWorkerIntervalRaw)
+		}
+		ragIngestionWorkerIntervalMS = parsedInterval
+	}
+	ragIngestionWorkerClaimLimit := 10
+	ragIngestionWorkerClaimLimitRaw := strings.TrimSpace(os.Getenv("RAG_INGESTION_WORKER_CLAIM_LIMIT"))
+	if ragIngestionWorkerClaimLimitRaw != "" {
+		parsedLimit, parseErr := strconv.Atoi(ragIngestionWorkerClaimLimitRaw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid RAG_INGESTION_WORKER_CLAIM_LIMIT: %q", ragIngestionWorkerClaimLimitRaw)
+		}
+		ragIngestionWorkerClaimLimit = parsedLimit
+	}
+	if strings.EqualFold(env, "production") && !ragIngestionWorkerEnabled {
+		return Config{}, fmt.Errorf("RAG_INGESTION_WORKER_ENABLED=false is not allowed when APP_ENV=production")
+	}
 
 	// Relay configuration
 	relayEnabled := true
 	if relayEnabledRaw := strings.TrimSpace(os.Getenv("RELAY_ENABLED")); relayEnabledRaw != "" {
 		relayEnabled = strings.EqualFold(relayEnabledRaw, "true")
+	}
+	if strings.EqualFold(env, "production") && !relayEnabled {
+		return Config{}, fmt.Errorf("RELAY_ENABLED=false is not allowed when APP_ENV=production")
 	}
 
 	relayDefaultModel := strings.TrimSpace(os.Getenv("RELAY_DEFAULT_MODEL"))
@@ -308,7 +399,55 @@ func Load() (Config, error) {
 		redisDB = parsedDB
 	}
 	relayRateLimitRedisKeyPrefix := strings.TrimSpace(os.Getenv("RELAY_RATE_LIMIT_REDIS_KEY_PREFIX"))
-	relayBatchPollingWorkerEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_ENABLED")), "true")
+
+	relayPricingMaintenanceEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_ENABLED")), "true")
+	relayPricingMaintenanceIntervalMS := 3600000
+	if raw := strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_INTERVAL_MS")); raw != "" {
+		parsedInterval, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsedInterval < 1 {
+			return Config{}, fmt.Errorf("invalid RELAY_PRICING_MAINTENANCE_INTERVAL_MS: %q", raw)
+		}
+		relayPricingMaintenanceIntervalMS = parsedInterval
+	}
+	relayPricingMaintenanceProvider := strings.ToLower(strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_PROVIDER")))
+	relayPricingMaintenanceSource := strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_SOURCE"))
+	if relayPricingMaintenanceSource == "" {
+		relayPricingMaintenanceSource = "litellm"
+	}
+	relayPricingMaintenanceSourceURL := strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_SOURCE_URL"))
+	relayPricingMaintenanceModels := splitCommaEnv(os.Getenv("RELAY_PRICING_MAINTENANCE_REQUIRED_MODELS"))
+	relayPricingMaintenanceMaxBytes := int64(0)
+	if raw := strings.TrimSpace(os.Getenv("RELAY_PRICING_MAINTENANCE_MAX_BYTES")); raw != "" {
+		parsedMaxBytes, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || parsedMaxBytes < 1 {
+			return Config{}, fmt.Errorf("invalid RELAY_PRICING_MAINTENANCE_MAX_BYTES: %q", raw)
+		}
+		relayPricingMaintenanceMaxBytes = parsedMaxBytes
+	}
+	relayPricingReconciliationLimit := 100
+	if raw := strings.TrimSpace(os.Getenv("RELAY_PRICING_RECONCILIATION_LIMIT")); raw != "" {
+		parsedLimit, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid RELAY_PRICING_RECONCILIATION_LIMIT: %q", raw)
+		}
+		relayPricingReconciliationLimit = parsedLimit
+	}
+	if relayPricingMaintenanceEnabled {
+		if relayPricingMaintenanceProvider == "" {
+			return Config{}, fmt.Errorf("RELAY_PRICING_MAINTENANCE_PROVIDER is required when RELAY_PRICING_MAINTENANCE_ENABLED=true")
+		}
+		if relayPricingMaintenanceSourceURL == "" {
+			return Config{}, fmt.Errorf("RELAY_PRICING_MAINTENANCE_SOURCE_URL is required when RELAY_PRICING_MAINTENANCE_ENABLED=true")
+		}
+		parsedSourceURL, parseErr := url.Parse(relayPricingMaintenanceSourceURL)
+		if parseErr != nil || parsedSourceURL.Scheme != "https" || strings.TrimSpace(parsedSourceURL.Host) == "" {
+			return Config{}, fmt.Errorf("RELAY_PRICING_MAINTENANCE_SOURCE_URL must be an https URL with a host")
+		}
+	}
+	relayBatchPollingWorkerEnabled := false
+	if raw := strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_ENABLED")); raw != "" {
+		relayBatchPollingWorkerEnabled = strings.EqualFold(raw, "true")
+	}
 	relayBatchPollingWorkerIntervalMS := 60000
 	if raw := strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_INTERVAL_MS")); raw != "" {
 		parsedInterval, parseErr := strconv.Atoi(raw)
@@ -325,8 +464,17 @@ func Load() (Config, error) {
 		}
 		relayBatchPollingWorkerClaimLimit = parsedLimit
 	}
-	relayBatchCommercialLifecycleEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_BATCH_COMMERCIAL_LIFECYCLE_ENABLED")), "true")
-	relayRealtimeCommercialLifecycleEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_REALTIME_COMMERCIAL_LIFECYCLE_ENABLED")), "true")
+	relayBatchCommercialLifecycleEnabled := false
+	if raw := strings.TrimSpace(os.Getenv("RELAY_BATCH_COMMERCIAL_LIFECYCLE_ENABLED")); raw != "" {
+		relayBatchCommercialLifecycleEnabled = strings.EqualFold(raw, "true")
+	}
+	if strings.EqualFold(env, "production") && relayBatchCommercialLifecycleEnabled && !relayBatchPollingWorkerEnabled {
+		return Config{}, fmt.Errorf("RELAY_BATCH_POLLING_WORKER_ENABLED=true is required when RELAY_BATCH_COMMERCIAL_LIFECYCLE_ENABLED=true in production")
+	}
+	relayRealtimeCommercialLifecycleEnabled := false
+	if raw := strings.TrimSpace(os.Getenv("RELAY_REALTIME_COMMERCIAL_LIFECYCLE_ENABLED")); raw != "" {
+		relayRealtimeCommercialLifecycleEnabled = strings.EqualFold(raw, "true")
+	}
 
 	// Default channel configuration (for development)
 	openaiAPIKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -343,6 +491,12 @@ func Load() (Config, error) {
 	alipayWebhookSecret := strings.TrimSpace(os.Getenv("ALIPAY_WEBHOOK_SECRET"))
 	weChatPayCheckoutBaseURL := strings.TrimSpace(os.Getenv("WECHATPAY_CHECKOUT_BASE_URL"))
 	weChatPayWebhookSecret := strings.TrimSpace(os.Getenv("WECHATPAY_WEBHOOK_SECRET"))
+	marketplacePayoutProvider := strings.ToLower(strings.TrimSpace(os.Getenv("MARKETPLACE_PAYOUT_PROVIDER")))
+	if marketplacePayoutProvider == "" {
+		marketplacePayoutProvider = "local"
+	}
+	marketplacePayoutWebhookURL := strings.TrimSpace(os.Getenv("MARKETPLACE_PAYOUT_WEBHOOK_URL"))
+	marketplacePayoutWebhookSecret := strings.TrimSpace(os.Getenv("MARKETPLACE_PAYOUT_WEBHOOK_SECRET"))
 
 	scheduleWorkerEnabled := !strings.EqualFold(env, "test")
 	if raw := strings.TrimSpace(os.Getenv("SCHEDULE_WORKER_ENABLED")); raw != "" {
@@ -498,6 +652,30 @@ func Load() (Config, error) {
 	if observabilityRequestLogBackend == "clickhouse" && clickHouseDSN == "" {
 		return Config{}, fmt.Errorf("CLICKHOUSE_DSN is required when OBSERVABILITY_REQUEST_LOG_BACKEND=clickhouse")
 	}
+	if strings.EqualFold(env, "production") && relayEnabled && observabilityRequestLogBackend == "none" {
+		return Config{}, fmt.Errorf("OBSERVABILITY_REQUEST_LOG_BACKEND must not be none when APP_ENV=production and RELAY_ENABLED=true")
+	}
+	if err := validateProductionPaymentConfig(
+		env,
+		stripeSecretKey,
+		stripeSuccessURL,
+		stripeCancelURL,
+		stripeWebhookSecret,
+		alipayCheckoutBaseURL,
+		alipayWebhookSecret,
+		weChatPayCheckoutBaseURL,
+		weChatPayWebhookSecret,
+	); err != nil {
+		return Config{}, err
+	}
+	if err := validateMarketplacePayoutConfig(
+		env,
+		marketplacePayoutProvider,
+		marketplacePayoutWebhookURL,
+		marketplacePayoutWebhookSecret,
+	); err != nil {
+		return Config{}, err
+	}
 	clickHouseDriver := strings.TrimSpace(os.Getenv("CLICKHOUSE_DRIVER"))
 	if clickHouseDriver == "" {
 		clickHouseDriver = "clickhouse"
@@ -505,13 +683,31 @@ func Load() (Config, error) {
 	observabilityHTTPAlertsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_ALERTS_ENABLED")), "true")
 	alertWebhookURL := strings.TrimSpace(os.Getenv("ALERT_WEBHOOK_URL"))
 	alertWebhookSecret := strings.TrimSpace(os.Getenv("ALERT_WEBHOOK_SECRET"))
-	observabilityHTTPRecoveryEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_RECOVERY_ENABLED")), "true")
+	observabilityHTTPRecoveryEnabledRaw := strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_RECOVERY_AUDIT_ENABLED"))
+	if observabilityHTTPRecoveryEnabledRaw == "" {
+		observabilityHTTPRecoveryEnabledRaw = strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_RECOVERY_ENABLED"))
+	}
+	observabilityHTTPRecoveryEnabled := strings.EqualFold(observabilityHTTPRecoveryEnabledRaw, "true")
+	observabilityHTTPLatencySLOThresholdMS := 5000
+	observabilityHTTPLatencySLOThresholdRaw := strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_LATENCY_SLO_THRESHOLD_MS"))
+	if observabilityHTTPLatencySLOThresholdRaw != "" {
+		parsedThreshold, parseErr := strconv.Atoi(observabilityHTTPLatencySLOThresholdRaw)
+		if parseErr != nil || parsedThreshold < 1 {
+			return Config{}, fmt.Errorf("invalid OBSERVABILITY_HTTP_LATENCY_SLO_THRESHOLD_MS: %q", observabilityHTTPLatencySLOThresholdRaw)
+		}
+		observabilityHTTPLatencySLOThresholdMS = parsedThreshold
+	}
 	observabilityHTTPRecoveryCooldownMS := 300000
-	observabilityHTTPRecoveryCooldownRaw := strings.TrimSpace(os.Getenv("OBSERVABILITY_HTTP_RECOVERY_COOLDOWN_MS"))
+	observabilityHTTPRecoveryCooldownName := "OBSERVABILITY_HTTP_RECOVERY_AUDIT_COOLDOWN_MS"
+	observabilityHTTPRecoveryCooldownRaw := strings.TrimSpace(os.Getenv(observabilityHTTPRecoveryCooldownName))
+	if observabilityHTTPRecoveryCooldownRaw == "" {
+		observabilityHTTPRecoveryCooldownName = "OBSERVABILITY_HTTP_RECOVERY_COOLDOWN_MS"
+		observabilityHTTPRecoveryCooldownRaw = strings.TrimSpace(os.Getenv(observabilityHTTPRecoveryCooldownName))
+	}
 	if observabilityHTTPRecoveryCooldownRaw != "" {
 		parsedCooldown, parseErr := strconv.Atoi(observabilityHTTPRecoveryCooldownRaw)
 		if parseErr != nil || parsedCooldown < 1 {
-			return Config{}, fmt.Errorf("invalid OBSERVABILITY_HTTP_RECOVERY_COOLDOWN_MS: %q", observabilityHTTPRecoveryCooldownRaw)
+			return Config{}, fmt.Errorf("invalid %s: %q", observabilityHTTPRecoveryCooldownName, observabilityHTTPRecoveryCooldownRaw)
 		}
 		observabilityHTTPRecoveryCooldownMS = parsedCooldown
 	}
@@ -546,12 +742,13 @@ func Load() (Config, error) {
 		SessionCookieName:                       sessionCookieName,
 		SessionCookieSecure:                     sessionCookieSecure,
 		SessionSecret:                           sessionSecret,
+		SecretEncryptionKey:                     secretEncryptionKey,
 		LLMBaseURL:                              llmBaseURL,
 		LLMAPIKey:                               llmAPIKey,
 		LLMTimeoutMS:                            llmTimeoutMS,
 		ModelDefaultName:                        modelDefaultName,
-		ChatRelayBaseURL:                        chatRelayBaseURL,
 		AgentRelayBaseURL:                       agentRelayBaseURL,
+		ChatRelayBaseURL:                        chatRelayBaseURL,
 		AgentWebSearchProvider:                  agentWebSearchProvider,
 		AgentWebSearchFallback:                  agentWebSearchFallback,
 		AgentWebSearchEndpoint:                  agentWebSearchEndpoint,
@@ -565,11 +762,25 @@ func Load() (Config, error) {
 		RAGRerankerAPIKey:                       ragRerankerAPIKey,
 		RAGRerankerModel:                        ragRerankerModel,
 		RAGRerankerTopK:                         ragRerankerTopK,
+		RAGIndexWorkerEnabled:                   ragIndexWorkerEnabled,
+		RAGIndexWorkerIntervalMS:                ragIndexWorkerIntervalMS,
+		RAGIndexWorkerClaimLimit:                ragIndexWorkerClaimLimit,
+		RAGIngestionWorkerEnabled:               ragIngestionWorkerEnabled,
+		RAGIngestionWorkerIntervalMS:            ragIngestionWorkerIntervalMS,
+		RAGIngestionWorkerClaimLimit:            ragIngestionWorkerClaimLimit,
 		RelayEnabled:                            relayEnabled,
 		RelayDefaultModel:                       relayDefaultModel,
 		RelayRateLimitBackend:                   relayRateLimitBackend,
 		RelayRateLimitRedisKeyPrefix:            relayRateLimitRedisKeyPrefix,
 		RelaySemanticCacheBackend:               relaySemanticCacheBackend,
+		RelayPricingMaintenanceEnabled:          relayPricingMaintenanceEnabled,
+		RelayPricingMaintenanceIntervalMS:       relayPricingMaintenanceIntervalMS,
+		RelayPricingMaintenanceProvider:         relayPricingMaintenanceProvider,
+		RelayPricingMaintenanceSource:           relayPricingMaintenanceSource,
+		RelayPricingMaintenanceSourceURL:        relayPricingMaintenanceSourceURL,
+		RelayPricingMaintenanceModels:           relayPricingMaintenanceModels,
+		RelayPricingMaintenanceMaxBytes:         relayPricingMaintenanceMaxBytes,
+		RelayPricingReconciliationLimit:         relayPricingReconciliationLimit,
 		RelayBatchPollingWorkerEnabled:          relayBatchPollingWorkerEnabled,
 		RelayBatchPollingWorkerIntervalMS:       relayBatchPollingWorkerIntervalMS,
 		RelayBatchPollingWorkerClaimLimit:       relayBatchPollingWorkerClaimLimit,
@@ -588,6 +799,9 @@ func Load() (Config, error) {
 		AlipayWebhookSecret:                     alipayWebhookSecret,
 		WeChatPayCheckoutBaseURL:                weChatPayCheckoutBaseURL,
 		WeChatPayWebhookSecret:                  weChatPayWebhookSecret,
+		MarketplacePayoutProvider:               marketplacePayoutProvider,
+		MarketplacePayoutWebhookURL:             marketplacePayoutWebhookURL,
+		MarketplacePayoutWebhookSecret:          marketplacePayoutWebhookSecret,
 
 		ScheduleWorkerEnabled:    scheduleWorkerEnabled,
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,
@@ -615,12 +829,13 @@ func Load() (Config, error) {
 		ChannelMessageLogRetentionHours:     channelMessageLogRetentionHours,
 		ChannelMessageLogArchiveLimit:       channelMessageLogArchiveLimit,
 
-		ObservabilityRequestLogBackend: observabilityRequestLogBackend,
-		ClickHouseDSN:                  clickHouseDSN,
-		ClickHouseDriver:               clickHouseDriver,
-		ObservabilityHTTPAlertsEnabled: observabilityHTTPAlertsEnabled,
-		AlertWebhookURL:                alertWebhookURL,
-		AlertWebhookSecret:             alertWebhookSecret,
+		ObservabilityRequestLogBackend:         observabilityRequestLogBackend,
+		ClickHouseDSN:                          clickHouseDSN,
+		ClickHouseDriver:                       clickHouseDriver,
+		ObservabilityHTTPAlertsEnabled:         observabilityHTTPAlertsEnabled,
+		AlertWebhookURL:                        alertWebhookURL,
+		AlertWebhookSecret:                     alertWebhookSecret,
+		ObservabilityHTTPLatencySLOThresholdMS: observabilityHTTPLatencySLOThresholdMS,
 
 		ObservabilityHTTPRecoveryEnabled:    observabilityHTTPRecoveryEnabled,
 		ObservabilityHTTPRecoveryCooldownMS: observabilityHTTPRecoveryCooldownMS,
@@ -638,6 +853,170 @@ func Load() (Config, error) {
 		DBURLTask:          dbURLTask,
 		DBURLObservability: dbURLObservability,
 	}, nil
+}
+
+func validateProductionSessionConfig(env, sessionSecret string, sessionCookieSecure bool) error {
+	if !strings.EqualFold(env, "production") {
+		return nil
+	}
+	normalizedSecret := strings.ToLower(strings.TrimSpace(sessionSecret))
+	switch normalizedSecret {
+	case "change-me", "changeme", "test-secret", "secret", "dev-secret", "development":
+		return fmt.Errorf("SESSION_SECRET must not use a default value when APP_ENV=production")
+	}
+	if len(sessionSecret) < 32 {
+		return fmt.Errorf("SESSION_SECRET must be at least 32 characters when APP_ENV=production")
+	}
+	if !sessionCookieSecure {
+		return fmt.Errorf("SESSION_COOKIE_SECURE=false is not allowed when APP_ENV=production")
+	}
+	return nil
+}
+
+func validateProductionSecretEncryptionConfig(env, sessionSecret, secretEncryptionKey string) error {
+	if !strings.EqualFold(env, "production") {
+		return nil
+	}
+	trimmedKey := strings.TrimSpace(secretEncryptionKey)
+	if trimmedKey == "" {
+		return fmt.Errorf("OBLIVIOUS_SECRET_ENCRYPTION_KEY is required when APP_ENV=production")
+	}
+	normalizedKey := strings.ToLower(trimmedKey)
+	switch normalizedKey {
+	case "change-me", "changeme", "test-secret", "secret", "dev-secret", "development":
+		return fmt.Errorf("OBLIVIOUS_SECRET_ENCRYPTION_KEY must not use a default value when APP_ENV=production")
+	}
+	if len(trimmedKey) < 32 {
+		return fmt.Errorf("OBLIVIOUS_SECRET_ENCRYPTION_KEY must be at least 32 characters when APP_ENV=production")
+	}
+	if trimmedKey == strings.TrimSpace(sessionSecret) {
+		return fmt.Errorf("OBLIVIOUS_SECRET_ENCRYPTION_KEY must be distinct from SESSION_SECRET when APP_ENV=production")
+	}
+	return nil
+}
+
+func validateProductionPaymentConfig(env, stripeSecretKey, stripeSuccessURL, stripeCancelURL, stripeWebhookSecret, alipayCheckoutBaseURL, alipayWebhookSecret, weChatPayCheckoutBaseURL, weChatPayWebhookSecret string) error {
+	if !strings.EqualFold(env, "production") {
+		return nil
+	}
+
+	stripeConfigured := allNonEmpty(stripeSecretKey, stripeSuccessURL, stripeCancelURL, stripeWebhookSecret)
+	if anyNonEmpty(stripeSecretKey, stripeSuccessURL, stripeCancelURL, stripeWebhookSecret) && !stripeConfigured {
+		return fmt.Errorf("STRIPE_SECRET_KEY, STRIPE_SUCCESS_URL, STRIPE_CANCEL_URL, and STRIPE_WEBHOOK_SECRET are required together when APP_ENV=production")
+	}
+
+	alipayConfigured := allNonEmpty(alipayCheckoutBaseURL, alipayWebhookSecret)
+	if anyNonEmpty(alipayCheckoutBaseURL, alipayWebhookSecret) && !alipayConfigured {
+		return fmt.Errorf("ALIPAY_CHECKOUT_BASE_URL and ALIPAY_WEBHOOK_SECRET are required together when APP_ENV=production")
+	}
+	if alipayConfigured {
+		if err := validateHTTPSURL("ALIPAY_CHECKOUT_BASE_URL", alipayCheckoutBaseURL); err != nil {
+			return err
+		}
+	}
+
+	weChatPayConfigured := allNonEmpty(weChatPayCheckoutBaseURL, weChatPayWebhookSecret)
+	if anyNonEmpty(weChatPayCheckoutBaseURL, weChatPayWebhookSecret) && !weChatPayConfigured {
+		return fmt.Errorf("WECHATPAY_CHECKOUT_BASE_URL and WECHATPAY_WEBHOOK_SECRET are required together when APP_ENV=production")
+	}
+	if weChatPayConfigured {
+		if err := validateHTTPSURL("WECHATPAY_CHECKOUT_BASE_URL", weChatPayCheckoutBaseURL); err != nil {
+			return err
+		}
+	}
+
+	if !stripeConfigured && !alipayConfigured && !weChatPayConfigured {
+		return fmt.Errorf("at least one payment provider must be fully configured when APP_ENV=production")
+	}
+	return nil
+}
+
+func validateMarketplacePayoutConfig(env, provider, webhookURL, webhookSecret string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "local"
+	}
+
+	switch provider {
+	case "local":
+		if strings.EqualFold(env, "production") {
+			return fmt.Errorf("MARKETPLACE_PAYOUT_PROVIDER=local is not allowed when APP_ENV=production")
+		}
+		if anyNonEmpty(webhookURL, webhookSecret) {
+			return fmt.Errorf("MARKETPLACE_PAYOUT_PROVIDER=webhook is required when marketplace payout webhook settings are configured")
+		}
+		return nil
+	case "webhook":
+		if !allNonEmpty(webhookURL, webhookSecret) {
+			return fmt.Errorf("MARKETPLACE_PAYOUT_WEBHOOK_URL and MARKETPLACE_PAYOUT_WEBHOOK_SECRET are required together when MARKETPLACE_PAYOUT_PROVIDER=webhook")
+		}
+		return validateHTTPURL("MARKETPLACE_PAYOUT_WEBHOOK_URL", webhookURL)
+	default:
+		return fmt.Errorf("invalid MARKETPLACE_PAYOUT_PROVIDER: %q (must be local or webhook)", provider)
+	}
+}
+
+func validateHTTPURL(name, raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("invalid %s: %w", name, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use http or https", name)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("%s must include a host", name)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("%s must not include credentials", name)
+	}
+	return nil
+}
+
+func validateHTTPSURL(name, raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("invalid %s: %w", name, err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use https", name)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("%s must include a host", name)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("%s must not include credentials", name)
+	}
+	return nil
+}
+
+func allNonEmpty(values ...string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func anyNonEmpty(values ...string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func splitCommaEnv(raw string) []string {
+	values := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 type redisURLConfig struct {
