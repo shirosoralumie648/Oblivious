@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -363,18 +365,94 @@ func TestRunRelayPricingCatalogFreshnessSyncCreatesPendingImportForMaterialDiff(
 	}
 }
 
+func TestRelayPricingMaintenanceWorkerRunOnceRecordsFreshnessAndReconciliation(t *testing.T) {
+	store := &pricingCatalogStoreFake{
+		active: []RelayPricingCatalogEntry{
+			{ID: "rpe_prompt", APIType: "chat", Model: "gpt-4o", Dimension: "prompt_tokens", UnitCost: 0.000002, Markup: 1, Currency: "quota", Source: "litellm", Active: true},
+			{ID: "rpe_completion", APIType: "chat", Model: "gpt-4o", Dimension: "completion_tokens", UnitCost: 0.000008, Markup: 1, Currency: "quota", Source: "litellm", Active: true},
+		},
+		reconciliation: &RelayUsagePriceReconciliationSummary{
+			CheckedRecords:         3,
+			MatchedRecords:         1,
+			MissingSnapshotRecords: 1,
+			MismatchedRecords:      1,
+			LedgerTotalCost:        1.25,
+			SnapshotTotalCost:      1.10,
+			DeltaCost:              0.15,
+		},
+	}
+	service := NewService(store)
+	worker := NewRelayPricingMaintenanceWorker(service, RelayPricingMaintenanceWorkerConfig{
+		Actor: auth.Session{User: auth.User{ID: "system", Email: "system@example.test"}},
+		SyncRequest: RelayPricingCatalogSyncRequest{
+			Provider: "openai",
+			SourceJSON: []byte(`{
+				"gpt-4o": {
+					"litellm_provider": "openai",
+					"mode": "chat",
+					"input_cost_per_token": 0.000002,
+					"output_cost_per_token": 0.000008
+				}
+			}`),
+			RequiredModels: []string{"gpt-4o"},
+		},
+	})
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+	if len(store.syncRuns) != 2 {
+		t.Fatalf("expected freshness and reconciliation sync runs, got %+v", store.syncRuns)
+	}
+	if store.syncRuns[0].Job != "freshness" || store.syncRuns[0].Status != "unchanged" {
+		t.Fatalf("expected unchanged freshness run first, got %+v", store.syncRuns[0])
+	}
+	if store.syncRuns[1].Job != "reconciliation" || store.syncRuns[1].Status != "issues_found" || store.syncRuns[1].CheckedRecords != 3 || store.syncRuns[1].IssueCount != 2 {
+		t.Fatalf("expected issue reconciliation run, got %+v", store.syncRuns[1])
+	}
+	if store.reconciliationFilter.Limit != 100 || store.reconciliationFilter.From.IsZero() || store.reconciliationFilter.To.IsZero() {
+		t.Fatalf("expected worker to normalize reconciliation filter, got %+v", store.reconciliationFilter)
+	}
+	if len(store.auditEntries) != 2 ||
+		store.auditEntries[0].Action != "pricing.relay_catalog.sync.freshness_unchanged" ||
+		store.auditEntries[1].Action != "pricing.relay_catalog.reconciliation.run" {
+		t.Fatalf("expected freshness and reconciliation audit entries, got %+v", store.auditEntries)
+	}
+}
+
+func TestRecordRelayUsagePriceReconciliationRunRecordsFailedRun(t *testing.T) {
+	store := &pricingCatalogStoreFake{reconciliationErr: errors.New("clickhouse unavailable")}
+	service := NewService(store)
+
+	run, err := service.RecordRelayUsagePriceReconciliationRun(context.Background(), auth.Session{
+		User: auth.User{ID: "system", Email: "system@example.test"},
+	}, RelayUsagePriceReconciliationFilter{Limit: 250}, "worker")
+	if err == nil || !strings.Contains(err.Error(), "clickhouse unavailable") {
+		t.Fatalf("expected reconciliation error to be returned, got run=%+v err=%v", run, err)
+	}
+	if run == nil || run.Job != "reconciliation" || run.Status != "failed" || run.Error != "clickhouse unavailable" {
+		t.Fatalf("expected failed reconciliation run to be recorded, got %+v", run)
+	}
+	if len(store.syncRuns) != 1 || store.syncRuns[0].Status != "failed" {
+		t.Fatalf("expected failed run in store, got %+v", store.syncRuns)
+	}
+}
+
 type pricingCatalogStoreFake struct {
 	Store
-	active         []RelayPricingCatalogEntry
-	imports        map[string]*RelayPricingCatalogImport
-	created        *RelayPricingCatalogImport
-	approvedImport *RelayPricingCatalogImport
-	rejectedImport *RelayPricingCatalogImport
-	rejectedReason string
-	filter         RelayPricingCatalogImportFilter
-	syncRuns       []*RelayPricingCatalogSyncRun
-	syncRunFilter  RelayPricingCatalogSyncRunFilter
-	auditEntries   []*AuditEntry
+	active               []RelayPricingCatalogEntry
+	imports              map[string]*RelayPricingCatalogImport
+	created              *RelayPricingCatalogImport
+	approvedImport       *RelayPricingCatalogImport
+	rejectedImport       *RelayPricingCatalogImport
+	rejectedReason       string
+	filter               RelayPricingCatalogImportFilter
+	syncRuns             []*RelayPricingCatalogSyncRun
+	syncRunFilter        RelayPricingCatalogSyncRunFilter
+	reconciliation       *RelayUsagePriceReconciliationSummary
+	reconciliationErr    error
+	reconciliationFilter RelayUsagePriceReconciliationFilter
+	auditEntries         []*AuditEntry
 }
 
 func (s *pricingCatalogStoreFake) ListActiveRelayPricingCatalogEntries(ctx context.Context) ([]RelayPricingCatalogEntry, error) {
@@ -415,6 +493,17 @@ func (s *pricingCatalogStoreFake) CreateRelayPricingCatalogSyncRun(ctx context.C
 func (s *pricingCatalogStoreFake) ListRelayPricingCatalogSyncRuns(ctx context.Context, filter RelayPricingCatalogSyncRunFilter) ([]*RelayPricingCatalogSyncRun, int, error) {
 	s.syncRunFilter = filter
 	return append([]*RelayPricingCatalogSyncRun{}, s.syncRuns...), len(s.syncRuns), nil
+}
+
+func (s *pricingCatalogStoreFake) GetRelayUsagePriceReconciliation(ctx context.Context, filter RelayUsagePriceReconciliationFilter) (*RelayUsagePriceReconciliationSummary, error) {
+	s.reconciliationFilter = filter
+	if s.reconciliationErr != nil {
+		return nil, s.reconciliationErr
+	}
+	if s.reconciliation != nil {
+		return s.reconciliation, nil
+	}
+	return &RelayUsagePriceReconciliationSummary{}, nil
 }
 
 func (s *pricingCatalogStoreFake) ApproveRelayPricingCatalogImport(ctx context.Context, importID, actorID, actorEmail string) (*RelayPricingCatalogImport, error) {
