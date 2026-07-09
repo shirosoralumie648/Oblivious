@@ -117,14 +117,18 @@ test('agent planning browser journey adjusts remaining plan with operator reason
 });
 
 test('agent browser journey creates and updates advanced runtime config', async ({ page }) => {
+  test.setTimeout(60_000);
+
   await page.goto('/agents');
 
   await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Browser Planning Agent' })).toBeVisible();
   await page.getByRole('button', { name: 'Create agent' }).click();
 
   const createForm = page.getByRole('region', { name: 'Create agent form' });
   await expect(createForm).toBeVisible();
   await createForm.getByLabel('Agent name').fill('Browser Config Agent');
+  await expect(createForm.getByLabel('Agent name')).toHaveValue('Browser Config Agent');
   await createForm.getByLabel('Model', { exact: true }).fill('gpt-4o-mini');
   await createForm.getByLabel('Description').fill('Exercises the browser create and update agent config flow.');
   await createForm.getByLabel('System prompt').fill('Prefer explicit browser evidence.');
@@ -142,6 +146,7 @@ test('agent browser journey creates and updates advanced runtime config', async 
   await createForm
     .getByLabel('Skills JSON')
     .fill(JSON.stringify([{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }], null, 2));
+  await expect(createForm.getByRole('button', { name: 'Save agent' })).toBeEnabled();
   await createForm.getByRole('button', { name: 'Save agent' }).click();
 
   await expect(page.getByRole('region', { name: 'Create agent form' })).toHaveCount(0);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { Input } from '@/components/ui/input';
 
@@ -80,8 +80,11 @@ function formatDate(value: string) {
 export function AdminAuditLogPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const latestRequestRef = useRef(0);
 
   const loadEntries = useCallback(async () => {
+    const requestID = latestRequestRef.current + 1;
+    latestRequestRef.current = requestID;
     dispatch({ type: 'LOAD_START' });
     try {
       const result = await api.listAuditLogs({
@@ -94,9 +97,13 @@ export function AdminAuditLogPage() {
         limit: 50,
         offset: state.offset,
       });
-      dispatch({ type: 'LOAD_SUCCESS', entries: result.data });
+      if (requestID === latestRequestRef.current) {
+        dispatch({ type: 'LOAD_SUCCESS', entries: result.data });
+      }
     } catch (error) {
-      dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
+      if (requestID === latestRequestRef.current) {
+        dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
+      }
     }
   }, [api, state.action, state.actorSearch, state.endDate, state.offset, state.organizationID, state.resourceType, state.startDate]);
 

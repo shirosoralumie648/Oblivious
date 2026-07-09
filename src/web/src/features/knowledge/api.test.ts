@@ -208,15 +208,18 @@ describe('createKnowledgeApi', () => {
   });
 
   it('uploads knowledge documents through multipart form data', async () => {
-    const uploadedDocument = {
-      content: 'Uploaded content',
-      documentVersion: 'v4',
-      id: 'doc_upload',
+    const ingestionJob = {
+      attempts: 0,
+      availableAt: '2026-04-03T12:45:00Z',
+      createdAt: '2026-04-03T12:45:00Z',
+      id: 'kig_upload',
+      knowledgeBaseId: 'kb_9',
+      maxAttempts: 5,
+      status: 'pending' as const,
       title: 'Uploaded Runbook',
-      updateStrategy: 'versioned' as const,
       updatedAt: '2026-04-03T12:45:00Z'
     };
-    const request = vi.fn().mockResolvedValue(uploadedDocument);
+    const request = vi.fn().mockResolvedValue(ingestionJob);
     const api = createKnowledgeApi(createClient({ request }));
     const file = new File(['uploaded body'], 'runbook.md', { type: 'text/markdown' });
 
@@ -229,7 +232,7 @@ describe('createKnowledgeApi', () => {
         title: 'Uploaded Runbook',
         updateStrategy: 'versioned'
       })
-    ).resolves.toEqual(uploadedDocument);
+    ).resolves.toEqual(ingestionJob);
 
     expect(request).toHaveBeenCalledWith('/api/v1/app/knowledge-bases/kb_9/documents/upload', {
       body: expect.any(FormData),
@@ -242,5 +245,28 @@ describe('createKnowledgeApi', () => {
     expect(formData.get('pageNumber')).toBe('12');
     expect(formData.get('sourceUrl')).toBe('https://docs.example/runbook.md');
     expect(formData.get('updateStrategy')).toBe('versioned');
+  });
+
+  it('lists knowledge document ingestion jobs', async () => {
+    const jobs = [
+      {
+        attempts: 1,
+        availableAt: '2026-04-03T12:45:00Z',
+        createdAt: '2026-04-03T12:40:00Z',
+        documentId: 'doc_upload',
+        id: 'kig_upload',
+        knowledgeBaseId: 'kb_9',
+        maxAttempts: 5,
+        status: 'succeeded' as const,
+        title: 'Uploaded Runbook',
+        updatedAt: '2026-04-03T12:45:00Z'
+      }
+    ];
+    const get = vi.fn().mockResolvedValue(jobs);
+    const api = createKnowledgeApi(createClient({ get }));
+
+    await expect(api.listKnowledgeDocumentIngestionJobs('kb_9')).resolves.toEqual(jobs);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/app/knowledge-bases/kb_9/documents/ingestion-jobs');
   });
 });

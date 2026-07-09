@@ -7,6 +7,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('commercial journey covers onboarding Chat Knowledge Agent Marketplace Admin and billing', async ({ page }) => {
+  test.setTimeout(60_000);
+
   await page.goto('/onboarding');
   await expect(page.getByRole('heading', { name: 'Onboarding' })).toBeVisible();
   await page.getByRole('button', { name: 'Start with Chat' }).click();

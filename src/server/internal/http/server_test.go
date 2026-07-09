@@ -18,12 +18,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 
 	publishingchannel "oblivious/server/internal/channel"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/relay"
+	"oblivious/server/internal/relay/types"
 )
 
 const testDatabaseURLEnvVar = "TEST_DATABASE_URL"
@@ -69,7 +72,10 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
 		`DROP TABLE IF EXISTS workflow_webhook_replay_keys CASCADE`,
+		`DROP TABLE IF EXISTS workflow_debug_variable_snapshots CASCADE`,
+		`DROP TABLE IF EXISTS workflow_debug_trace_entries CASCADE`,
 		`DROP TABLE IF EXISTS workflow_node_executions CASCADE`,
+		`DROP TABLE IF EXISTS workflow_execution_events CASCADE`,
 		`DROP TABLE IF EXISTS workflow_executions CASCADE`,
 		`DROP TABLE IF EXISTS workflow_versions CASCADE`,
 		`DROP TABLE IF EXISTS workflows CASCADE`,
@@ -131,6 +137,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS workspaces CASCADE`,
 		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
+		`DROP TABLE IF EXISTS schema_migrations CASCADE`,
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, plan_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
 		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ, CHECK (status IN ('active', 'disabled', 'archived')))`,
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -154,9 +161,15 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE workflow_executions (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE, workflow_version INTEGER NOT NULL DEFAULT 1, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, status TEXT NOT NULL, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', workflow_snapshot JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('queued', 'running', 'paused', 'succeeded', 'completed', 'failed', 'cancelled', 'partial_success', 'timeout', 'max_iterations')), CHECK (workflow_version >= 1), CHECK (duration_ms >= 0))`,
 		`CREATE INDEX idx_workflow_executions_org_workflow_started_http_test ON workflow_executions(organization_id, workflow_id, started_at DESC)`,
 		`CREATE INDEX idx_workflow_executions_org_status_started_http_test ON workflow_executions(organization_id, status, started_at DESC)`,
+		`CREATE TABLE workflow_execution_events (id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, event_type TEXT NOT NULL, from_status TEXT NOT NULL DEFAULT '', to_status TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (event_type IN ('created', 'status_changed')), CHECK (to_status <> ''))`,
+		`CREATE INDEX workflow_execution_events_org_execution_created_http_test ON workflow_execution_events(organization_id, execution_id, created_at ASC, id ASC)`,
 		`CREATE TABLE workflow_node_executions (id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_type TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('pending', 'running', 'succeeded', 'completed', 'failed', 'skipped', 'paused', 'cancelled', 'timeout')), CHECK (attempt >= 0), CHECK (duration_ms >= 0))`,
 		`CREATE INDEX idx_workflow_node_executions_org_execution_created_http_test ON workflow_node_executions(organization_id, execution_id, created_at ASC)`,
 		`CREATE INDEX idx_workflow_node_executions_org_node_status_http_test ON workflow_node_executions(organization_id, node_id, status)`,
+		`CREATE TABLE workflow_debug_trace_entries (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, node_id TEXT NOT NULL DEFAULT '', node_type TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', attempt INTEGER NOT NULL DEFAULT 0, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE INDEX idx_workflow_debug_trace_entries_org_execution_created_http_test ON workflow_debug_trace_entries(organization_id, execution_id, created_at ASC, id ASC)`,
+		`CREATE TABLE workflow_debug_variable_snapshots (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, input JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', node_outputs JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE INDEX idx_workflow_debug_variable_snapshots_org_execution_created_http_test ON workflow_debug_variable_snapshots(organization_id, execution_id, created_at DESC, id DESC)`,
 		`CREATE TABLE workflow_webhook_replay_keys (replay_key TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE INDEX workflow_webhook_replay_keys_expires_http_test ON workflow_webhook_replay_keys (expires_at)`,
 		`CREATE TABLE observability_alert_provider_configs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, channel TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, config JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -179,7 +192,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE personas (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', style TEXT NOT NULL DEFAULT '', tone TEXT NOT NULL DEFAULT '', constraints TEXT NOT NULL DEFAULT '', opening_message TEXT NOT NULL DEFAULT '', suggested_questions JSONB NOT NULL DEFAULT '[]'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
-		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, api_type TEXT, channel_id TEXT, provider TEXT, api_token_id TEXT, feature_type TEXT, quota_mode TEXT, status TEXT, status_code INTEGER, latency_ms INTEGER, cost NUMERIC(15,6) NOT NULL DEFAULT 0, channel_cost NUMERIC(15,6) NOT NULL DEFAULT 0, request_id TEXT, error_code TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, api_type TEXT, channel_id TEXT, provider TEXT, api_token_id TEXT, feature_type TEXT, quota_mode TEXT, status TEXT, status_code INTEGER, latency_ms INTEGER, cost NUMERIC(15,6) NOT NULL DEFAULT 0, channel_cost NUMERIC(15,6) NOT NULL DEFAULT 0, request_id TEXT, error_code TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), price_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb, price_currency TEXT NOT NULL DEFAULT '', price_source TEXT NOT NULL DEFAULT '', price_effective_from TIMESTAMPTZ)`,
 		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scope TEXT NOT NULL DEFAULT 'organization', balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (scope IN ('organization', 'user')))`,
 		`CREATE UNIQUE INDEX idx_test_quotas_unique_organization_scope ON quotas(organization_id) WHERE scope = 'organization'`,
 		`CREATE UNIQUE INDEX idx_test_quotas_unique_user_scope ON quotas(organization_id, user_id) WHERE scope = 'user'`,
@@ -195,7 +208,8 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, package_id TEXT NOT NULL REFERENCES packages(id), status TEXT DEFAULT 'active', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_end TIMESTAMPTZ, next_plan_id TEXT, provider_subscription_id TEXT, provider_customer_id TEXT, provider_checkout_session_id TEXT, provider_latest_invoice_id TEXT, failed_payment_at TIMESTAMPTZ, cancel_at_period_end BOOLEAN NOT NULL DEFAULT false, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE topup_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, amount DECIMAL(15,6) NOT NULL, money DECIMAL(10,2) NOT NULL, status TEXT DEFAULT 'pending', trade_no TEXT, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), payment_intent_id TEXT, provider_checkout_session_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,
 		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL, provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT REFERENCES packages(id), kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), provider_payment_intent_id TEXT, provider_subscription_id TEXT, provider_invoice_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,
-		`CREATE TABLE stripe_webhook_events (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', event_id TEXT NOT NULL UNIQUE, event_type TEXT NOT NULL, status TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, user_id TEXT REFERENCES users(id) ON DELETE SET NULL, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, payload JSONB NOT NULL, error TEXT, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), processed_at TIMESTAMPTZ)`,
+		`CREATE TABLE stripe_webhook_events (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', event_id TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, user_id TEXT REFERENCES users(id) ON DELETE SET NULL, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, payload JSONB NOT NULL, error TEXT, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), processed_at TIMESTAMPTZ)`,
+		`CREATE UNIQUE INDEX idx_test_stripe_webhook_events_provider_event_id ON stripe_webhook_events(provider, event_id)`,
 		`CREATE TABLE billing_lifecycle_events (id TEXT PRIMARY KEY, transition_key TEXT NOT NULL UNIQUE, provider TEXT NOT NULL DEFAULT 'stripe', provider_event_id TEXT NOT NULL, event_type TEXT NOT NULL, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, entity_type TEXT NOT NULL, entity_id TEXT, from_state TEXT, to_state TEXT NOT NULL, reason TEXT, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE billing_invoices (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_invoice_id TEXT NOT NULL, provider_subscription_id TEXT, provider_payment_intent_id TEXT, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, subscription_id TEXT REFERENCES subscriptions(id) ON DELETE SET NULL, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, status TEXT NOT NULL, amount_due DECIMAL(15,6) NOT NULL DEFAULT 0, amount_paid DECIMAL(15,6) NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'usd', hosted_invoice_url TEXT, invoice_pdf TEXT, period_start TIMESTAMPTZ, period_end TIMESTAMPTZ, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(provider, provider_invoice_id))`,
 		`CREATE TABLE billing_refunds (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_refund_id TEXT NOT NULL, provider_charge_id TEXT, provider_payment_intent_id TEXT, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, topup_order_id TEXT REFERENCES topup_orders(id) ON DELETE SET NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL, reason TEXT, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(provider, provider_refund_id))`,
@@ -329,21 +343,7 @@ func (c serverRequestLogCaptureConn) QueryContext(_ context.Context, query strin
 	c.capture.query = query
 	c.capture.args = append([]driver.NamedValue(nil), args...)
 	c.capture.mu.Unlock()
-	return serverRequestLogCaptureRows{}, nil
-}
-
-type serverRequestLogCaptureRows struct{}
-
-func (serverRequestLogCaptureRows) Columns() []string {
-	return []string{"request_id", "path", "method", "status_code", "latency_ms"}
-}
-
-func (serverRequestLogCaptureRows) Close() error {
-	return nil
-}
-
-func (serverRequestLogCaptureRows) Next(_ []driver.Value) error {
-	return io.EOF
+	return nil, fmt.Errorf("capture query unsupported")
 }
 
 func TestNewServerConfiguresClickHouseRequestLogSink(t *testing.T) {
@@ -385,52 +385,81 @@ func TestNewServerConfiguresClickHouseRequestLogSink(t *testing.T) {
 }
 
 func TestConfigureRequestLogSinkReturnsClickHouseEvidenceStore(t *testing.T) {
-	driverName := fmt.Sprintf("http_server_request_log_evidence_%d", time.Now().UnixNano())
+	driverName := "http_server_request_log_evidence_capture"
 	capture := &serverRequestLogCapture{}
 	registerServerRequestLogCaptureDriver(driverName, capture)
-	cfg := testConfig()
-	cfg.ObservabilityRequestLogBackend = "clickhouse"
-	cfg.ClickHouseDriver = driverName
-	cfg.ClickHouseDSN = "capture-dsn"
 
-	store, closer := configureRequestLogSink(cfg)
-	if closer != nil {
-		defer closer()
+	store, restore := configureRequestLogSink(config.Config{
+		Env:                            "test",
+		ObservabilityRequestLogBackend: "clickhouse",
+		ClickHouseDriver:               driverName,
+		ClickHouseDSN:                  "capture-dsn",
+	})
+	if restore != nil {
+		defer restore()
 	}
 	if store == nil {
 		t.Fatal("expected ClickHouse request-log evidence store")
 	}
 
-	_, err := store.ListRequestLogEvidence(context.Background(), []string{"req-1"})
-	if err != nil {
-		t.Fatalf("list request-log evidence: %v", err)
+	_, err := store.ListRequestLogEvidence(context.Background(), []string{"req_join_1"})
+	if err == nil {
+		t.Fatal("expected capture driver query shape to fail during evidence scan")
 	}
 	capture.mu.Lock()
 	query := capture.query
 	args := append([]driver.NamedValue(nil), capture.args...)
 	capture.mu.Unlock()
-	if !strings.Contains(query, "FROM request_logs") {
+	if !strings.Contains(query, "FROM request_logs") || !strings.Contains(query, "request_id IN") {
 		t.Fatalf("expected request-log evidence query, got %q", query)
 	}
-	if len(args) == 0 || args[0].Value != "req-1" {
-		t.Fatalf("expected request id query arg req-1, got %#v", args)
+	if len(args) != 1 || args[0].Value != "req_join_1" {
+		t.Fatalf("expected request id lookup argument, got %#v", args)
 	}
 }
 
 func TestConfigureRequestLogSinkPanicsInProductionWhenClickHouseUnavailable(t *testing.T) {
-	cfg := testConfig()
-	cfg.Env = "production"
-	cfg.ObservabilityRequestLogBackend = "clickhouse"
-	cfg.ClickHouseDriver = "missing-clickhouse-driver"
-	cfg.ClickHouseDSN = "capture-dsn"
-
 	defer func() {
 		if recovered := recover(); recovered == nil {
-			t.Fatal("expected production ClickHouse request-log sink configuration to panic")
+			t.Fatal("expected production ClickHouse request log sink configuration to panic")
+		} else if !strings.Contains(fmt.Sprint(recovered), "open ClickHouse request log sink") {
+			t.Fatalf("expected ClickHouse configuration panic, got %v", recovered)
 		}
 	}()
 
-	_, _ = configureRequestLogSink(cfg)
+	_, restore := configureRequestLogSink(config.Config{
+		Env:                            "production",
+		ObservabilityRequestLogBackend: "clickhouse",
+		ClickHouseDriver:               "missing_clickhouse_driver_for_test",
+		ClickHouseDSN:                  "capture-dsn",
+	})
+	if restore != nil {
+		defer restore()
+	}
+}
+
+func TestRelayPoolConfigurationErrorPanicsInProduction(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected production relay pool configuration error to panic")
+		} else if !strings.Contains(fmt.Sprint(recovered), "plaintext secret rejected") {
+			t.Fatalf("expected relay pool configuration panic, got %v", recovered)
+		}
+	}()
+
+	handleRelayPoolConfigurationError(config.Config{Env: "production"}, fmt.Errorf("load relay channels from database: plaintext secret rejected"))
+}
+
+func TestRelayStartupErrorPanicsInProduction(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected production relay startup error to panic")
+		} else if !strings.Contains(fmt.Sprint(recovered), "production relay requires active pricing entries") {
+			t.Fatalf("expected relay startup panic, got %v", recovered)
+		}
+	}()
+
+	handleRelayStartupError(config.Config{Env: "production"}, fmt.Errorf("create relay: production relay requires active pricing entries"))
 }
 
 func TestConfigureHTTPAlertingRoutes5xxToSignedWebhookAndRecovery(t *testing.T) {
@@ -504,6 +533,68 @@ func TestConfigureHTTPAlertingRoutes5xxToSignedWebhookAndRecovery(t *testing.T) 
 	}
 	if len(actions) != 1 || actions[0].PolicyName != "record-http-5xx" || actions[0].Type != observability.RecoveryActionRestart {
 		t.Fatalf("expected recorded HTTP recovery action, got %+v", actions)
+	}
+}
+
+func TestConfigureHTTPAlertingRoutesLatencySLOToSignedWebhookAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{
+		observability.AlertSeverityWarning: {observability.AlertDeliveryChannelThirdParty},
+	})
+	var postedBody []byte
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		var err error
+		postedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read latency SLO webhook body: %v", err)
+		}
+		w.WriteHeader(stdhttp.StatusAccepted)
+	}))
+	defer upstream.Close()
+
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPAlertsEnabled:         true,
+		AlertWebhookURL:                        upstream.URL,
+		AlertWebhookSecret:                     "alert-secret",
+		ObservabilityHTTPRecoveryEnabled:       true,
+		ObservabilityHTTPRecoveryCooldownMS:    1000,
+		ObservabilityHTTPLatencySLOThresholdMS: 1,
+	}, store, routingStore, nil)
+	if restore == nil {
+		t.Fatal("expected HTTP alerting to configure latency SLO hooks")
+	}
+	defer restore()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		time.Sleep(5 * time.Millisecond)
+		w.WriteHeader(stdhttp.StatusNoContent)
+	})))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_123/messages", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected original response to survive latency SLO alert handling, got %d", recorder.Code)
+	}
+	if len(postedBody) == 0 {
+		t.Fatal("expected latency SLO alert webhook to receive signed payload")
+	}
+	const alertKey = "http-slo:/api/v1/app/conversations/:id/messages:latency"
+	attempts, err := store.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list latency SLO delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 || attempts[0].Channel != observability.AlertDeliveryChannelThirdParty || !attempts[0].Delivered {
+		t.Fatalf("expected successful third-party latency SLO delivery attempt, got %+v", attempts)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list latency SLO recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-http-latency-slo" || actions[0].Type != observability.RecoveryActionScaleOut {
+		t.Fatalf("expected recorded latency SLO scale-out recovery action, got %+v", actions)
 	}
 }
 
@@ -642,6 +733,47 @@ func TestConfigureHTTPAlertingRoutes5xxToSlackProviderConfig(t *testing.T) {
 		!attempts[0].Delivered {
 		t.Fatalf("expected successful Slack provider delivery attempt, got %+v", attempts)
 	}
+}
+
+func TestConfigureHTTPAlertingPanicsInProductionWithoutDeliverySink(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected production HTTP alerting without delivery sink to panic")
+		}
+		if !strings.Contains(fmt.Sprint(recovered), "HTTP alert delivery sink is required") {
+			t.Fatalf("expected missing alert delivery sink panic, got %v", recovered)
+		}
+	}()
+
+	restore := configureHTTPAlerting(config.Config{
+		Env:                            "production",
+		ObservabilityHTTPAlertsEnabled: true,
+	}, observability.NewInMemoryAlertStateStore(), nil, observability.NewInMemoryAlertProviderConfigStore())
+	if restore != nil {
+		defer restore()
+	}
+}
+
+func TestConfigureHTTPAlertingAllowsProductionWithActiveProviderConfig(t *testing.T) {
+	providerStore := observability.NewInMemoryAlertProviderConfigStore(observability.AlertProviderConfig{
+		ID:     "alert_provider_slack_ops",
+		Kind:   observability.AlertProviderKindSlackWebhook,
+		Name:   "Slack Ops",
+		Status: observability.AlertProviderStatusActive,
+		Config: map[string]string{
+			"webhook_url": "https://hooks.slack.example.test/services/T000/B000/secret",
+		},
+	})
+
+	restore := configureHTTPAlerting(config.Config{
+		Env:                            "production",
+		ObservabilityHTTPAlertsEnabled: true,
+	}, observability.NewInMemoryAlertStateStore(), nil, providerStore)
+	if restore == nil {
+		t.Fatal("expected production HTTP alerting with active provider to configure restore hook")
+	}
+	defer restore()
 }
 
 func TestConfigureHTTPAlertingRoutesPublishingChannelDegradedToSignedWebhookAndRecovery(t *testing.T) {
@@ -815,6 +947,208 @@ func TestBuildRelayConfigWiresHealthAlertingAndRecovery(t *testing.T) {
 	if len(actions) != 1 || actions[0].PolicyName != "record-relay-channel-unhealthy" || actions[0].Type != observability.RecoveryActionFailover {
 		t.Fatalf("expected relay health failover policy, got %+v", actions)
 	}
+}
+
+func TestBuildRelayConfigWiresCommercialLifecycleFlags(t *testing.T) {
+	cfg := testConfig()
+	cfg.RelayBatchCommercialLifecycleEnabled = true
+	cfg.RelayRealtimeCommercialLifecycleEnabled = true
+	cfg.CORSAllowedOrigins = []string{"https://console.example.test"}
+
+	relayConfig := buildRelayConfig(cfg, nil, nil, nil, nil, nil, nil)
+
+	if !relayConfig.BatchCommercialLifecycleEnabled {
+		t.Fatal("expected batch commercial lifecycle flag to be wired")
+	}
+	if !relayConfig.RealtimeCommercialLifecycleEnabled {
+		t.Fatal("expected realtime commercial lifecycle flag to be wired")
+	}
+	if len(relayConfig.CORSAllowedOrigins) != 1 || relayConfig.CORSAllowedOrigins[0] != "https://console.example.test" {
+		t.Fatalf("expected CORS origins to be forwarded to relay realtime origin policy, got %v", relayConfig.CORSAllowedOrigins)
+	}
+}
+
+func TestLoadRelayPricingStoreUsesSQLCatalogAndAdminMultipliers(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	effectiveFrom := time.Date(2026, 7, 9, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery("SELECT id, api_type, model, dimension, unit_cost").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "api_type", "model", "dimension", "unit_cost", "markup", "currency", "source", "effective_from"}).
+			AddRow("rpe_prompt_sql", "chat", "gpt-commercial", "prompt_tokens", 2.0, 1.0, "quota", "sql_catalog", effectiveFrom))
+	mock.ExpectQuery("SELECT value\\s+FROM relay_pricing_settings").
+		WithArgs("global").
+		WillReturnRows(sqlmock.NewRows([]string{"value"}).
+			AddRow([]byte(`{"modelMultipliers":{"gpt-commercial":1.5},"groupMultipliers":{"vip":0.5}}`)))
+
+	pricingStore := loadRelayPricingStore(testConfig(), db)
+	price, err := pricingStore.GetPrice("gpt-commercial", types.APITypeChat, types.DimPromptTokens)
+	if err != nil {
+		t.Fatalf("expected SQL-loaded price: %v", err)
+	}
+	if price != 3.0 {
+		t.Fatalf("expected SQL catalog price with admin multiplier, got %f", price)
+	}
+	cost, err := pricingStore.CalculateCostForGroupStrict("gpt-commercial", types.APITypeChat, &types.Usage{PromptTokens: 2}, "vip")
+	if err != nil {
+		t.Fatalf("calculate grouped cost: %v", err)
+	}
+	if cost != 3.0 {
+		t.Fatalf("expected VIP group multiplier to apply after SQL catalog load, got %f", cost)
+	}
+	if _, err := pricingStore.GetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens); err == nil {
+		t.Fatal("expected default pricing catalog to stay unavailable when SQL catalog is loaded")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestStartRelayBatchPollingWorkerIfEnabledStartsConfiguredWorker(t *testing.T) {
+	server := &recordingShutdownRegistrar{}
+	factory := &recordingRelayBatchPollingWorkerFactory{}
+	cfg := testConfig()
+	cfg.RelayEnabled = true
+	cfg.RelayBatchPollingWorkerEnabled = true
+	cfg.RelayBatchPollingWorkerIntervalMS = 750
+	cfg.RelayBatchPollingWorkerClaimLimit = 6
+	finalizer := relay.NewBatchUsageFinalizer(&recordingRelayUsageReplacer{}, relay.BatchUsageFinalizerConfig{
+		PricingStore: relay.NewPricingStoreWithDefaults(),
+	})
+
+	started := startRelayBatchPollingWorkerIfEnabled(server, cfg, &recordingRelayBatchPollingWorkerStore{}, &recordingRelayBatchStatusClient{}, finalizer, finalizer, factory.newWorker)
+	if !started {
+		t.Fatal("expected relay batch polling worker to start")
+	}
+	if factory.worker == nil {
+		t.Fatalf("expected worker factory to run worker, got %+v", factory.worker)
+	}
+	select {
+	case <-factory.worker.startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for relay batch polling worker to start")
+	}
+	if !factory.worker.started {
+		t.Fatalf("expected worker to be marked started, got %+v", factory.worker)
+	}
+	if factory.config.Interval != 750*time.Millisecond || factory.config.Limit != 6 {
+		t.Fatalf("worker config interval=%s limit=%d", factory.config.Interval, factory.config.Limit)
+	}
+	if factory.config.CompletionFinalizer == nil {
+		t.Fatal("expected batch polling worker to receive completion finalizer")
+	}
+	if factory.config.FailureFinalizer == nil {
+		t.Fatal("expected batch polling worker to receive failure finalizer")
+	}
+	if len(server.shutdowns) != 1 {
+		t.Fatalf("expected one shutdown hook, got %d", len(server.shutdowns))
+	}
+	server.shutdowns[0]()
+	select {
+	case <-factory.worker.cancelledCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for relay batch polling worker shutdown")
+	}
+	if !factory.worker.cancelled {
+		t.Fatal("expected shutdown hook to cancel worker context")
+	}
+}
+
+func TestStartRelayBatchPollingWorkerIfEnabledSkipsWhenDisabled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  config.Config
+	}{
+		{name: "worker disabled", cfg: config.Config{RelayEnabled: true}},
+		{name: "relay disabled", cfg: config.Config{RelayBatchPollingWorkerEnabled: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &recordingShutdownRegistrar{}
+			factory := &recordingRelayBatchPollingWorkerFactory{}
+
+			started := startRelayBatchPollingWorkerIfEnabled(server, tc.cfg, &recordingRelayBatchPollingWorkerStore{}, &recordingRelayBatchStatusClient{}, nil, nil, factory.newWorker)
+			if started {
+				t.Fatal("expected relay batch polling worker to stay stopped")
+			}
+			if factory.worker != nil || len(server.shutdowns) != 0 {
+				t.Fatalf("worker should not be constructed, worker=%+v shutdowns=%d", factory.worker, len(server.shutdowns))
+			}
+		})
+	}
+}
+
+type recordingShutdownRegistrar struct {
+	shutdowns []func()
+}
+
+func (r *recordingShutdownRegistrar) RegisterOnShutdown(fn func()) {
+	r.shutdowns = append(r.shutdowns, fn)
+}
+
+type recordingRelayBatchPollingWorkerFactory struct {
+	config relay.BatchPollingWorkerConfig
+	worker *recordingRelayBatchPollingWorker
+}
+
+func (f *recordingRelayBatchPollingWorkerFactory) newWorker(_ relay.BatchPollingWorkerStore, _ relay.BatchStatusClient, config relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner {
+	f.config = config
+	f.worker = &recordingRelayBatchPollingWorker{
+		startedCh:   make(chan struct{}),
+		cancelledCh: make(chan struct{}),
+	}
+	return f.worker
+}
+
+type recordingRelayBatchPollingWorker struct {
+	started     bool
+	cancelled   bool
+	startedCh   chan struct{}
+	cancelledCh chan struct{}
+}
+
+func (w *recordingRelayBatchPollingWorker) Run(ctx context.Context) {
+	w.started = true
+	close(w.startedCh)
+	<-ctx.Done()
+	w.cancelled = true
+	close(w.cancelledCh)
+}
+
+type recordingRelayUsageReplacer struct{}
+
+func (r *recordingRelayUsageReplacer) RecordRelayUsage(_ context.Context, _ relay.RelayUsageLogRecord) error {
+	return nil
+}
+
+func (r *recordingRelayUsageReplacer) ReplaceRelayUsage(_ context.Context, _ relay.RelayUsageLogRecord) error {
+	return nil
+}
+
+type recordingRelayBatchPollingWorkerStore struct{}
+
+func (s *recordingRelayBatchPollingWorkerStore) ClaimBatchPollingJobs(context.Context, time.Time, int, string) ([]relay.RelayBatchPollingJob, error) {
+	return nil, nil
+}
+
+func (s *recordingRelayBatchPollingWorkerStore) MarkBatchPollingJobDeadLetter(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
+func (s *recordingRelayBatchPollingWorkerStore) MarkBatchPollingJobFailed(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
+func (s *recordingRelayBatchPollingWorkerStore) MarkBatchPollingJobSucceeded(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+type recordingRelayBatchStatusClient struct{}
+
+func (c *recordingRelayBatchStatusClient) RetrieveBatch(context.Context, relay.RelayBatchPollingJob) (relay.BatchStatusResult, error) {
+	return relay.BatchStatusResult{}, nil
 }
 
 func registerHTTPUser(t *testing.T, router stdhttp.Handler, email string) (*stdhttp.Cookie, string, string) {
@@ -2157,6 +2491,34 @@ func TestHealthz(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", body["status"])
+	}
+}
+
+func TestReadyzChecksDatabaseAndMigrationLedger(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/readyz", nil)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected test readyz 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	productionConfig := testConfig()
+	productionConfig.Env = "production"
+	productionRouter := NewRouter(productionConfig, database)
+	productionRecorder := httptest.NewRecorder()
+	productionRequest := httptest.NewRequest(stdhttp.MethodGet, "/readyz", nil)
+
+	productionRouter.ServeHTTP(productionRecorder, productionRequest)
+
+	if productionRecorder.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("expected production readyz to fail without migration ledger, got %d with body %s", productionRecorder.Code, productionRecorder.Body.String())
+	}
+	if !strings.Contains(productionRecorder.Body.String(), "schema_migrations ledger is missing") {
+		t.Fatalf("expected missing migration ledger response, got %s", productionRecorder.Body.String())
 	}
 }
 

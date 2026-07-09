@@ -322,6 +322,11 @@ func applyCommercialJourneyMigrations(t *testing.T, database *sql.DB) {
 		"../../migrations/0081_admin_relay_channel_organization_scope.sql",
 		"../../migrations/0021_plan_extensions.sql",
 		"../../migrations/0032_knowledge_rag_index.sql",
+		"../../migrations/0083_knowledge_index_jobs.sql",
+		"../../migrations/0086_knowledge_index_jobs_dead_letter.sql",
+		"../../migrations/0092_knowledge_index_jobs_delete_operation.sql",
+		"../../migrations/0093_knowledge_ingestion_jobs.sql",
+		"../../migrations/0100_knowledge_index_jobs_completed_by.sql",
 		"../../migrations/0042_workflows.sql",
 	} {
 		migration, err := os.ReadFile(path)

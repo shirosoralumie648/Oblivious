@@ -5,6 +5,7 @@ import type {
   CreateKnowledgeRetrievalTestCaseRequest,
   KnowledgeBaseSummary,
   KnowledgeDocumentChunk,
+  KnowledgeDocumentIngestionJob,
   KnowledgeDocumentVersion,
   KnowledgeDocumentSummary,
   KnowledgeRetrievalResult,
@@ -33,6 +34,7 @@ export interface KnowledgeApi {
   deleteKnowledgeDocument: (knowledgeBaseId: string, documentId: string) => Promise<void>;
   getKnowledgeBase: (knowledgeBaseId: string) => Promise<KnowledgeBaseSummary>;
   listKnowledgeDocumentChunks: (knowledgeBaseId: string, documentId: string) => Promise<KnowledgeDocumentChunk[]>;
+  listKnowledgeDocumentIngestionJobs: (knowledgeBaseId: string) => Promise<KnowledgeDocumentIngestionJob[]>;
   listKnowledgeDocumentVersions: (knowledgeBaseId: string, documentId: string) => Promise<KnowledgeDocumentVersion[]>;
   listKnowledgeDocuments: (knowledgeBaseId: string) => Promise<KnowledgeDocumentSummary[]>;
   listKnowledgeBases: () => Promise<KnowledgeBaseSummary[]>;
@@ -69,7 +71,7 @@ export interface KnowledgeApi {
   uploadKnowledgeDocument: (
     knowledgeBaseId: string,
     payload: UploadKnowledgeDocumentRequest
-  ) => Promise<KnowledgeDocumentSummary>;
+  ) => Promise<KnowledgeDocumentIngestionJob>;
 }
 
 function buildUploadKnowledgeDocumentFormData(payload: UploadKnowledgeDocumentRequest) {
@@ -115,6 +117,8 @@ export function createKnowledgeApi(client: HttpClient): KnowledgeApi {
     getKnowledgeBase: (knowledgeBaseId) => client.get<KnowledgeBaseSummary>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}`),
     listKnowledgeDocumentChunks: (knowledgeBaseId, documentId) =>
       client.get<KnowledgeDocumentChunk[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks`),
+    listKnowledgeDocumentIngestionJobs: (knowledgeBaseId) =>
+      client.get<KnowledgeDocumentIngestionJob[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/ingestion-jobs`),
     listKnowledgeDocumentVersions: (knowledgeBaseId, documentId) =>
       client.get<KnowledgeDocumentVersion[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/versions`),
     listKnowledgeDocuments: (knowledgeBaseId) =>
@@ -149,7 +153,7 @@ export function createKnowledgeApi(client: HttpClient): KnowledgeApi {
         payload
       ),
     uploadKnowledgeDocument: (knowledgeBaseId, payload) =>
-      client.request<KnowledgeDocumentSummary>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/upload`, {
+      client.request<KnowledgeDocumentIngestionJob>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/upload`, {
         body: buildUploadKnowledgeDocumentFormData(payload),
         method: 'POST'
       })

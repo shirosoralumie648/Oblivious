@@ -3087,6 +3087,20 @@ describe('WorkflowsPage', () => {
       executionId: 'wexec_1',
       workflowId: 'workflow_1',
       status: 'failed',
+      stateReplay: {
+        initialStatus: 'running',
+        finalStatus: 'failed',
+        valid: true,
+        transitions: [
+          {
+            event: 'fail',
+            fromStatus: 'running',
+            toStatus: 'failed',
+            createdAt: '2026-06-04T09:00:01Z',
+            eventId: 'wevt_1',
+          },
+        ],
+      },
       variableSnapshot: {
         context: { runMode: 'debug', traceId: 'trace-123' },
         input: { ticket: 'INC-1' },
@@ -3173,6 +3187,10 @@ describe('WorkflowsPage', () => {
     expect(within(details).getByText(/"routed": false/)).toBeInTheDocument();
     expect(within(details).getByText('Errors')).toBeInTheDocument();
     expect(within(details).getByText(/"message": "model unavailable"/)).toBeInTheDocument();
+    expect(within(details).getByText('State replay')).toBeInTheDocument();
+    expect(within(details).getByText('running -> failed')).toBeInTheDocument();
+    expect(within(details).getByText('Replay valid')).toBeInTheDocument();
+    expect(within(details).getByText('fail | running -> failed')).toBeInTheDocument();
     expect(within(details).getByText('Logs')).toBeInTheDocument();
     expect(within(details).getByText('info | manual-start | Node manual-start succeeded in 40ms')).toBeInTheDocument();
     expect(

@@ -198,11 +198,39 @@ export type WorkflowExecutionDebugLogEntry = {
   nodeId?: string;
 };
 
+export type WorkflowExecutionEvent = {
+  id: string;
+  executionId: string;
+  organizationId: string;
+  eventType: 'created' | 'status_changed' | string;
+  fromStatus?: WorkflowExecutionStatus;
+  toStatus: WorkflowExecutionStatus;
+  createdAt: string;
+};
+
+export type WorkflowStateReplayTransition = {
+  event?: string;
+  fromStatus: WorkflowExecutionStatus;
+  toStatus: WorkflowExecutionStatus;
+  createdAt?: string;
+  eventId?: string;
+};
+
+export type WorkflowStateReplay = {
+  initialStatus: WorkflowExecutionStatus;
+  finalStatus: WorkflowExecutionStatus;
+  valid: boolean;
+  invalidReason?: string;
+  transitions: WorkflowStateReplayTransition[];
+};
+
 export type WorkflowExecutionDebugSnapshot = {
   executionId: string;
   workflowId: string;
   status: WorkflowExecutionStatus;
   variableSnapshot: WorkflowExecutionVariableSnapshot;
+  events: WorkflowExecutionEvent[];
+  stateReplay?: WorkflowStateReplay;
   trace: WorkflowExecutionDebugTraceEntry[];
   outputs: Record<string, Record<string, unknown>>;
   performance: WorkflowExecutionDebugPerformance;

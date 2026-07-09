@@ -36,7 +36,7 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	handler := serverhttp.NewRouter(cfg, db)
+	handler := serverhttp.NewChatRouter(cfg, db)
 	addr := fmt.Sprintf(":%d", cfg.Port)
 
 	srv := &http.Server{

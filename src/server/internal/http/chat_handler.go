@@ -327,8 +327,14 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 		return
 	}
 
+	ctx := chat.WithRelayRequestMetadata(r.Context(), chat.RelayRequestMetadata{
+		OrganizationID: session.OrganizationID,
+		UserID:         session.User.ID,
+		WorkspaceID:    session.WorkspaceID,
+		RequestID:      requestIDFromContext(r.Context()),
+	})
 	messages, err := h.service.SendMessage(
-		r.Context(),
+		ctx,
 		session,
 		conversationID,
 		strings.TrimSpace(payload.Content),

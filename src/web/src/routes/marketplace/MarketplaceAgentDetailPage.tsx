@@ -271,7 +271,7 @@ export function MarketplaceAgentDetailPage() {
     try {
       await api.appealAgent(agentId, { reason });
       dispatch({ type: 'SET_APPEAL_REASON', value: '' });
-      dispatch({ type: 'SET_MESSAGE', value: 'Appeal submitted.' });
+      dispatch({ type: 'SET_MESSAGE', value: 'Appeal submitted for review.' });
       await loadAgent();
     } catch (error) {
       dispatch({

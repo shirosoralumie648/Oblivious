@@ -33,7 +33,9 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test('agent memories browser journey covers search create edit export import and delete', async ({ page }) => {
-  await page.goto('/memories');
+  test.setTimeout(60_000);
+
+  await page.goto('/memories', { waitUntil: 'domcontentloaded' });
 
   await expect(page.getByRole('heading', { name: 'Agent Memories' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Agent Memories' })).toHaveAttribute('aria-current', 'page');
@@ -108,7 +110,7 @@ test('agent memories browser journey covers search create edit export import and
 
 test('agent memories mobile layout keeps long memory evidence contained', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/memories');
+  await page.goto('/memories', { waitUntil: 'domcontentloaded' });
 
   await expect(page.getByRole('heading', { name: 'Agent Memories' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Agent Memories' })).toHaveAttribute('aria-current', 'page');

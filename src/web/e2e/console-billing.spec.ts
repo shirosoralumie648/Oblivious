@@ -30,7 +30,7 @@ test.beforeEach(async ({ page }) => {
 test('console billing starts subscription checkout with selected package and provider', async ({ page }) => {
   await page.goto('/console/billing');
 
-  await expect(page.getByRole('heading', { name: 'Console' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Billing' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Current workspace scope' })).toBeVisible();

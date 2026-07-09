@@ -48,6 +48,22 @@ describe('AdminUsageLogsPage', () => {
           latencyMs: 42,
           cost: 0.42,
           channelCost: 0.21,
+          requestLogEvidence: {
+            requestId: 'req_1',
+            requestLogId: '550e8400-e29b-41d4-a716-446655440000',
+            timestamp: '2026-06-01T10:00:01Z',
+            service: 'relay',
+            endpoint: '/v1/chat/completions',
+            method: 'POST',
+            statusCode: 200,
+            durationMs: 41,
+            requestTokens: 100,
+            responseTokens: 20,
+            model: 'gpt-4o',
+            costUsd: 0.42,
+            traceId: 'trace_req_1',
+            metadata: { provider: 'openai', channel_id: 'ch_1' },
+          },
           promptTokens: 100,
           completionTokens: 20,
           totalTokens: 120,
@@ -72,6 +88,9 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByText('$0.4200')).toBeInTheDocument();
     expect(screen.getByText('42 ms')).toBeInTheDocument();
     expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.getByText('550e8400-e29b-41d4-a716-446655440000')).toBeInTheDocument();
+    expect(screen.getByText('relay POST /v1/chat/completions')).toBeInTheDocument();
+    expect(screen.getByText('CH $0.4200 / 41 ms')).toBeInTheDocument();
   });
 
   it('renders usage analytics panels for model, feature, user, time, channel, and provider dimensions', async () => {

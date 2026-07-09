@@ -221,6 +221,28 @@ export type KnowledgeDocumentSummary = {
   updatedAt?: string;
 };
 
+export type KnowledgeDocumentIngestionJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'dead_letter';
+
+export type KnowledgeDocumentIngestionJob = {
+  id: string;
+  knowledgeBaseId: string;
+  documentId?: string;
+  title: string;
+  status: KnowledgeDocumentIngestionJobStatus;
+  error?: string;
+  attempts: number;
+  maxAttempts: number;
+  availableAt: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type KnowledgeDocumentVersion = {
   chunkCount: number;
   content: string;

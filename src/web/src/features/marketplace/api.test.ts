@@ -232,11 +232,11 @@ describe('createMarketplaceApi', () => {
     };
     const post = vi
       .fn()
-      .mockResolvedValueOnce({ status: 'appealed' })
+      .mockResolvedValueOnce({ status: 'appeal_pending' })
       .mockResolvedValueOnce(abuseReport);
     const api = createMarketplaceApi(createClient({ post }));
 
-    await expect(api.appealAgent('agent_1', { reason: 'fixed issue' })).resolves.toEqual({ status: 'appealed' });
+    await expect(api.appealAgent('agent_1', { reason: 'fixed issue' })).resolves.toEqual({ status: 'appeal_pending' });
     await expect(
       api.reportAbuse('agent_1', { reason: 'malware', details: 'attempted credential exfiltration' })
     ).resolves.toEqual(abuseReport);

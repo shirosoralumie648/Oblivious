@@ -362,6 +362,31 @@ describe('createWorkflowsApi', () => {
         nodeOutputs: { classify: { severity: 'critical' } },
       },
       trace: [{ durationMs: 480, nodeId: 'classify', status: 'failed' }],
+      events: [
+        {
+          id: 'wevt_1',
+          executionId: 'wexec_1',
+          organizationId: 'org_1',
+          eventType: 'status_changed',
+          fromStatus: 'running',
+          toStatus: 'failed',
+          createdAt: '2026-07-02T09:30:00Z',
+        },
+      ],
+      stateReplay: {
+        initialStatus: 'running',
+        finalStatus: 'failed',
+        valid: true,
+        transitions: [
+          {
+            event: 'fail',
+            fromStatus: 'running',
+            toStatus: 'failed',
+            createdAt: '2026-07-02T09:30:00Z',
+            eventId: 'wevt_1',
+          },
+        ],
+      },
       outputs: { classify: { severity: 'critical' } },
       performance: {
         bottleneckNodeId: 'classify',
@@ -375,7 +400,14 @@ describe('createWorkflowsApi', () => {
     await expect(api.getExecutionDebugSnapshot('workflow_1', 'wexec_1')).resolves.toEqual(
       expect.objectContaining({
         executionId: 'wexec_1',
+        events: [expect.objectContaining({ eventType: 'status_changed', fromStatus: 'running', toStatus: 'failed' })],
         performance: expect.objectContaining({ bottleneckNodeId: 'classify' }),
+        stateReplay: expect.objectContaining({
+          finalStatus: 'failed',
+          initialStatus: 'running',
+          transitions: [expect.objectContaining({ event: 'fail', fromStatus: 'running', toStatus: 'failed' })],
+          valid: true,
+        }),
       })
     );
 
