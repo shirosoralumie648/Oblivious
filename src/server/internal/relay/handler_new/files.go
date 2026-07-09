@@ -2,8 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -12,19 +12,37 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // FilesHandler 文件代理处理（upload + 透传）
 type FilesHandler struct {
-	pool        *types.ChannelPoolInterface
-	adapter     *channel.OpenAIAdapter
-	storagePath string
+	pool         *types.ChannelPoolInterface
+	adapter      *channel.OpenAIAdapter
+	storagePath  string
+	mappingStore FilesMappingStore
 }
 
 func NewFilesHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter, storagePath string) *FilesHandler {
 	return &FilesHandler{pool: p, adapter: a, storagePath: storagePath}
+}
+
+func (h *FilesHandler) WithMappingStore(store FilesMappingStore) *FilesHandler {
+	h.mappingStore = store
+	return h
+}
+
+type FileMappingRecord struct {
+	LocalFileID  string
+	OpenAIFileID string
+	LocalPath    string
+	SizeBytes    int64
+	CreatedAt    time.Time
+}
+
+type FilesMappingStore interface {
+	SaveFileMapping(ctx context.Context, record FileMappingRecord) error
 }
 
 func (h *FilesHandler) Handle(c *gin.Context) error {
@@ -55,6 +73,18 @@ func (h *FilesHandler) HandleStream(c *gin.Context) error {
 
 // POST /v1/files (文件代理：用户上传 -> 本地存储 -> 转发 OpenAI)
 func (h *FilesHandler) HandleUpload(c *gin.Context) error {
+	if h.mappingStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_store_required", "message": "file upload requires a configured mapping store"}})
+		return nil
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "failed to read upload body"}})
+		return nil
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "no file provided"}})
@@ -86,14 +116,15 @@ func (h *FilesHandler) HandleUpload(c *gin.Context) error {
 
 	// 2. 转发到 OpenAI（简化：直接透传 multipart）
 	upstreamURL, _ := h.adapter.BuildURL("", types.APITypeFiles)
-	upstreamURL = upstreamURL + "/v1/files"
-	upstreamReq, err := http.NewRequest("POST", upstreamURL, nil)
+	upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
 		return nil
 	}
 	upstreamHeaders, _ := h.adapter.BuildHeaders(c.Request.Context(), "", types.APITypeFiles)
 	upstreamReq.Header = upstreamHeaders
+	upstreamReq.Header.Set("Content-Type", c.GetHeader("Content-Type"))
+	upstreamReq.ContentLength = int64(len(body))
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(upstreamReq)
@@ -103,19 +134,22 @@ func (h *FilesHandler) HandleUpload(c *gin.Context) error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	responseBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		c.Data(resp.StatusCode, "application/json", body)
+		c.Data(resp.StatusCode, "application/json", responseBody)
 		return nil
 	}
 
 	// 3. 解析 OpenAI 返回的 file_id，存入映射表
 	var openAIResp map[string]any
-	json.Unmarshal(body, &openAIResp)
+	json.Unmarshal(responseBody, &openAIResp)
 	openAIFileID, _ := openAIResp["id"].(string)
-	h.saveFileMapping(fileID, openAIFileID, localPath, header.Size)
+	if err := h.saveFileMapping(c.Request.Context(), fileID, openAIFileID, localPath, header.Size); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_file_mapping_failed", "message": "failed to save file mapping"}})
+		return nil
+	}
 
-	c.Data(http.StatusOK, "application/json", body)
+	c.Data(http.StatusOK, "application/json", responseBody)
 	return nil
 }
 
@@ -163,8 +197,12 @@ func (h *FilesHandler) passthrough(c *gin.Context, method, path string, body []b
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), bodyOut)
 }
 
-// saveFileMapping 将本地 fileID 和 OpenAI fileID 的映射存入 DB
-func (h *FilesHandler) saveFileMapping(localID, openaiID, path string, size int64) {
-	// TODO: 存入 relay_files 表（Plan D 或后续实现）
-	fmt.Printf("file mapped: local=%s openai=%s path=%s size=%d\n", localID, openaiID, path, size)
+func (h *FilesHandler) saveFileMapping(ctx context.Context, localID, openaiID, path string, size int64) error {
+	return h.mappingStore.SaveFileMapping(ctx, FileMappingRecord{
+		LocalFileID:  localID,
+		OpenAIFileID: openaiID,
+		LocalPath:    path,
+		SizeBytes:    size,
+		CreatedAt:    time.Now().UTC(),
+	})
 }

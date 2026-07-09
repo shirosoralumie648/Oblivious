@@ -58,6 +58,10 @@ type fileMappingListStore interface {
 	ListFileMappings(ctx context.Context, userID, organizationID string) ([]FileMappingRecord, error)
 }
 
+type fileMappingTombstoneStore interface {
+	TombstoneFileMapping(ctx context.Context, localFileID, userID, organizationID string, deletedAt time.Time) error
+}
+
 var ErrFileMappingNotFound = errors.New("relay file mapping not found")
 
 func (h *FilesHandler) Handle(c *gin.Context) error {
@@ -184,7 +188,7 @@ func (h *FilesHandler) HandleGet(c *gin.Context) {
 
 // DELETE /v1/files/:id (透传)
 func (h *FilesHandler) HandleDelete(c *gin.Context) {
-	h.passthroughMappedFile(c, "DELETE", c.Param("id"), "")
+	h.deleteMappedFile(c, c.Param("id"))
 }
 
 // GET /v1/files/:id/content (透传)
@@ -362,6 +366,71 @@ func (h *FilesHandler) passthroughMappedFile(c *gin.Context, method, localFileID
 	}
 
 	h.passthrough(c, method, "/"+mapping.OpenAIFileID+suffix, nil)
+}
+
+func (h *FilesHandler) deleteMappedFile(c *gin.Context, localFileID string) {
+	if h.mappingStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_store_required", "message": "file delete requires a configured mapping store"}})
+		return
+	}
+	applyTrustedInternalIdentity(c)
+
+	userID, hasUserID := types.TrustedUserIDFromContext(c.Request.Context())
+	organizationID, hasOrganizationID := types.TrustedOrganizationIDFromContext(c.Request.Context())
+	if !hasUserID || strings.TrimSpace(userID) == "" || !hasOrganizationID || strings.TrimSpace(organizationID) == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "relay_file_mapping_identity_required", "message": "file delete requires trusted tenant identity"}})
+		return
+	}
+
+	lookupStore, ok := h.mappingStore.(fileMappingLookupStore)
+	if !ok {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_lookup_required", "message": "file delete requires a mapping lookup store"}})
+		return
+	}
+	tombstoneStore, ok := h.mappingStore.(fileMappingTombstoneStore)
+	if !ok {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_tombstone_required", "message": "file delete requires a mapping tombstone store"}})
+		return
+	}
+
+	mapping, err := lookupStore.GetFileMapping(c.Request.Context(), localFileID, userID, organizationID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "relay_file_mapping_lookup_failed"
+		message := "failed to lookup file mapping"
+		if errors.Is(err, ErrFileMappingNotFound) {
+			status = http.StatusNotFound
+			code = "relay_file_mapping_not_found"
+			message = "file mapping not found"
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
+		return
+	}
+	if strings.TrimSpace(mapping.OpenAIFileID) == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "relay_file_mapping_not_found", "message": "file mapping not found"}})
+		return
+	}
+
+	resp, err := h.passthroughUpstream(c, http.MethodDelete, "/"+mapping.OpenAIFileID, nil)
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, types.ErrNoAvailableChannel) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
+		return
+	}
+	contentType := resp.Headers.Get("Content-Type")
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/json"
+	}
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		if err := tombstoneStore.TombstoneFileMapping(c.Request.Context(), localFileID, userID, organizationID, time.Now().UTC()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_file_mapping_tombstone_failed", "message": "failed to tombstone file mapping"}})
+			return
+		}
+	}
+	c.Data(resp.StatusCode, contentType, resp.Content)
 }
 
 func (h *FilesHandler) passthroughMappedFileList(c *gin.Context) {

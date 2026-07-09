@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"oblivious/server/internal/relay/channel"
@@ -529,6 +530,50 @@ func TestFilesGetRequiresMappingStore(t *testing.T) {
 	}
 }
 
+func TestFilesDeleteTombstonesTenantMappingAfterUpstreamSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		if r.Method != http.MethodDelete {
+			t.Fatalf("upstream method = %s, want DELETE", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"file_openai_123","object":"file","deleted":true}`))
+	}))
+	defer upstream.Close()
+
+	store := &recordingFilesMappingStore{
+		lookup: FileMappingRecord{
+			LocalFileID:    "file_local_123",
+			OpenAIFileID:   "file_openai_123",
+			UserID:         "user_file",
+			OrganizationID: "org_file",
+		},
+	}
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir()).WithMappingStore(store)
+	ctx, rec := newFilesIDContext(http.MethodDelete, "/v1/files/file_local_123", "file_local_123")
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleDelete(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if upstreamPath != "/v1/files/file_openai_123" {
+		t.Fatalf("upstream path = %q, want /v1/files/file_openai_123", upstreamPath)
+	}
+	if store.tombstoneLocalID != "file_local_123" ||
+		store.tombstoneUserID != "user_file" ||
+		store.tombstoneOrganizationID != "org_file" {
+		t.Fatalf("tombstone evidence local=%q user=%q org=%q", store.tombstoneLocalID, store.tombstoneUserID, store.tombstoneOrganizationID)
+	}
+	if store.tombstoneDeletedAt.IsZero() {
+		t.Fatal("expected tombstone deleted_at timestamp")
+	}
+}
+
 func newMultipartUploadContext(t *testing.T, filename, content, purpose string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	var body bytes.Buffer
@@ -580,16 +625,20 @@ func trustedFilesContext(ctx context.Context) context.Context {
 }
 
 type recordingFilesMappingStore struct {
-	records              []FileMappingRecord
-	lookup               FileMappingRecord
-	lookupErr            error
-	lookupLocalID        string
-	lookupUserID         string
-	lookupOrganizationID string
-	list                 []FileMappingRecord
-	listErr              error
-	listUserID           string
-	listOrganizationID   string
+	records                 []FileMappingRecord
+	lookup                  FileMappingRecord
+	lookupErr               error
+	lookupLocalID           string
+	lookupUserID            string
+	lookupOrganizationID    string
+	list                    []FileMappingRecord
+	listErr                 error
+	listUserID              string
+	listOrganizationID      string
+	tombstoneLocalID        string
+	tombstoneUserID         string
+	tombstoneOrganizationID string
+	tombstoneDeletedAt      time.Time
 }
 
 func (s *recordingFilesMappingStore) SaveFileMapping(ctx context.Context, record FileMappingRecord) error {
@@ -628,6 +677,14 @@ func (s *recordingFilesMappingStore) ListFileMappings(ctx context.Context, userI
 		}
 	}
 	return records, nil
+}
+
+func (s *recordingFilesMappingStore) TombstoneFileMapping(ctx context.Context, localFileID, userID, organizationID string, deletedAt time.Time) error {
+	s.tombstoneLocalID = localFileID
+	s.tombstoneUserID = userID
+	s.tombstoneOrganizationID = organizationID
+	s.tombstoneDeletedAt = deletedAt
+	return nil
 }
 
 type saveOnlyFilesMappingStore struct{}
