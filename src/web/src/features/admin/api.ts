@@ -28,6 +28,14 @@ import type {
   PlanInfo,
   PlanUpdateRequest,
   PublishedAgent,
+  RelayPricingCatalogImport,
+  RelayPricingCatalogImportFilter,
+  RelayPricingCatalogImportRequest,
+  RelayPricingCatalogRejectRequest,
+  RelayPricingCatalogRollbackRequest,
+  RelayPricingCatalogSyncRequest,
+  RelayPricingCatalogSyncRun,
+  RelayPricingCatalogSyncRunFilter,
   RelayPricingSettings,
   RouteCreateRequest,
   RouteInfo,
@@ -108,6 +116,18 @@ type APITokenListPayload = {
 type UsageLimitSettingsPayload = {
   usageLimits?: UsageLimitSettings[];
   data?: UsageLimitSettings[];
+};
+
+type RelayPricingCatalogImportListPayload = {
+  imports?: RelayPricingCatalogImport[];
+  data?: RelayPricingCatalogImport[];
+  total?: number;
+};
+
+type RelayPricingCatalogSyncRunListPayload = {
+  runs?: RelayPricingCatalogSyncRun[];
+  data?: RelayPricingCatalogSyncRun[];
+  total?: number;
 };
 
 export type AdminObservabilityAlertState = {
@@ -333,6 +353,13 @@ export type AdminApi = {
   getStats: () => Promise<AdminStats>;
   getRelayPricingSettings: () => Promise<RelayPricingSettings>;
   updateRelayPricingSettings: (input: RelayPricingSettings) => Promise<RelayPricingSettings>;
+  listRelayPricingCatalogImports: (params?: RelayPricingCatalogImportFilter) => Promise<PaginatedResponse<RelayPricingCatalogImport>>;
+  createRelayPricingCatalogImport: (input: RelayPricingCatalogImportRequest) => Promise<RelayPricingCatalogImport>;
+  syncRelayPricingCatalogImport: (input: RelayPricingCatalogSyncRequest) => Promise<RelayPricingCatalogImport>;
+  approveRelayPricingCatalogImport: (id: string) => Promise<RelayPricingCatalogImport>;
+  rejectRelayPricingCatalogImport: (id: string, input: RelayPricingCatalogRejectRequest | string) => Promise<RelayPricingCatalogImport>;
+  rollbackRelayPricingCatalogImport: (id: string, input?: RelayPricingCatalogRollbackRequest) => Promise<RelayPricingCatalogImport>;
+  listRelayPricingCatalogSyncRuns: (params?: RelayPricingCatalogSyncRunFilter) => Promise<PaginatedResponse<RelayPricingCatalogSyncRun>>;
   getUsageLimitSettings: () => Promise<UsageLimitSettings[]>;
   updateUsageLimitSettings: (input: UsageLimitSettings) => Promise<UsageLimitSettings>;
   listChannels: (params?: {
@@ -477,6 +504,7 @@ function collectionPayload<T, K extends string>(payload: CollectionPayload<T, K>
 
 export function createAdminApi(client: HttpClient): AdminApi {
   const apiPrefix = '/api/v1/admin';
+  const relayPricingCatalogPrefix = `${apiPrefix}/pricing/relay-catalog`;
   const observabilityAlertsPrefix = `${apiPrefix}/observability/alerts`;
   const observabilityAlertProvidersPrefix = `${apiPrefix}/observability/alert-providers`;
 
@@ -484,6 +512,29 @@ export function createAdminApi(client: HttpClient): AdminApi {
     getStats: () => client.get<AdminStats>(`${apiPrefix}/stats`),
     getRelayPricingSettings: () => client.get<RelayPricingSettings>(`${apiPrefix}/settings/relay-pricing`),
     updateRelayPricingSettings: (input) => client.put<RelayPricingSettings>(`${apiPrefix}/settings/relay-pricing`, input),
+    listRelayPricingCatalogImports: async (params) => {
+      const payload = await client.get<RelayPricingCatalogImportListPayload>(
+        `${relayPricingCatalogPrefix}/imports${buildQuery(params)}`
+      );
+      return collection(payload.imports ?? payload.data, payload.total);
+    },
+    createRelayPricingCatalogImport: (input) => client.post<RelayPricingCatalogImport>(`${relayPricingCatalogPrefix}/imports`, input),
+    syncRelayPricingCatalogImport: (input) => client.post<RelayPricingCatalogImport>(`${relayPricingCatalogPrefix}/sync`, input),
+    approveRelayPricingCatalogImport: (id) =>
+      client.post<RelayPricingCatalogImport>(`${relayPricingCatalogPrefix}/imports/${encodeURIComponent(id)}/approve`),
+    rejectRelayPricingCatalogImport: (id, input) =>
+      client.post<RelayPricingCatalogImport>(
+        `${relayPricingCatalogPrefix}/imports/${encodeURIComponent(id)}/reject`,
+        typeof input === 'string' ? { reason: input } : input
+      ),
+    rollbackRelayPricingCatalogImport: (id, input = {}) =>
+      client.post<RelayPricingCatalogImport>(`${relayPricingCatalogPrefix}/imports/${encodeURIComponent(id)}/rollback`, input),
+    listRelayPricingCatalogSyncRuns: async (params) => {
+      const payload = await client.get<RelayPricingCatalogSyncRunListPayload>(
+        `${relayPricingCatalogPrefix}/sync-runs${buildQuery(params)}`
+      );
+      return collection(payload.runs ?? payload.data, payload.total);
+    },
     getUsageLimitSettings: async () => {
       const payload = await client.get<UsageLimitSettingsPayload>(`${apiPrefix}/settings/usage-limits`);
       return payload.usageLimits ?? payload.data ?? [];

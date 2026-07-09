@@ -722,6 +722,51 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	})))
+	mux.Handle("/api/v1/admin/pricing/relay-catalog/imports", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			adminHandler.listRelayPricingCatalogImports(w, r)
+		case stdhttp.MethodPost:
+			adminHandler.createRelayPricingCatalogImport(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/admin/pricing/relay-catalog/imports/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/pricing/relay-catalog/imports/"), "/"), "/")
+		if len(parts) != 2 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		switch parts[1] {
+		case "approve":
+			adminHandler.approveRelayPricingCatalogImport(w, r, parts[0])
+		case "reject":
+			adminHandler.rejectRelayPricingCatalogImport(w, r, parts[0])
+		case "rollback":
+			adminHandler.rollbackRelayPricingCatalogImport(w, r, parts[0])
+		default:
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+		}
+	})))
+	mux.Handle("/api/v1/admin/pricing/relay-catalog/sync", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.syncRelayPricingCatalogImport(w, r)
+	})))
+	mux.Handle("/api/v1/admin/pricing/relay-catalog/sync-runs", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listRelayPricingCatalogSyncRuns(w, r)
+	})))
 	mux.Handle("/api/v1/admin/settings/usage-limits", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:

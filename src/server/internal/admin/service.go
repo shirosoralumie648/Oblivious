@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -66,6 +67,7 @@ type Service struct {
 	relayPricingSettingsApplier func(RelayPricingSettings)
 	channelRuntimeStatsProvider ChannelRuntimeStatsProvider
 	relayConfigApplier          RelayConfigApplier
+	relayPricingSyncHTTPClient  *http.Client
 }
 
 type ServiceOption func(*Service)
@@ -127,6 +129,12 @@ func WithUsageAnalyticsStore(store UsageAnalyticsStore) ServiceOption {
 func WithRequestLogEvidenceStore(store RequestLogEvidenceStore) ServiceOption {
 	return func(service *Service) {
 		service.requestLogEvidenceStore = store
+	}
+}
+
+func WithRelayPricingSyncHTTPClient(client *http.Client) ServiceOption {
+	return func(service *Service) {
+		service.relayPricingSyncHTTPClient = client
 	}
 }
 

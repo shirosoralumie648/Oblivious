@@ -92,6 +92,118 @@ export type RelayPricingSettings = {
   groupMultipliers: Record<string, number>;
 };
 
+export type RelayPricingCatalogEntry = {
+  id?: string;
+  apiType: string;
+  model: string;
+  dimension: string;
+  unitCost: number;
+  markup: number;
+  currency: string;
+  source: string;
+  effectiveFrom?: string;
+  active: boolean;
+};
+
+export type RelayPricingCatalogImportRequest = {
+  provider: string;
+  source: string;
+  sourceHash?: string;
+  notes?: string;
+  deactivateMissing?: boolean;
+  effectiveFrom?: string;
+  entries: RelayPricingCatalogEntry[];
+};
+
+export type RelayPricingCatalogSyncRequest = {
+  provider: string;
+  source?: string;
+  sourceUrl?: string;
+  sourceJson?: unknown;
+  notes?: string;
+  deactivateMissing?: boolean;
+  effectiveFrom?: string;
+  requiredModels?: string[];
+  maxBytes?: number;
+};
+
+export type RelayPricingCatalogRejectRequest = {
+  reason?: string;
+};
+
+export type RelayPricingCatalogRollbackRequest = {
+  notes?: string;
+};
+
+export type RelayPricingCatalogDiffEntry = {
+  action: string;
+  key: string;
+  before?: RelayPricingCatalogEntry;
+  after?: RelayPricingCatalogEntry;
+  reason?: string;
+  applied?: boolean;
+  appliedId?: string;
+};
+
+export type RelayPricingCatalogDiff = {
+  added: number;
+  updated: number;
+  unchanged: number;
+  deactivated: number;
+  entries: RelayPricingCatalogDiffEntry[];
+};
+
+export type RelayPricingCatalogImport = {
+  id: string;
+  provider: string;
+  source: string;
+  sourceHash?: string;
+  status: string;
+  notes?: string;
+  deactivateMissing: boolean;
+  importedBy?: string;
+  importedByEmail?: string;
+  approvedBy?: string;
+  approvedByEmail?: string;
+  entries: RelayPricingCatalogEntry[];
+  diff: RelayPricingCatalogDiff;
+  createdAt: string;
+  approvedAt?: string;
+};
+
+export type RelayPricingCatalogImportFilter = {
+  provider?: string;
+  source?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type RelayPricingCatalogSyncRun = {
+  id: string;
+  job: string;
+  provider?: string;
+  source?: string;
+  sourceRef?: string;
+  sourceHash?: string;
+  status: string;
+  importId?: string;
+  entryCount: number;
+  missingRequiredModels?: string[];
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+};
+
+export type RelayPricingCatalogSyncRunFilter = {
+  job?: string;
+  provider?: string;
+  source?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+};
+
 export type UsageLimitSettings = {
   organizationId?: string;
   organizationID?: string;

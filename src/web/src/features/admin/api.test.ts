@@ -655,6 +655,131 @@ describe('createAdminApi', () => {
     });
   });
 
+  it('serializes relay pricing catalog import approval and rollback endpoints', async () => {
+    const createdImport = {
+      id: 'rpci_1',
+      provider: 'openai',
+      source: 'litellm',
+      status: 'pending',
+      deactivateMissing: true,
+      entries: [],
+      diff: { added: 1, updated: 0, unchanged: 0, deactivated: 0, entries: [] },
+      createdAt: '2026-07-02T00:00:00Z',
+    };
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ imports: [createdImport], total: 1 })
+      .mockResolvedValueOnce({
+        runs: [
+          {
+            id: 'rpcs_1',
+            job: 'manual',
+            provider: 'openai',
+            source: 'litellm',
+            status: 'succeeded',
+            entryCount: 2,
+            startedAt: '2026-07-02T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(createdImport)
+      .mockResolvedValueOnce({ ...createdImport, id: 'rpci_sync' })
+      .mockResolvedValueOnce({ ...createdImport, status: 'approved' })
+      .mockResolvedValueOnce({ ...createdImport, id: 'rpci_reject', status: 'rejected' })
+      .mockResolvedValueOnce({ ...createdImport, id: 'rpci_rollback', source: 'rollback:rpci_1' });
+    const api = createAdminApi(createClient({ get, post }));
+
+    await expect(api.listRelayPricingCatalogImports({ provider: 'openai', status: 'pending', limit: 20 })).resolves.toEqual({
+      data: [createdImport],
+      total: 1,
+    });
+    await expect(
+      api.createRelayPricingCatalogImport({
+        provider: 'openai',
+        source: 'litellm',
+        deactivateMissing: true,
+        entries: [
+          {
+            apiType: 'chat',
+            model: 'gpt-4o',
+            dimension: 'prompt_tokens',
+            unitCost: 0.003,
+            markup: 1,
+            currency: 'quota',
+            source: 'litellm',
+            active: true,
+          },
+        ],
+      })
+    ).resolves.toEqual(createdImport);
+    await expect(
+      api.syncRelayPricingCatalogImport({
+        provider: 'openai',
+        source: 'litellm',
+        sourceUrl: 'https://example.test/prices.json',
+        requiredModels: ['gpt-4o'],
+        maxBytes: 1048576,
+      })
+    ).resolves.toMatchObject({ id: 'rpci_sync' });
+    await expect(api.approveRelayPricingCatalogImport('rpci_1')).resolves.toMatchObject({ status: 'approved' });
+    await expect(api.rejectRelayPricingCatalogImport('rpci_reject', 'bad source hash')).resolves.toMatchObject({ status: 'rejected' });
+    await expect(api.rollbackRelayPricingCatalogImport('rpci_1', { notes: 'restore previous catalog' })).resolves.toMatchObject({
+      id: 'rpci_rollback',
+      source: 'rollback:rpci_1',
+    });
+    await expect(api.listRelayPricingCatalogSyncRuns({ provider: 'openai', status: 'succeeded', limit: 10 })).resolves.toEqual({
+      data: [
+        {
+          id: 'rpcs_1',
+          job: 'manual',
+          provider: 'openai',
+          source: 'litellm',
+          status: 'succeeded',
+          entryCount: 2,
+          startedAt: '2026-07-02T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/admin/pricing/relay-catalog/imports?provider=openai&status=pending&limit=20');
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/pricing/relay-catalog/imports', {
+      provider: 'openai',
+      source: 'litellm',
+      deactivateMissing: true,
+      entries: [
+        {
+          apiType: 'chat',
+          model: 'gpt-4o',
+          dimension: 'prompt_tokens',
+          unitCost: 0.003,
+          markup: 1,
+          currency: 'quota',
+          source: 'litellm',
+          active: true,
+        },
+      ],
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/pricing/relay-catalog/sync', {
+      provider: 'openai',
+      source: 'litellm',
+      sourceUrl: 'https://example.test/prices.json',
+      requiredModels: ['gpt-4o'],
+      maxBytes: 1048576,
+    });
+    expect(post).toHaveBeenNthCalledWith(3, '/api/v1/admin/pricing/relay-catalog/imports/rpci_1/approve');
+    expect(post).toHaveBeenNthCalledWith(4, '/api/v1/admin/pricing/relay-catalog/imports/rpci_reject/reject', {
+      reason: 'bad source hash',
+    });
+    expect(post).toHaveBeenNthCalledWith(5, '/api/v1/admin/pricing/relay-catalog/imports/rpci_1/rollback', {
+      notes: 'restore previous catalog',
+    });
+    expect(get).toHaveBeenNthCalledWith(2, '/api/v1/admin/pricing/relay-catalog/sync-runs?provider=openai&status=succeeded&limit=10');
+  });
+
   it('updates admin user quota allocation with backend PATCH payload', async () => {
     const request = vi.fn().mockResolvedValue({
       id: 'user_1',

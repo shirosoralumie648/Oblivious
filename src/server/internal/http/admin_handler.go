@@ -400,6 +400,141 @@ func (h adminHandler) updateRelayPricingSettings(w stdhttp.ResponseWriter, r *st
 	writeSuccess(w, stdhttp.StatusOK, settings)
 }
 
+func (h adminHandler) listRelayPricingCatalogImports(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	imports, total, err := h.service.ListRelayPricingCatalogImports(r.Context(), admin.RelayPricingCatalogImportFilter{
+		Provider: r.URL.Query().Get("provider"),
+		Source:   r.URL.Query().Get("source"),
+		Status:   r.URL.Query().Get("status"),
+		Limit:    parseQueryInt(r, "limit", 20, 100),
+		Offset:   parseQueryInt(r, "offset", 0, 0),
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"imports": imports, "total": total})
+}
+
+func (h adminHandler) listRelayPricingCatalogSyncRuns(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	runs, total, err := h.service.ListRelayPricingCatalogSyncRuns(r.Context(), admin.RelayPricingCatalogSyncRunFilter{
+		Job:      r.URL.Query().Get("job"),
+		Provider: r.URL.Query().Get("provider"),
+		Source:   r.URL.Query().Get("source"),
+		Status:   r.URL.Query().Get("status"),
+		Limit:    parseQueryInt(r, "limit", 20, 100),
+		Offset:   parseQueryInt(r, "offset", 0, 0),
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"runs": runs, "total": total})
+}
+
+func (h adminHandler) createRelayPricingCatalogImport(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var request admin.RelayPricingCatalogImportRequest
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	catalogImport, err := h.service.CreateRelayPricingCatalogImport(r.Context(), session, request, requestClientIP(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusCreated, catalogImport)
+}
+
+func (h adminHandler) syncRelayPricingCatalogImport(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var request admin.RelayPricingCatalogSyncRequest
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	catalogImport, err := h.service.CreateRelayPricingCatalogImportFromLiteLLMSync(r.Context(), session, request, requestClientIP(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusCreated, catalogImport)
+}
+
+func (h adminHandler) approveRelayPricingCatalogImport(w stdhttp.ResponseWriter, r *stdhttp.Request, importID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	catalogImport, err := h.service.ApproveRelayPricingCatalogImport(r.Context(), session, importID, requestClientIP(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotFound):
+			writeError(w, stdhttp.StatusNotFound, "not_found", "relay pricing catalog import not found")
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotPending):
+			writeError(w, stdhttp.StatusConflict, "conflict", err.Error())
+		default:
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		}
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, catalogImport)
+}
+
+func (h adminHandler) rejectRelayPricingCatalogImport(w stdhttp.ResponseWriter, r *stdhttp.Request, importID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var request admin.RelayPricingCatalogRejectRequest
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	catalogImport, err := h.service.RejectRelayPricingCatalogImport(r.Context(), session, importID, request, requestClientIP(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotFound):
+			writeError(w, stdhttp.StatusNotFound, "not_found", "relay pricing catalog import not found")
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotPending):
+			writeError(w, stdhttp.StatusConflict, "conflict", err.Error())
+		default:
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		}
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, catalogImport)
+}
+
+func (h adminHandler) rollbackRelayPricingCatalogImport(w stdhttp.ResponseWriter, r *stdhttp.Request, importID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var request admin.RelayPricingCatalogRollbackRequest
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	catalogImport, err := h.service.CreateRelayPricingCatalogRollbackImport(r.Context(), session, importID, request, requestClientIP(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotFound):
+			writeError(w, stdhttp.StatusNotFound, "not_found", "relay pricing catalog import not found")
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportNotApproved):
+			writeError(w, stdhttp.StatusConflict, "conflict", err.Error())
+		case errors.Is(err, admin.ErrRelayPricingCatalogImportConflict):
+			writeError(w, stdhttp.StatusConflict, "catalog_conflict", err.Error())
+		default:
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		}
+		return
+	}
+	writeSuccess(w, stdhttp.StatusCreated, catalogImport)
+}
+
 func (h adminHandler) listUsageLimitSettings(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	session, ok := sessionOrUnauthorized(w, r)
 	if !ok {

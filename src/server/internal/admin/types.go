@@ -121,6 +121,132 @@ type RelayPricingSettings struct {
 }
 
 // ChannelTestResult holds the result of a channel connectivity test (D-06).
+// RelayPricingCatalogEntry is one effective Relay runtime catalog row.
+type RelayPricingCatalogEntry struct {
+	ID            string     `json:"id,omitempty"`
+	APIType       string     `json:"apiType"`
+	Model         string     `json:"model"`
+	Dimension     string     `json:"dimension"`
+	UnitCost      float64    `json:"unitCost"`
+	Markup        float64    `json:"markup"`
+	Currency      string     `json:"currency"`
+	Source        string     `json:"source"`
+	EffectiveFrom *time.Time `json:"effectiveFrom,omitempty"`
+	Active        bool       `json:"active"`
+}
+
+// RelayPricingCatalogImportRequest is the admin-submitted provider price import draft.
+type RelayPricingCatalogImportRequest struct {
+	Provider          string                     `json:"provider"`
+	Source            string                     `json:"source"`
+	SourceHash        string                     `json:"sourceHash,omitempty"`
+	Notes             string                     `json:"notes,omitempty"`
+	DeactivateMissing bool                       `json:"deactivateMissing,omitempty"`
+	EffectiveFrom     *time.Time                 `json:"effectiveFrom,omitempty"`
+	Entries           []RelayPricingCatalogEntry `json:"entries"`
+}
+
+// RelayPricingCatalogSyncRequest fetches or parses a provider price source into a pending import.
+type RelayPricingCatalogSyncRequest struct {
+	Provider          string          `json:"provider"`
+	Source            string          `json:"source,omitempty"`
+	SourceURL         string          `json:"sourceUrl,omitempty"`
+	SourceJSON        json.RawMessage `json:"sourceJson,omitempty"`
+	Notes             string          `json:"notes,omitempty"`
+	DeactivateMissing bool            `json:"deactivateMissing,omitempty"`
+	EffectiveFrom     *time.Time      `json:"effectiveFrom,omitempty"`
+	RequiredModels    []string        `json:"requiredModels,omitempty"`
+	MaxBytes          int64           `json:"maxBytes,omitempty"`
+}
+
+// RelayPricingCatalogRejectRequest rejects a pending import without mutating runtime prices.
+type RelayPricingCatalogRejectRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// RelayPricingCatalogRollbackRequest creates a pending import that restores an approved import.
+type RelayPricingCatalogRollbackRequest struct {
+	Notes string `json:"notes,omitempty"`
+}
+
+// RelayPricingCatalogDiffEntry describes how an import changes one catalog key.
+type RelayPricingCatalogDiffEntry struct {
+	Action    string                    `json:"action"`
+	Key       string                    `json:"key"`
+	Before    *RelayPricingCatalogEntry `json:"before,omitempty"`
+	After     *RelayPricingCatalogEntry `json:"after,omitempty"`
+	Reason    string                    `json:"reason,omitempty"`
+	Applied   bool                      `json:"applied,omitempty"`
+	AppliedID string                    `json:"appliedId,omitempty"`
+}
+
+// RelayPricingCatalogDiff summarizes an import draft against the active catalog.
+type RelayPricingCatalogDiff struct {
+	Added       int                            `json:"added"`
+	Updated     int                            `json:"updated"`
+	Unchanged   int                            `json:"unchanged"`
+	Deactivated int                            `json:"deactivated"`
+	Entries     []RelayPricingCatalogDiffEntry `json:"entries"`
+}
+
+// RelayPricingCatalogImport records a price-source import and its approval state.
+type RelayPricingCatalogImport struct {
+	ID                string                     `json:"id"`
+	Provider          string                     `json:"provider"`
+	Source            string                     `json:"source"`
+	SourceHash        string                     `json:"sourceHash,omitempty"`
+	Status            string                     `json:"status"`
+	Notes             string                     `json:"notes,omitempty"`
+	DeactivateMissing bool                       `json:"deactivateMissing"`
+	ImportedBy        string                     `json:"importedBy,omitempty"`
+	ImportedByEmail   string                     `json:"importedByEmail,omitempty"`
+	ApprovedBy        string                     `json:"approvedBy,omitempty"`
+	ApprovedByEmail   string                     `json:"approvedByEmail,omitempty"`
+	Entries           []RelayPricingCatalogEntry `json:"entries"`
+	Diff              RelayPricingCatalogDiff    `json:"diff"`
+	CreatedAt         time.Time                  `json:"createdAt"`
+	ApprovedAt        *time.Time                 `json:"approvedAt,omitempty"`
+}
+
+// RelayPricingCatalogImportFilter filters import history.
+type RelayPricingCatalogImportFilter struct {
+	Provider string
+	Source   string
+	Status   string
+	Limit    int
+	Offset   int
+}
+
+// RelayPricingCatalogSyncRun records a provider price sync or reconciliation run.
+type RelayPricingCatalogSyncRun struct {
+	ID             string          `json:"id"`
+	Job            string          `json:"job"`
+	Provider       string          `json:"provider,omitempty"`
+	Source         string          `json:"source,omitempty"`
+	SourceRef      string          `json:"sourceRef,omitempty"`
+	SourceHash     string          `json:"sourceHash,omitempty"`
+	Status         string          `json:"status"`
+	ImportID       string          `json:"importId,omitempty"`
+	EntryCount     int             `json:"entryCount"`
+	SkippedCount   int             `json:"skippedCount"`
+	CheckedRecords int             `json:"checkedRecords"`
+	IssueCount     int             `json:"issueCount"`
+	Error          string          `json:"error,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	StartedAt      time.Time       `json:"startedAt"`
+	FinishedAt     time.Time       `json:"finishedAt"`
+}
+
+// RelayPricingCatalogSyncRunFilter filters provider price sync history.
+type RelayPricingCatalogSyncRunFilter struct {
+	Job      string
+	Provider string
+	Source   string
+	Status   string
+	Limit    int
+	Offset   int
+}
+
 type ChannelTestResult struct {
 	Success      bool                 `json:"success"`
 	Latency      int64                `json:"latency"`
