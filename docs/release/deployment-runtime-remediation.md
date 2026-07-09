@@ -200,11 +200,14 @@ kubectl apply -f deploy/kubernetes/configmap.yaml
 kubectl apply -f deploy/kubernetes/postgres.yaml
 kubectl apply -f deploy/kubernetes/redis.yaml
 kubectl apply -f deploy/kubernetes/qdrant.yaml
+kubectl apply -f deploy/kubernetes/clickhouse.yaml
 kubectl apply -f deploy/kubernetes/app-deployment.yaml
 kubectl apply -f deploy/kubernetes/app-service.yaml
 kubectl apply -f deploy/kubernetes/hpa.yaml
 kubectl apply -f deploy/kubernetes/ingress.yaml
 kubectl -n oblivious rollout status deployment/oblivious-qdrant
+kubectl -n oblivious rollout status deployment/oblivious-clickhouse
+kubectl -n oblivious wait --for=condition=complete job/oblivious-clickhouse-migrate --timeout=300s
 kubectl -n oblivious rollout status deployment/oblivious-server
 ```
 
