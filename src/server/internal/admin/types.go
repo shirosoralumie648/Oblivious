@@ -421,27 +421,28 @@ type APITokenFilter struct {
 
 // UsageLogEntry is a request-level Relay usage record for admin inspection.
 type UsageLogEntry struct {
-	ID               string    `json:"id"`
-	OrganizationID   string    `json:"organizationId,omitempty"`
-	UserID           string    `json:"userId"`
-	APITokenID       string    `json:"apiTokenId,omitempty"`
-	RequestID        string    `json:"requestId,omitempty"`
-	APIType          string    `json:"apiType,omitempty"`
-	FeatureType      string    `json:"featureType,omitempty"`
-	QuotaMode        string    `json:"quotaMode,omitempty"`
-	Model            string    `json:"model"`
-	ChannelID        string    `json:"channelId,omitempty"`
-	Provider         string    `json:"provider,omitempty"`
-	Status           string    `json:"status,omitempty"`
-	StatusCode       int       `json:"statusCode,omitempty"`
-	ErrorCode        string    `json:"errorCode,omitempty"`
-	LatencyMS        int       `json:"latencyMs,omitempty"`
-	Cost             float64   `json:"cost"`
-	ChannelCost      float64   `json:"channelCost"`
-	PromptTokens     int       `json:"promptTokens"`
-	CompletionTokens int       `json:"completionTokens"`
-	TotalTokens      int       `json:"totalTokens"`
-	CreatedAt        time.Time `json:"createdAt"`
+	ID                 string              `json:"id"`
+	OrganizationID     string              `json:"organizationId,omitempty"`
+	UserID             string              `json:"userId"`
+	APITokenID         string              `json:"apiTokenId,omitempty"`
+	RequestID          string              `json:"requestId,omitempty"`
+	APIType            string              `json:"apiType,omitempty"`
+	FeatureType        string              `json:"featureType,omitempty"`
+	QuotaMode          string              `json:"quotaMode,omitempty"`
+	Model              string              `json:"model"`
+	ChannelID          string              `json:"channelId,omitempty"`
+	Provider           string              `json:"provider,omitempty"`
+	Status             string              `json:"status,omitempty"`
+	StatusCode         int                 `json:"statusCode,omitempty"`
+	ErrorCode          string              `json:"errorCode,omitempty"`
+	LatencyMS          int                 `json:"latencyMs,omitempty"`
+	Cost               float64             `json:"cost"`
+	ChannelCost        float64             `json:"channelCost"`
+	PromptTokens       int                 `json:"promptTokens"`
+	CompletionTokens   int                 `json:"completionTokens"`
+	TotalTokens        int                 `json:"totalTokens"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	RequestLogEvidence *RequestLogEvidence `json:"requestLogEvidence,omitempty"`
 }
 
 // RequestLogEvidence links a Postgres usage row to the ClickHouse request log

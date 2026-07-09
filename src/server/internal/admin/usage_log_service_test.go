@@ -71,6 +71,66 @@ func TestServiceListUsageLogsNormalizesFiltersAndReturnsGatewayFields(t *testing
 	}
 }
 
+func TestServiceListUsageLogsAttachesRequestLogEvidenceByRequestID(t *testing.T) {
+	store := &usageLogStoreSpy{
+		entries: []*UsageLogEntry{
+			{
+				ID:        "usage_with_request_log",
+				RequestID: "req_join_1",
+				Model:     "gpt-4o",
+			},
+			{
+				ID:    "usage_without_request_id",
+				Model: "gpt-4o",
+			},
+		},
+		total: 2,
+	}
+	evidenceStore := &requestLogEvidenceStoreSpy{
+		evidence: map[string]RequestLogEvidence{
+			"req_join_1": {
+				RequestID:      "req_join_1",
+				RequestLogID:   "550e8400-e29b-41d4-a716-446655440000",
+				Service:        "relay",
+				Endpoint:       "/v1/chat/completions",
+				Method:         "POST",
+				StatusCode:     200,
+				DurationMS:     42,
+				RequestTokens:  100,
+				ResponseTokens: 20,
+				Model:          "gpt-4o",
+				CostUSD:        0.42,
+				TraceID:        "650e8400-e29b-41d4-a716-446655440000",
+				Timestamp:      time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	service := NewService(store, WithRequestLogEvidenceStore(evidenceStore))
+
+	entries, total, err := service.ListUsageLogs(context.Background(), UsageLogFilter{RequestID: " req_join_1 "})
+	if err != nil {
+		t.Fatalf("list usage logs: %v", err)
+	}
+	if total != 2 || len(entries) != 2 {
+		t.Fatalf("expected two usage entries and total=2, got len=%d total=%d", len(entries), total)
+	}
+	if len(evidenceStore.requestIDs) != 1 || evidenceStore.requestIDs[0] != "req_join_1" {
+		t.Fatalf("expected evidence lookup for req_join_1 only, got %#v", evidenceStore.requestIDs)
+	}
+	if entries[0].RequestLogEvidence == nil {
+		t.Fatalf("expected request log evidence on first usage entry")
+	}
+	if entries[0].RequestLogEvidence.RequestLogID != "550e8400-e29b-41d4-a716-446655440000" ||
+		entries[0].RequestLogEvidence.Service != "relay" ||
+		entries[0].RequestLogEvidence.Endpoint != "/v1/chat/completions" ||
+		entries[0].RequestLogEvidence.CostUSD != 0.42 {
+		t.Fatalf("unexpected request log evidence: %+v", entries[0].RequestLogEvidence)
+	}
+	if entries[1].RequestLogEvidence != nil {
+		t.Fatalf("expected entry without request id to have no request log evidence, got %+v", entries[1].RequestLogEvidence)
+	}
+}
+
 func TestServiceGetUsageAnalyticsNormalizesFilterAndReturnsDimensions(t *testing.T) {
 	to := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	from := to.AddDate(0, 0, -7)
@@ -283,4 +343,14 @@ type usageAnalyticsStoreSpy struct {
 func (s *usageAnalyticsStoreSpy) GetUsageAnalytics(_ context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {
 	s.filter = filter
 	return s.analytics, nil
+}
+
+type requestLogEvidenceStoreSpy struct {
+	requestIDs []string
+	evidence   map[string]RequestLogEvidence
+}
+
+func (s *requestLogEvidenceStoreSpy) ListRequestLogEvidence(_ context.Context, requestIDs []string) (map[string]RequestLogEvidence, error) {
+	s.requestIDs = append([]string(nil), requestIDs...)
+	return s.evidence, nil
 }

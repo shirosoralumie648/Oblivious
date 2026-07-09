@@ -31,7 +31,51 @@ func normalizeUsageLogFilter(filter UsageLogFilter) UsageLogFilter {
 }
 
 func (s *Service) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]*UsageLogEntry, int, error) {
-	return s.store.ListUsageLogs(ctx, normalizeUsageLogFilter(filter))
+	entries, total, err := s.store.ListUsageLogs(ctx, normalizeUsageLogFilter(filter))
+	if err != nil {
+		return nil, 0, err
+	}
+	if s.requestLogEvidenceStore == nil || len(entries) == 0 {
+		return entries, total, nil
+	}
+	requestIDs := uniqueUsageLogRequestIDs(entries)
+	if len(requestIDs) == 0 {
+		return entries, total, nil
+	}
+	evidenceByRequestID, err := s.requestLogEvidenceStore.ListRequestLogEvidence(ctx, requestIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if evidence, ok := evidenceByRequestID[strings.TrimSpace(entry.RequestID)]; ok {
+			evidenceCopy := evidence
+			entry.RequestLogEvidence = &evidenceCopy
+		}
+	}
+	return entries, total, nil
+}
+
+func uniqueUsageLogRequestIDs(entries []*UsageLogEntry) []string {
+	seen := map[string]struct{}{}
+	requestIDs := []string{}
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		requestID := strings.TrimSpace(entry.RequestID)
+		if requestID == "" {
+			continue
+		}
+		if _, ok := seen[requestID]; ok {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		requestIDs = append(requestIDs, requestID)
+	}
+	return requestIDs
 }
 
 func normalizeUsageAnalyticsFilter(filter UsageAnalyticsFilter) UsageAnalyticsFilter {

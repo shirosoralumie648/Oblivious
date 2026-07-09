@@ -62,6 +62,7 @@ type UserInfo struct {
 type Service struct {
 	store                       Store
 	usageAnalyticsStore         UsageAnalyticsStore
+	requestLogEvidenceStore     RequestLogEvidenceStore
 	relayPricingSettingsApplier func(RelayPricingSettings)
 	channelRuntimeStatsProvider ChannelRuntimeStatsProvider
 	relayConfigApplier          RelayConfigApplier
@@ -95,6 +96,10 @@ type RelayConfigChange struct {
 
 type RelayConfigApplier func(ctx context.Context, change RelayConfigChange) error
 
+type RequestLogEvidenceStore interface {
+	ListRequestLogEvidence(ctx context.Context, requestIDs []string) (map[string]RequestLogEvidence, error)
+}
+
 func WithRelayPricingSettingsApplier(applier func(RelayPricingSettings)) ServiceOption {
 	return func(service *Service) {
 		service.relayPricingSettingsApplier = applier
@@ -116,6 +121,12 @@ func WithRelayConfigApplier(applier RelayConfigApplier) ServiceOption {
 func WithUsageAnalyticsStore(store UsageAnalyticsStore) ServiceOption {
 	return func(service *Service) {
 		service.usageAnalyticsStore = store
+	}
+}
+
+func WithRequestLogEvidenceStore(store RequestLogEvidenceStore) ServiceOption {
+	return func(service *Service) {
+		service.requestLogEvidenceStore = store
 	}
 }
 
