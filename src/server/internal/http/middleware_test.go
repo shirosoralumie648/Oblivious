@@ -15,6 +15,7 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/observability"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 type captureMiddlewareRequestLogSink struct {
@@ -298,6 +299,58 @@ func TestWithLoggingClassifiesRequestLogsByFeature(t *testing.T) {
 				t.Fatalf("feature_type = %#v, want %q; metadata=%+v", metadata["feature_type"], tt.feature, metadata)
 			}
 		})
+	}
+}
+
+func TestWithLoggingEnrichesRelayRequestLogFromBillingScope(t *testing.T) {
+	sink := &captureMiddlewareRequestLogSink{}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		scope, ok := relaytypes.RequestLogScopeFromContext(r.Context())
+		if !ok {
+			t.Fatal("expected relay request log scope in request context")
+		}
+		scope.Record(relaytypes.RequestLogMetadata{
+			Model: "gpt-4o-mini", RequestedModel: "gpt-4o-mini", ResolvedModel: "gpt-4o-mini-2026-07",
+			ChannelID: "channel_primary", Provider: "openai", BillingSessionID: "bill_relay_scope",
+			PreauthorizedAmount: 0.023, TokenPreauthorizedAmount: 0.023, Cost: 0.019, ChannelCost: 0.017,
+			RequestTokens: 120, ResponseTokens: 30, TotalTokens: 150, Status: "success",
+			PriceCurrency: "quota", PriceSource: "sql_catalog", PriceSnapshot: map[string]any{"total_cost": 0.019},
+		})
+		w.WriteHeader(stdhttp.StatusOK)
+	})))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodPost, "/v1/chat/completions", nil))
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected OK response, got %d", recorder.Code)
+	}
+	if len(sink.rows) != 1 {
+		t.Fatalf("expected one request log row, got %+v", sink.rows)
+	}
+	row := sink.rows[0]
+	if row.Service != "relay" || row.Endpoint != "/v1/chat/completions" || row.Model != "gpt-4o-mini" || row.RequestTokens != 120 || row.ResponseTokens != 30 || row.CostUSD != 0.019 {
+		t.Fatalf("relay request log did not carry usage/cost columns: %+v", row)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		t.Fatalf("expected JSON metadata, got %v: %s", err, row.Metadata)
+	}
+	for key, want := range map[string]any{
+		"provider": "openai", "channel_id": "channel_primary", "billing_session_id": "bill_relay_scope",
+		"requested_model": "gpt-4o-mini", "resolved_model": "gpt-4o-mini-2026-07", "relay_usage_status": "success",
+		"price_currency": "quota", "price_source": "sql_catalog", "preauthorized_amount": float64(0.023),
+		"token_preauthorized_amount": float64(0.023), "channel_cost": float64(0.017), "total_tokens": float64(150),
+	} {
+		if metadata[key] != want {
+			t.Fatalf("metadata[%s] = %#v, want %#v; metadata=%+v", key, metadata[key], want, metadata)
+		}
+	}
+	if _, ok := metadata["price_snapshot"]; !ok {
+		t.Fatalf("expected price snapshot metadata, got %+v", metadata)
 	}
 }
 

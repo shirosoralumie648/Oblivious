@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +45,7 @@ const (
 	trustedConversationIDKey trustedContextKey = "relay_trusted_conversation_id"
 	trustedFeatureTypeKey    trustedContextKey = "relay_trusted_feature_type"
 	semanticCacheRequestKey  trustedContextKey = "relay_semantic_cache_request"
+	requestLogScopeKey       trustedContextKey = "relay_request_log_scope"
 )
 
 // APIType 枚举（22 种 OpenAI API 类型）
@@ -153,6 +155,68 @@ func WithSemanticCacheRequest(ctx context.Context, req SemanticCacheRequest) con
 func SemanticCacheRequestFromContext(ctx context.Context) (SemanticCacheRequest, bool) {
 	req, ok := ctx.Value(semanticCacheRequestKey).(SemanticCacheRequest)
 	return req, ok
+}
+
+// RequestLogMetadata carries metered Relay evidence back to the HTTP request log.
+type RequestLogMetadata struct {
+	RequestID                string
+	OrganizationID           string
+	UserID                   string
+	Model                    string
+	RequestedModel           string
+	ResolvedModel            string
+	ChannelID                string
+	Provider                 string
+	BillingSessionID         string
+	PreauthorizedAmount      float64
+	TokenPreauthorizedAmount float64
+	Cost                     float64
+	ChannelCost              float64
+	RequestTokens            int
+	ResponseTokens           int
+	TotalTokens              int
+	Status                   string
+	ErrorCode                string
+	PriceCurrency            string
+	PriceSource              string
+	PriceSnapshot            any
+}
+
+// RequestLogScope is mutable request-local state shared by HTTP middleware and Relay.
+type RequestLogScope struct {
+	mu       sync.RWMutex
+	metadata RequestLogMetadata
+	recorded bool
+}
+
+func NewRequestLogScope() *RequestLogScope { return &RequestLogScope{} }
+
+func WithRequestLogScope(ctx context.Context, scope *RequestLogScope) context.Context {
+	return context.WithValue(ctx, requestLogScopeKey, scope)
+}
+
+func RequestLogScopeFromContext(ctx context.Context) (*RequestLogScope, bool) {
+	scope, ok := ctx.Value(requestLogScopeKey).(*RequestLogScope)
+	return scope, ok && scope != nil
+}
+
+func (s *RequestLogScope) Record(metadata RequestLogMetadata) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metadata = metadata
+	s.recorded = true
+}
+
+func (s *RequestLogScope) Snapshot() (RequestLogMetadata, bool) {
+	if s == nil {
+		return RequestLogMetadata{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.metadata, s.recorded
 }
 
 type RelayAPITokenIdentity struct {

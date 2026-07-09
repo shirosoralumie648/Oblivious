@@ -14,6 +14,7 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/metrics"
 	"oblivious/server/internal/observability"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 const requestIDHeader = "X-Request-Id"
@@ -98,7 +99,9 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 		startedAt := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: stdhttp.StatusOK}
 		scope := &observabilityScope{}
+		relayRequestLogScope := relaytypes.NewRequestLogScope()
 		ctx := context.WithValue(r.Context(), observabilityScopeContextKey, scope)
+		ctx = relaytypes.WithRequestLogScope(ctx, relayRequestLogScope)
 		route := normalizeRoute(r.URL.Path)
 		ctx, span := observability.StartSpan(
 			ctx,
@@ -139,6 +142,7 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 		}
 		if component == observability.ComponentRelay {
 			event.RelayAPIType = featureType
+			enrichRelayRequestLogEvent(&event, relayRequestLogScope)
 		}
 		currentObservabilityLogger().Log(ctx, event)
 		if err := observability.WriteRequestLog(ctx, currentRequestLogSink(), event, startedAt.UTC()); err != nil {
@@ -147,6 +151,72 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 		routeHTTPAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
 		routeHTTPLatencySLOAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
 	})
+}
+
+func enrichRelayRequestLogEvent(event *observability.Event, scope *relaytypes.RequestLogScope) {
+	if event == nil || scope == nil {
+		return
+	}
+	metadata, ok := scope.Snapshot()
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(metadata.RequestID) != "" {
+		event.RequestID = metadata.RequestID
+	}
+	if strings.TrimSpace(metadata.OrganizationID) != "" {
+		event.OrganizationID = metadata.OrganizationID
+	}
+	if strings.TrimSpace(metadata.UserID) != "" {
+		event.UserID = metadata.UserID
+	}
+	event.ChannelID = metadata.ChannelID
+	event.Provider = metadata.Provider
+	event.BillingSessionID = metadata.BillingSessionID
+	if event.Fields == nil {
+		event.Fields = map[string]any{}
+	}
+	addStringField(event.Fields, "model", metadata.Model)
+	addStringField(event.Fields, "relay_request_id", metadata.RequestID)
+	addStringField(event.Fields, "relay_organization_id", metadata.OrganizationID)
+	addStringField(event.Fields, "relay_user_id", metadata.UserID)
+	addStringField(event.Fields, "requested_model", metadata.RequestedModel)
+	addStringField(event.Fields, "resolved_model", metadata.ResolvedModel)
+	addStringField(event.Fields, "relay_usage_status", metadata.Status)
+	addStringField(event.Fields, "error_code", metadata.ErrorCode)
+	addStringField(event.Fields, "price_currency", metadata.PriceCurrency)
+	addStringField(event.Fields, "price_source", metadata.PriceSource)
+	addPositiveFloatField(event.Fields, "preauthorized_amount", metadata.PreauthorizedAmount)
+	addPositiveFloatField(event.Fields, "token_preauthorized_amount", metadata.TokenPreauthorizedAmount)
+	addPositiveFloatField(event.Fields, "cost", metadata.Cost)
+	addPositiveFloatField(event.Fields, "channel_cost", metadata.ChannelCost)
+	addPositiveIntField(event.Fields, "request_tokens", metadata.RequestTokens)
+	addPositiveIntField(event.Fields, "response_tokens", metadata.ResponseTokens)
+	addPositiveIntField(event.Fields, "total_tokens", metadata.TotalTokens)
+	if metadata.PriceSnapshot != nil {
+		event.Fields["price_snapshot"] = metadata.PriceSnapshot
+	}
+}
+
+func addStringField(fields map[string]any, key, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	fields[key] = value
+}
+
+func addPositiveFloatField(fields map[string]any, key string, value float64) {
+	if value <= 0 {
+		return
+	}
+	fields[key] = value
+}
+
+func addPositiveIntField(fields map[string]any, key string, value int) {
+	if value <= 0 {
+		return
+	}
+	fields[key] = value
 }
 
 func attachSessionToObservabilityScope(r *stdhttp.Request, session auth.Session) {
