@@ -27,6 +27,18 @@ status_is_2xx() {
   [[ "$1" =~ ^2[0-9][0-9]$ ]]
 }
 
+file_matches() {
+  local pattern="$1"
+  local path="$2"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q "$pattern" "$path"
+    return
+  fi
+
+  grep -Eq "$pattern" "$path"
+}
+
 request() {
   local method="$1"
   local path="$2"
@@ -106,7 +118,7 @@ probe_metrics() {
   if ! status_is_2xx "$last_status"; then
     fail "metrics failed: ${base_url}/metrics status=${last_status:-none}"
   fi
-  if ! rg -q "# HELP|go_|promhttp_metric_handler" "$last_body_file"; then
+  if ! file_matches "# HELP|go_|promhttp_metric_handler" "$last_body_file"; then
     fail "metrics response did not look like Prometheus output"
   fi
   echo "[deploy-smoke] metrics ok: ${base_url}/metrics"
@@ -139,7 +151,7 @@ probe_relay_route() {
       fail "Relay route is not mounted: ${base_url}/v1/chat/completions status=404"
       ;;
     503)
-      if rg -q "no_available_channel|no healthy channel available" "$last_body_file"; then
+      if file_matches "no_available_channel|no healthy channel available" "$last_body_file"; then
         echo "[deploy-smoke] relay route ok: ${base_url}/v1/chat/completions status=$last_status no_available_channel"
       else
         fail "Relay route reached an upstream/provider failure instead of local no-channel policy handling: status=$last_status"

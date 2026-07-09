@@ -36,6 +36,15 @@ resolve_client_mode() {
   exit 127
 }
 
+docker_host_path() {
+  local path="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$path"
+    return
+  fi
+  printf '%s' "$path"
+}
+
 run_psql() {
   local database="$1"
   shift
@@ -64,9 +73,10 @@ run_pg_restore() {
 
   backup_dir=$(cd "$(dirname "$backup")" && pwd -P)
   backup_name=$(basename "$backup")
-  docker run --rm \
+  backup_dir_mount=$(docker_host_path "$backup_dir")
+  MSYS_NO_PATHCONV=1 docker run --rm \
     --network "$client_network" \
-    -v "$backup_dir:/backup:ro" \
+    -v "$backup_dir_mount:/backup:ro" \
     "$client_image" \
     pg_restore --clean --if-exists --no-owner --no-privileges --dbname "$database" "/backup/$backup_name"
 }

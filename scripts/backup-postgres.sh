@@ -32,6 +32,15 @@ sanitize_database_url() {
   printf '%s' "$1" | sed -E 's#(postgres(ql)?://[^:/@]+):[^@]*@#\1:***@#'
 }
 
+docker_host_path() {
+  local path="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$path"
+    return
+  fi
+  printf '%s' "$path"
+}
+
 [[ -n "$database_url" ]] || fail "BACKUP_DATABASE_URL or DATABASE_URL is required"
 
 backup_dir_abs="$backup_dir"
@@ -51,9 +60,10 @@ client_mode=$(require_client)
 if [[ "$client_mode" == "host" ]]; then
   pg_dump --format=custom --no-owner --no-privileges --file "$dump_path" "$database_url"
 else
-  docker run --rm \
+  backup_dir_mount=$(docker_host_path "$backup_dir_abs")
+  MSYS_NO_PATHCONV=1 docker run --rm \
     --network "$client_network" \
-    -v "$backup_dir_abs:/backup" \
+    -v "$backup_dir_mount:/backup" \
     "$client_image" \
     pg_dump --format=custom --no-owner --no-privileges --file "/backup/$dump_name" "$database_url"
 fi

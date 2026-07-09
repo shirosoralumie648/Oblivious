@@ -115,7 +115,7 @@ run_compose_up postgres redis qdrant clickhouse
 wait_for_compose_dependencies
 
 echo "[deploy-validate] applying migrations"
-docker compose run --rm --no-deps oblivious-server /usr/local/bin/oblivious-migrate
+MSYS_NO_PATHCONV=1 docker compose run --rm --no-deps oblivious-server /usr/local/bin/oblivious-migrate
 
 echo "[deploy-validate] applying ClickHouse migrations"
 docker compose run --rm clickhouse-init
