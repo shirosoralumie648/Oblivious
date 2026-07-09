@@ -1329,6 +1329,9 @@ func (h adminHandler) listMarketplaceSettlements(w stdhttp.ResponseWriter, r *st
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
+	if items == nil {
+		items = []*admin.MarketplaceSettlementInspection{}
+	}
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"settlements": items, "total": total})
 }
 
@@ -1351,6 +1354,10 @@ func (h adminHandler) createDueMarketplacePayouts(w stdhttp.ResponseWriter, r *s
 	}
 	payouts, err := h.payoutService.CreateDuePayouts(r.Context(), time.Now().UTC())
 	if err != nil {
+		if errors.Is(err, marketplace.ErrMarketplacePayoutProviderRequired) {
+			writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", err.Error())
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}

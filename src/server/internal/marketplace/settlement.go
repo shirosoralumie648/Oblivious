@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -19,6 +20,11 @@ import (
 const (
 	defaultPlatformFeeBPS = 2000
 )
+
+// ErrMarketplacePayoutProviderRequired is returned when a payable marketplace
+// settlement would need an external payout dispatch but no payout provider is
+// configured.
+var ErrMarketplacePayoutProviderRequired = errors.New("marketplace payout provider is required")
 
 // MarketplaceFeeTierBasis selects the sales interval used for segmented platform fees.
 type MarketplaceFeeTierBasis string
@@ -450,6 +456,11 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: settlement id is required")
 	}
+	providerName, err := s.marketplacePayoutProviderName()
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
+		return nil, fmt.Errorf("mark payout pending: %w", err)
+	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
@@ -479,28 +490,21 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, err
 	}
-	providerName, dispatchResult, err := s.dispatchPayout(ctx, MarketplacePayoutDispatchRequest{
-		PayoutID:                payoutID,
-		PublisherOrganizationID: settlement.PublisherOrganizationID,
-		PublisherUserID:         settlement.PublisherUserID,
-		Amount:                  amount,
-		Currency:                "usd",
-		SettlementIDs:           []string{settlement.ID},
-	})
-	if err != nil {
-		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
-		return nil, err
-	}
 	providerPayoutID = strings.TrimSpace(providerPayoutID)
-	if dispatchResult.ProviderPayoutID != "" {
-		providerPayoutID = dispatchResult.ProviderPayoutID
-	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO marketplace_payouts (
 			id, publisher_organization_id, publisher_user_id, amount, currency,
 			provider, provider_payout_id, status, metadata, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, 'usd', $5, NULLIF($6, ''), 'payout_pending', '{}', $7, $7)
+		VALUES (
+			$1, $2, $3, $4, 'usd', $5, NULL, 'payout_pending',
+			jsonb_build_object(
+				'dispatch_status', 'queued',
+				'dispatch_queued_at', $7::timestamptz,
+				'operator_provider_payout_id', NULLIF($6, '')
+			),
+			$7, $7
+		)
 	`, payoutID, settlement.PublisherOrganizationID, settlement.PublisherUserID, amount, providerName, providerPayoutID, now); err != nil {
 		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: insert payout: %w", err)
@@ -518,7 +522,12 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 		return nil, fmt.Errorf("mark payout pending: commit: %w", err)
 	}
 	metrics.RecordMarketplaceSettlementEvent("payout", "payout_pending")
-	return s.loadPayout(ctx, payoutID)
+	payout, err := s.dispatchPersistedPayout(ctx, payoutID)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
+		return nil, err
+	}
+	return payout, nil
 }
 
 func (s *SettlementService) MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*MarketplacePayout, error) {
@@ -764,10 +773,25 @@ func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time)
 		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
 		return nil, fmt.Errorf("create due payouts: store is required")
 	}
+	providerName, err := s.marketplacePayoutProviderName()
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
+		return nil, fmt.Errorf("create due payouts: %w", err)
+	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
 		now = now.UTC()
+	}
+	queuedPayoutIDs, err := s.listQueuedPayoutDispatches(ctx, providerName, 100)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
+		return nil, err
+	}
+	dispatchedQueuedPayouts, err := s.dispatchPersistedPayouts(ctx, queuedPayoutIDs)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
+		return nil, err
 	}
 
 	tx, err := s.store.db.BeginTx(ctx, nil)
@@ -862,25 +886,17 @@ func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time)
 		}
 
 		payoutID := uuid.New().String()
-		providerName, dispatchResult, err := s.dispatchPayout(ctx, MarketplacePayoutDispatchRequest{
-			PayoutID:                payoutID,
-			PublisherOrganizationID: group.PublisherOrganizationID,
-			PublisherUserID:         group.PublisherUserID,
-			Amount:                  group.Amount,
-			Currency:                group.Currency,
-			SettlementIDs:           append([]string(nil), group.SettlementIDs...),
-		})
-		if err != nil {
-			metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
-			return nil, err
-		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO marketplace_payouts (
 				id, publisher_organization_id, publisher_user_id, amount, currency,
 				provider, provider_payout_id, status, metadata, created_at, updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), 'payout_pending', '{}', $8, $8)
-		`, payoutID, group.PublisherOrganizationID, group.PublisherUserID, group.Amount, group.Currency, providerName, dispatchResult.ProviderPayoutID, now); err != nil {
+			VALUES (
+				$1, $2, $3, $4, $5, $6, NULL, 'payout_pending',
+				jsonb_build_object('dispatch_status', 'queued', 'dispatch_queued_at', $7::timestamptz),
+				$7, $7
+			)
+		`, payoutID, group.PublisherOrganizationID, group.PublisherUserID, group.Amount, group.Currency, providerName, now); err != nil {
 			metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
 			return nil, fmt.Errorf("create due payouts: insert payout: %w", err)
 		}
@@ -910,15 +926,12 @@ func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time)
 		return nil, fmt.Errorf("create due payouts: commit: %w", err)
 	}
 
-	payouts := make([]*MarketplacePayout, 0, len(payoutIDs))
-	for _, payoutID := range payoutIDs {
-		payout, err := s.loadPayout(ctx, payoutID)
-		if err != nil {
-			metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
-			return nil, fmt.Errorf("create due payouts: load payout: %w", err)
-		}
-		payouts = append(payouts, payout)
+	dispatchedNewPayouts, err := s.dispatchPersistedPayouts(ctx, payoutIDs)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
+		return nil, err
 	}
+	payouts := append(dispatchedQueuedPayouts, dispatchedNewPayouts...)
 	metrics.RecordMarketplaceSettlementEvent("payout_batch", "payout_pending")
 	return payouts, nil
 }
@@ -1016,9 +1029,181 @@ func (s *SettlementService) MarkPaidInstallCheckoutFailed(ctx context.Context, o
 	return tx.Commit()
 }
 
+func (s *SettlementService) marketplacePayoutProviderName() (string, error) {
+	if s == nil || s.payoutProvider == nil {
+		return "", ErrMarketplacePayoutProviderRequired
+	}
+	providerName := strings.ToLower(strings.TrimSpace(s.payoutProvider.Name()))
+	if providerName == "" {
+		return "", fmt.Errorf("marketplace payout provider name is required")
+	}
+	return providerName, nil
+}
+
+func (s *SettlementService) listQueuedPayoutDispatches(ctx context.Context, providerName string, limit int) ([]string, error) {
+	providerName = strings.ToLower(strings.TrimSpace(providerName))
+	if providerName == "" {
+		return nil, fmt.Errorf("list queued marketplace payout dispatches: provider name is required")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.store.db.QueryContext(ctx, `
+		SELECT id
+		FROM marketplace_payouts
+		WHERE provider = $1
+		  AND status = 'payout_pending'
+		  AND COALESCE(provider_payout_id, '') = ''
+		ORDER BY created_at ASC, id ASC
+		LIMIT $2
+	`, providerName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list queued marketplace payout dispatches: %w", err)
+	}
+	defer rows.Close()
+	payoutIDs := []string{}
+	for rows.Next() {
+		var payoutID string
+		if err := rows.Scan(&payoutID); err != nil {
+			return nil, fmt.Errorf("list queued marketplace payout dispatches: scan: %w", err)
+		}
+		payoutIDs = append(payoutIDs, payoutID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list queued marketplace payout dispatches: read: %w", err)
+	}
+	return payoutIDs, nil
+}
+
+func (s *SettlementService) dispatchPersistedPayouts(ctx context.Context, payoutIDs []string) ([]*MarketplacePayout, error) {
+	payouts := make([]*MarketplacePayout, 0, len(payoutIDs))
+	for _, payoutID := range payoutIDs {
+		payout, err := s.dispatchPersistedPayout(ctx, payoutID)
+		if err != nil {
+			return nil, err
+		}
+		payouts = append(payouts, payout)
+	}
+	return payouts, nil
+}
+
+func (s *SettlementService) dispatchPersistedPayout(ctx context.Context, payoutID string) (*MarketplacePayout, error) {
+	payout, settlementIDs, err := s.loadPayoutDispatchIntent(ctx, payoutID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payout.ProviderPayoutID) != "" {
+		return payout, nil
+	}
+	providerName, dispatchResult, err := s.dispatchPayout(ctx, MarketplacePayoutDispatchRequest{
+		PayoutID:                payout.ID,
+		PublisherOrganizationID: payout.PublisherOrganizationID,
+		PublisherUserID:         payout.PublisherUserID,
+		Amount:                  payout.Amount,
+		Currency:                payout.Currency,
+		SettlementIDs:           settlementIDs,
+	})
+	if err != nil {
+		if recordErr := s.recordPayoutDispatchFailure(ctx, payout.ID, err); recordErr != nil {
+			return nil, recordErr
+		}
+		return nil, err
+	}
+	if err := s.recordPayoutDispatchSuccess(ctx, payout.ID, providerName, dispatchResult.ProviderPayoutID); err != nil {
+		return nil, err
+	}
+	return s.loadPayout(ctx, payout.ID)
+}
+
+func (s *SettlementService) loadPayoutDispatchIntent(ctx context.Context, payoutID string) (*MarketplacePayout, []string, error) {
+	payout, err := s.loadPayout(ctx, strings.TrimSpace(payoutID))
+	if err != nil {
+		return nil, nil, fmt.Errorf("load marketplace payout dispatch intent: %w", err)
+	}
+	rows, err := s.store.db.QueryContext(ctx, `
+		SELECT id
+		FROM marketplace_settlements
+		WHERE payout_id = $1
+		ORDER BY created_at ASC, id ASC
+	`, payout.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load marketplace payout dispatch intent: query settlements: %w", err)
+	}
+	defer rows.Close()
+	settlementIDs := []string{}
+	for rows.Next() {
+		var settlementID string
+		if err := rows.Scan(&settlementID); err != nil {
+			return nil, nil, fmt.Errorf("load marketplace payout dispatch intent: scan settlement: %w", err)
+		}
+		settlementIDs = append(settlementIDs, settlementID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("load marketplace payout dispatch intent: read settlements: %w", err)
+	}
+	return payout, settlementIDs, nil
+}
+
+func (s *SettlementService) recordPayoutDispatchSuccess(ctx context.Context, payoutID, providerName, providerPayoutID string) error {
+	now := time.Now().UTC()
+	result, err := s.store.db.ExecContext(ctx, `
+		UPDATE marketplace_payouts
+		SET provider = $2,
+		    provider_payout_id = NULLIF($3, ''),
+		    metadata = metadata || jsonb_build_object(
+		        'dispatch_status', 'dispatched',
+		        'provider_dispatched_at', $4::timestamptz
+		    ),
+		    updated_at = $4
+		WHERE id = $1
+		  AND status IN ('payout_pending', 'paid_out')
+	`, payoutID, providerName, providerPayoutID, now)
+	if err != nil {
+		return fmt.Errorf("record marketplace payout dispatch success: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("record marketplace payout dispatch success: rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SettlementService) recordPayoutDispatchFailure(ctx context.Context, payoutID string, dispatchErr error) error {
+	reason := ""
+	if dispatchErr != nil {
+		reason = strings.TrimSpace(dispatchErr.Error())
+	}
+	now := time.Now().UTC()
+	result, err := s.store.db.ExecContext(ctx, `
+		UPDATE marketplace_payouts
+		SET metadata = metadata || jsonb_build_object(
+		        'dispatch_status', 'failed',
+		        'dispatch_error', NULLIF($2, ''),
+		        'provider_dispatch_failed_at', $3::timestamptz
+		    ),
+		    updated_at = $3
+		WHERE id = $1
+		  AND status = 'payout_pending'
+	`, payoutID, reason, now)
+	if err != nil {
+		return fmt.Errorf("record marketplace payout dispatch failure: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("record marketplace payout dispatch failure: rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *SettlementService) dispatchPayout(ctx context.Context, request MarketplacePayoutDispatchRequest) (string, MarketplacePayoutDispatchResult, error) {
 	if s == nil || s.payoutProvider == nil {
-		return "local", MarketplacePayoutDispatchResult{}, nil
+		return "", MarketplacePayoutDispatchResult{}, fmt.Errorf("dispatch marketplace payout: %w", ErrMarketplacePayoutProviderRequired)
 	}
 	providerName := strings.ToLower(strings.TrimSpace(s.payoutProvider.Name()))
 	if providerName == "" {

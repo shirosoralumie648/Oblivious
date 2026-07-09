@@ -3,6 +3,7 @@ package marketplace
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -623,38 +624,33 @@ func TestSettlementApplyRefundAdjustsOrderAndSettlementOnce(t *testing.T) {
 	}
 }
 
-func TestSettlementPayoutStateIsLocalOnly(t *testing.T) {
+func TestSettlementPayoutRequiresConfiguredProvider(t *testing.T) {
 	database := settlementTestDB(t)
 	service := NewSettlementService(NewSQLStore(database))
 
 	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
 	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
 	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
-	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
-		BuyerOrganizationID: "buyer_org",
-		BuyerUserID:         "buyer_user",
-		AgentID:             "agent_paid",
-	})
-	if err != nil {
-		t.Fatalf("create paid checkout: %v", err)
-	}
-	settlement, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
-		EventID:                   "evt_marketplace_checkout",
-		OrderID:                   order.ID,
-		PaymentIntentID:           order.PaymentIntentID,
-		ProviderCheckoutSessionID: "cs_marketplace",
-		ProviderPaymentIntentID:   "pi_marketplace",
-	})
-	if err != nil {
-		t.Fatalf("apply checkout completed: %v", err)
+	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", time.Now().Add(-time.Hour))
+
+	_, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "manual-batch-1")
+	if !errors.Is(err, ErrMarketplacePayoutProviderRequired) {
+		t.Fatalf("expected ErrMarketplacePayoutProviderRequired, got %v", err)
 	}
 
-	payout, err := service.MarkSettlementPayoutPending(context.Background(), settlement.ID, "manual-batch-1")
-	if err != nil {
-		t.Fatalf("MarkSettlementPayoutPending returned error: %v", err)
+	var payoutCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_payouts`).Scan(&payoutCount); err != nil {
+		t.Fatalf("count payouts: %v", err)
 	}
-	if payout.Provider != "local" || payout.ProviderPayoutID != "manual-batch-1" || payout.Status != "payout_pending" {
-		t.Fatalf("expected local payout state only, got %#v", payout)
+	if payoutCount != 0 {
+		t.Fatalf("expected no payout row without provider, got %d", payoutCount)
+	}
+	var status, payoutID string
+	if err := database.QueryRow(`SELECT status, COALESCE(payout_id, '') FROM marketplace_settlements WHERE id = $1`, settlementID).Scan(&status, &payoutID); err != nil {
+		t.Fatalf("query settlement after failed payout dispatch: %v", err)
+	}
+	if status != "available" || payoutID != "" {
+		t.Fatalf("expected settlement to remain available without payout, got status=%s payout_id=%q", status, payoutID)
 	}
 }
 
@@ -687,16 +683,55 @@ func TestSettlementMarkPayoutPendingDispatchesConfiguredProvider(t *testing.T) {
 	}
 }
 
+func TestSettlementMarkPayoutPendingCommitFailureDoesNotCallProvider(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	now := time.Date(2026, time.July, 2, 12, 0, 0, 0, time.UTC)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_provider_1"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT id, order_id, publisher_organization_id").
+		WithArgs("settlement_1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "order_id", "publisher_organization_id", "publisher_user_id", "agent_id",
+			"gross_amount", "platform_fee_amount", "publisher_net_amount", "refunded_amount",
+			"payout_id", "status", "created_at", "updated_at",
+		}).AddRow("settlement_1", "order_1", "publisher_org", "publisher_user", "agent_paid", 50.0, 10.0, 40.0, 0.0, "", "available", now.Add(-time.Hour), now.Add(-time.Hour)))
+	mock.ExpectExec("INSERT INTO marketplace_payouts").
+		WithArgs(sqlmock.AnyArg(), "publisher_org", "publisher_user", 40.0, "stripe_connect", "", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("UPDATE marketplace_settlements").
+		WithArgs("settlement_1", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit lost"))
+
+	if _, err := service.MarkSettlementPayoutPending(context.Background(), "settlement_1", ""); err == nil || !strings.Contains(err.Error(), "commit lost") {
+		t.Fatalf("expected commit failure, got %v", err)
+	}
+	if provider.callCount != 0 {
+		t.Fatalf("provider must not be called before payout transaction commits, got %d calls", provider.callCount)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func TestSettlementMarkPayoutPaidUpdatesPayoutAndSettlementsOnce(t *testing.T) {
 	database := settlementTestDB(t)
-	service := NewSettlementService(NewSQLStore(database))
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_provider_manual_paid"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
 
 	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
 	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
 	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
 
 	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", time.Now().Add(-time.Hour))
-	pendingPayout, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "manual-batch-1")
+	pendingPayout, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "")
 	if err != nil {
 		t.Fatalf("MarkSettlementPayoutPending returned error: %v", err)
 	}
@@ -894,7 +929,8 @@ func TestSettlementMarkPayoutFailedReleasesSettlementsOnce(t *testing.T) {
 func TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce(t *testing.T) {
 	database := settlementTestDB(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	service := NewSettlementService(NewSQLStore(database), WithMarketplaceMinimumSettlement(50, 0))
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_batch_aggregate"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplaceMinimumSettlement(50, 0), WithMarketplacePayoutProvider(provider))
 
 	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
 	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
@@ -917,6 +953,9 @@ func TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce(t *testing
 	payout := payouts[0]
 	if payout.PublisherOrganizationID != "publisher_org" || payout.PublisherUserID != "publisher_user" || payout.Currency != "usd" || payout.Amount != 80 || payout.Status != "payout_pending" {
 		t.Fatalf("unexpected payout: %#v", payout)
+	}
+	if payout.Provider != "stripe_connect" || payout.ProviderPayoutID != "po_batch_aggregate" {
+		t.Fatalf("expected configured provider payout, got %#v", payout)
 	}
 
 	for _, settlementID := range []string{firstDue, secondDue} {
@@ -955,6 +994,38 @@ func TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce(t *testing
 	}
 }
 
+func TestSettlementCreateDuePayoutsRequiresConfiguredProvider(t *testing.T) {
+	database := settlementTestDB(t)
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	service := NewSettlementService(NewSQLStore(database), WithMarketplaceMinimumSettlement(50, 0))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", now.Add(-time.Hour))
+
+	payouts, err := service.CreateDuePayouts(context.Background(), now)
+	if !errors.Is(err, ErrMarketplacePayoutProviderRequired) {
+		t.Fatalf("expected ErrMarketplacePayoutProviderRequired, got payouts=%#v err=%v", payouts, err)
+	}
+
+	var payoutCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_payouts`).Scan(&payoutCount); err != nil {
+		t.Fatalf("count payouts: %v", err)
+	}
+	if payoutCount != 0 {
+		t.Fatalf("expected no payout rows without provider, got %d", payoutCount)
+	}
+	var status, payoutID string
+	if err := database.QueryRow(`SELECT status, COALESCE(payout_id, '') FROM marketplace_settlements WHERE id = $1`, settlementID).Scan(&status, &payoutID); err != nil {
+		t.Fatalf("query settlement after failed create due: %v", err)
+	}
+	if status != "available" || payoutID != "" {
+		t.Fatalf("expected settlement to remain available without payout, got status=%s payout_id=%q", status, payoutID)
+	}
+}
+
 func TestSettlementCreateDuePayoutsDispatchesConfiguredProvider(t *testing.T) {
 	database := settlementTestDB(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
@@ -987,6 +1058,103 @@ func TestSettlementCreateDuePayoutsDispatchesConfiguredProvider(t *testing.T) {
 	}
 	if payout.Provider != "stripe_connect" || payout.ProviderPayoutID != "po_batch_1" || payout.Status != "payout_pending" {
 		t.Fatalf("expected payout to record provider dispatch, got %#v", payout)
+	}
+}
+
+func TestSettlementCreateDuePayoutsCommitFailureDoesNotCallProvider(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	now := time.Date(2026, time.July, 2, 13, 0, 0, 0, time.UTC)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_batch_1"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	mock.ExpectQuery("SELECT id\\s+FROM marketplace_payouts").
+		WithArgs("stripe_connect", 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT ms.id, ms.publisher_organization_id").
+		WithArgs(now).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "publisher_organization_id", "publisher_user_id", "currency", "amount", "created_at",
+		}).AddRow("settlement_1", "publisher_org", "publisher_user", "usd", 40.0, now.Add(-time.Hour)))
+	mock.ExpectExec("INSERT INTO marketplace_payouts").
+		WithArgs(sqlmock.AnyArg(), "publisher_org", "publisher_user", 40.0, "usd", "stripe_connect", now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("UPDATE marketplace_settlements").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit lost"))
+
+	if _, err := service.CreateDuePayouts(context.Background(), now); err == nil || !strings.Contains(err.Error(), "commit lost") {
+		t.Fatalf("expected commit failure, got %v", err)
+	}
+	if provider.callCount != 0 {
+		t.Fatalf("provider must not be called before payout batch transaction commits, got %d calls", provider.callCount)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestSettlementCreateDuePayoutsRetriesQueuedDispatchWithSamePayoutID(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	now := time.Date(2026, time.July, 2, 14, 0, 0, 0, time.UTC)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_retry_1"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	mock.ExpectQuery("SELECT id\\s+FROM marketplace_payouts").
+		WithArgs("stripe_connect", 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("payout_retry"))
+	mock.ExpectQuery("SELECT id, publisher_organization_id, publisher_user_id").
+		WithArgs("payout_retry").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "publisher_organization_id", "publisher_user_id", "amount", "currency",
+			"provider", "provider_payout_id", "status", "created_at", "updated_at",
+		}).AddRow("payout_retry", "publisher_org", "publisher_user", 40.0, "usd", "stripe_connect", "", "payout_pending", now.Add(-time.Hour), now.Add(-time.Hour)))
+	mock.ExpectQuery("SELECT id\\s+FROM marketplace_settlements").
+		WithArgs("payout_retry").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("settlement_retry"))
+	mock.ExpectExec("UPDATE marketplace_payouts").
+		WithArgs("payout_retry", "stripe_connect", "po_retry_1", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT id, publisher_organization_id, publisher_user_id").
+		WithArgs("payout_retry").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "publisher_organization_id", "publisher_user_id", "amount", "currency",
+			"provider", "provider_payout_id", "status", "created_at", "updated_at",
+		}).AddRow("payout_retry", "publisher_org", "publisher_user", 40.0, "usd", "stripe_connect", "po_retry_1", "payout_pending", now.Add(-time.Hour), now))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT ms.id, ms.publisher_organization_id").
+		WithArgs(now).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "publisher_organization_id", "publisher_user_id", "currency", "amount", "created_at",
+		}))
+	mock.ExpectCommit()
+
+	payouts, err := service.CreateDuePayouts(context.Background(), now)
+	if err != nil {
+		t.Fatalf("CreateDuePayouts returned error: %v", err)
+	}
+	if len(payouts) != 1 || payouts[0].ID != "payout_retry" || payouts[0].ProviderPayoutID != "po_retry_1" {
+		t.Fatalf("expected queued payout retry result, got %#v", payouts)
+	}
+	if provider.callCount != 1 || provider.lastRequest.PayoutID != "payout_retry" {
+		t.Fatalf("expected retry to dispatch exactly once with same payout id, calls=%d request=%#v", provider.callCount, provider.lastRequest)
+	}
+	if provider.lastRequest.Amount != 40 || provider.lastRequest.Currency != "usd" || len(provider.lastRequest.SettlementIDs) != 1 || provider.lastRequest.SettlementIDs[0] != "settlement_retry" {
+		t.Fatalf("unexpected queued payout dispatch request: %#v", provider.lastRequest)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 
@@ -1026,7 +1194,9 @@ func TestSettlementPublisherStatsIncludesSettlementAmounts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("apply marketplace refund: %v", err)
 	}
-	if _, err := settlementService.MarkSettlementPayoutPending(context.Background(), settlement.ID, "manual-batch-1"); err != nil {
+	payoutProvider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_publisher_stats"}
+	settlementService = NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(payoutProvider))
+	if _, err := settlementService.MarkSettlementPayoutPending(context.Background(), settlement.ID, ""); err != nil {
 		t.Fatalf("mark payout pending: %v", err)
 	}
 

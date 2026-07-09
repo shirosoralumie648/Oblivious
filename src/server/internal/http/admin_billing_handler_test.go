@@ -271,6 +271,33 @@ func TestAdminBillingMarketplacePayoutsResponseContract(t *testing.T) {
 	}
 }
 
+func TestAdminBillingMarketplaceSettlementsResponseContract(t *testing.T) {
+	store := &fakeAdminStore{marketplaceSettlementsSet: true, marketplaceSettlementsTotal: 0}
+	handler := newAdminHandler(admin.NewService(store))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/settlements?organizationID=org_empty_settlements", nil)
+	handler.listMarketplaceSettlements(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected empty settlements list 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			Settlements []admin.MarketplaceSettlementInspection `json:"settlements"`
+			Total       int                                     `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode settlements response: %v", err)
+	}
+	if response.Data.Settlements == nil || len(response.Data.Settlements) != 0 || response.Data.Total != 0 {
+		t.Fatalf("expected settlements response to expose an empty array and total=0, got %+v body=%s", response.Data, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), `"settlements":null`) {
+		t.Fatalf("expected settlements to serialize as [], got %s", recorder.Body.String())
+	}
+}
+
 func TestAdminBillingWebhookEventsDoNotExposeRawPayload(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -794,6 +821,26 @@ func TestAdminBillingCreateDueMarketplacePayoutsHandlerCallsSettlementService(t 
 	}
 }
 
+func TestAdminBillingCreateDueMarketplacePayoutsHandlerRequiresConfiguredProvider(t *testing.T) {
+	payoutService := &fakeMarketplacePayoutAdminService{createDueErr: marketplace.ErrMarketplacePayoutProviderRequired}
+	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due", nil)
+	handler.createDueMarketplacePayouts(recorder, request)
+
+	if recorder.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("expected handler 503, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !payoutService.createDueCalled {
+		t.Fatal("expected create due payouts to call service")
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"code":"service_unavailable"`) || !strings.Contains(body, marketplace.ErrMarketplacePayoutProviderRequired.Error()) {
+		t.Fatalf("expected service unavailable provider-required response, got %s", body)
+	}
+}
+
 func TestAdminBillingMarkPayoutFailedHandlerRejectsMissingOperatorEvidence(t *testing.T) {
 	cases := []struct {
 		name string
@@ -1295,6 +1342,9 @@ func (s *fakeAdminStore) RecordTopupRefund(ctx context.Context, topupID string, 
 
 func (s *fakeAdminStore) ListMarketplaceSettlements(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplaceSettlementInspection, int, error) {
 	s.billingFilter = filter
+	if s.marketplaceSettlementsSet {
+		return s.marketplaceSettlements, s.marketplaceSettlementsTotal, nil
+	}
 	return []*admin.MarketplaceSettlementInspection{{ID: "settlement_1"}}, 1, nil
 }
 
@@ -1314,6 +1364,7 @@ type fakeMarketplacePayoutAdminService struct {
 	failedReason           string
 	createDueCalled        bool
 	createDueNow           time.Time
+	createDueErr           error
 }
 
 func (s *fakeMarketplacePayoutAdminService) MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error) {
@@ -1342,6 +1393,9 @@ func (s *fakeMarketplacePayoutAdminService) MarkPayoutFailed(ctx context.Context
 func (s *fakeMarketplacePayoutAdminService) CreateDuePayouts(ctx context.Context, now time.Time) ([]*marketplace.MarketplacePayout, error) {
 	s.createDueCalled = true
 	s.createDueNow = now
+	if s.createDueErr != nil {
+		return nil, s.createDueErr
+	}
 	return []*marketplace.MarketplacePayout{{
 		ID:                      "payout_due_1",
 		PublisherOrganizationID: "org_publisher",
