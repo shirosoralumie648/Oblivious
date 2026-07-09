@@ -1,0 +1,532 @@
+{
+  "generated_at": "2026-06-29T00:00:00+08:00",
+  "reference_root": "reference/",
+  "scope_note": "Read-only reference evidence. Reference capability is not proof of Oblivious implementation.",
+  "projects": [
+    {
+      "name": "ai-gateway",
+      "path": "reference/ai-gateway",
+      "directories_scanned": ["reference/ai-gateway/api", "reference/ai-gateway/internal", "reference/ai-gateway/examples", "reference/ai-gateway/manifests"],
+      "source_files": [
+        {"path": "reference/ai-gateway/api/v1beta1/ai_gateway_route.go:57", "capabilities": ["AIGatewayRoute CRD", "backend references", "token cost metadata"], "notes": "Kubernetes API surface for AI gateway routing.", "stub_or_todo": false},
+        {"path": "reference/ai-gateway/internal/controller/ai_gateway_route.go:85", "capabilities": ["controller reconcile", "HTTPRoute generation"], "notes": "Maps AI route resources to Envoy Gateway resources.", "stub_or_todo": false},
+        {"path": "reference/ai-gateway/internal/extproc/processor_impl.go:62", "capabilities": ["ext_proc request processing", "upstream auth", "token metadata"], "notes": "Core Envoy external processor path.", "stub_or_todo": false},
+        {"path": "reference/ai-gateway/internal/metrics/metrics_impl.go:131", "capabilities": ["GenAI metrics", "latency", "tokens", "first token"], "notes": "Metrics are useful for observability design.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Observability", "Deployment / Security"],
+      "usable_as_reference": true,
+      "product_relevance": "P2"
+    },
+    {
+      "name": "anything-llm",
+      "path": "reference/anything-llm",
+      "directories_scanned": ["reference/anything-llm/server", "reference/anything-llm/frontend"],
+      "source_files": [
+        {"path": "reference/anything-llm/server/endpoints/workspaces.js:208", "capabilities": ["workspace embedding update", "add/delete document embeddings"], "notes": "Useful lightweight workspace knowledge reference.", "stub_or_todo": false},
+        {"path": "reference/anything-llm/server/utils/TextSplitter/index.js:157", "capabilities": ["text splitting"], "notes": "Contains TODO and should not be treated as complete parser evidence.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Knowledge / RAG", "Chat", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "bifrost",
+      "path": "reference/bifrost",
+      "directories_scanned": ["reference/bifrost/core", "reference/bifrost/transports", "reference/bifrost/plugins", "reference/bifrost/framework", "reference/bifrost/ui"],
+      "source_files": [
+        {"path": "reference/bifrost/core/bifrost.go:719", "capabilities": ["chat completion request", "MCP agent integration"], "notes": "Core chat request path.", "stub_or_todo": false},
+        {"path": "reference/bifrost/core/bifrost.go:6474", "capabilities": ["provider stream dispatch", "streaming conversion"], "notes": "Provider stream handling path.", "stub_or_todo": false},
+        {"path": "reference/bifrost/core/bifrost.go:6524", "capabilities": ["LLM plugin pre-hooks", "short circuit", "post-hooks"], "notes": "Plugin pipeline evidence.", "stub_or_todo": false},
+        {"path": "reference/bifrost/core/mcp/agent.go:35", "capabilities": ["agent mode", "MCP tool execution loop"], "notes": "Single-agent tool loop reference.", "stub_or_todo": false},
+        {"path": "reference/bifrost/plugins/telemetry/main.go:230", "capabilities": ["Prometheus metrics", "tokens", "latency", "cost"], "notes": "Metrics plugin initialization.", "stub_or_todo": false},
+        {"path": "reference/bifrost/core/bifrost.go:7125", "capabilities": ["queue idle signal boundary"], "notes": "Comment states idle signal intentionally not implemented.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Plugin / Hook / Skill System", "Observability", "Agent", "Sandbox / Tool Execution"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "claude-code-api",
+      "path": "reference/claude-code-api",
+      "directories_scanned": ["reference/claude-code-api/src"],
+      "source_files": [
+        {"path": "reference/claude-code-api/src/routes/api.ts:17", "capabilities": ["OpenAI-compatible models and chat routes", "SSE response"], "notes": "Narrow local adapter.", "stub_or_todo": false},
+        {"path": "reference/claude-code-api/src/services/claude.ts:131", "capabilities": ["Claude Code SDK bridge", "stream mapping"], "notes": "Maps OpenAI-ish request to Claude prompt/model.", "stub_or_todo": false},
+        {"path": "reference/claude-code-api/src/routes/admin.ts:503", "capabilities": ["admin route guard boundary"], "notes": "HTTPS enforcement TODO/commented guard.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "usable_as_reference": true,
+      "product_relevance": "sketch-only"
+    },
+    {
+      "name": "Cli-Proxy-API-Management-Center",
+      "path": "reference/Cli-Proxy-API-Management-Center",
+      "directories_scanned": ["reference/Cli-Proxy-API-Management-Center/src/router", "reference/Cli-Proxy-API-Management-Center/src/services"],
+      "source_files": [
+        {"path": "reference/Cli-Proxy-API-Management-Center/src/router/MainRoutes.tsx:14", "capabilities": ["admin UI routing"], "notes": "Frontend route map only.", "stub_or_todo": false},
+        {"path": "reference/Cli-Proxy-API-Management-Center/src/services/api/oauth.ts:35", "capabilities": ["OAuth API client"], "notes": "Depends on backend enforcement.", "stub_or_todo": false},
+        {"path": "reference/Cli-Proxy-API-Management-Center/src/services/api/providers.ts:364", "capabilities": ["provider CRUD API client"], "notes": "UI service surface only.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Admin", "Provider / Model / Auth Registry"],
+      "usable_as_reference": true,
+      "product_relevance": "sketch-only"
+    },
+    {
+      "name": "CLIProxyAPI",
+      "path": "reference/CLIProxyAPI",
+      "directories_scanned": ["reference/CLIProxyAPI/internal", "reference/CLIProxyAPI/sdk"],
+      "source_files": [
+        {"path": "reference/CLIProxyAPI/internal/api/server.go:362", "capabilities": ["OpenAI/Codex bridge routes", "management endpoints", "websocket attach"], "notes": "Route map evidence.", "stub_or_todo": false},
+        {"path": "reference/CLIProxyAPI/internal/auth/codex/openai_auth.go:63", "capabilities": ["Codex OAuth PKCE", "refresh"], "notes": "Local OAuth bridge pattern.", "stub_or_todo": false},
+        {"path": "reference/CLIProxyAPI/sdk/cliproxy/auth/scheduler.go:240", "capabilities": ["account pool scheduler", "provider/model selection"], "notes": "Provider auth registry evidence.", "stub_or_todo": false},
+        {"path": "reference/CLIProxyAPI/internal/runtime/executor/codex_executor.go:253", "capabilities": ["Codex Responses executor"], "notes": "Runtime executor abstraction.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["CLI / TUI / SDK / Remote Bridge", "Provider / Model / Auth Registry", "Session / Runtime / Event Model"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "CliRelay",
+      "path": "reference/CliRelay",
+      "directories_scanned": ["reference/CliRelay/internal", "reference/CliRelay/sdk"],
+      "source_files": [
+        {"path": "reference/CliRelay/internal/api/server.go:381", "capabilities": ["management APIs", "OAuth callbacks", "stats websocket"], "notes": "Route/admin bridge.", "stub_or_todo": false},
+        {"path": "reference/CliRelay/sdk/cliproxy/service.go:535", "capabilities": ["executor registry"], "notes": "Runtime execution registry.", "stub_or_todo": false},
+        {"path": "reference/CliRelay/internal/tui/oauth_tab.go:21", "capabilities": ["TUI OAuth flow"], "notes": "Useful only for local/operator workflow.", "stub_or_todo": false},
+        {"path": "reference/CliRelay/internal/runtime/executor/codex_executor.go:426", "capabilities": ["compact response boundary"], "notes": "Unsupported compact streaming path.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["CLI / TUI / SDK / Remote Bridge", "Session / Runtime / Event Model"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "codex-oauth",
+      "path": "reference/codex-oauth",
+      "directories_scanned": ["reference/codex-oauth"],
+      "source_files": [
+        {"path": "reference/codex-oauth/codex_oauth.py:93", "capabilities": ["refresh-token lifecycle"], "notes": "Single-file local OAuth sample.", "stub_or_todo": false},
+        {"path": "reference/codex-oauth/codex_oauth.py:157", "capabilities": ["localhost PKCE callback"], "notes": "Local-only callback.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "usable_as_reference": true,
+      "product_relevance": "sketch-only"
+    },
+    {
+      "name": "copilot-api",
+      "path": "reference/copilot-api",
+      "directories_scanned": ["reference/copilot-api/src"],
+      "source_files": [
+        {"path": "reference/copilot-api/src/lib/token.ts:18", "capabilities": ["GitHub device login", "Copilot token refresh"], "notes": "Useful token lifecycle pattern.", "stub_or_todo": false},
+        {"path": "reference/copilot-api/src/server.ts:19", "capabilities": ["OpenAI-compatible route", "Anthropic-compatible route"], "notes": "Local bridge server.", "stub_or_todo": false},
+        {"path": "reference/copilot-api/src/routes/messages/stream-translation.ts:20", "capabilities": ["OpenAI to Anthropic stream conversion", "tool-use deltas"], "notes": "Adapter conversion evidence.", "stub_or_todo": false},
+        {"path": "reference/copilot-api/src/routes/token/route.ts:7", "capabilities": ["token debug endpoint"], "notes": "Unsuitable without access control.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "usable_as_reference": true,
+      "product_relevance": "sketch-only"
+    },
+    {
+      "name": "coze-studio",
+      "path": "reference/coze-studio",
+      "directories_scanned": ["reference/coze-studio/backend/application", "reference/coze-studio/backend/domain", "reference/coze-studio/idl", "reference/coze-studio/frontend/packages"],
+      "source_files": [
+        {"path": "reference/coze-studio/backend/application/workflow/workflow.go:226", "capabilities": ["workflow create/save/canvas/debug/publish"], "notes": "Application workflow service.", "stub_or_todo": false},
+        {"path": "reference/coze-studio/backend/domain/workflow/internal/compose/workflow_run.go:46", "capabilities": ["durable workflow runner", "resume", "interrupt events"], "notes": "Runtime state evidence.", "stub_or_todo": false},
+        {"path": "reference/coze-studio/backend/domain/plugin/service/plugin_release.go:67", "capabilities": ["plugin publish", "semver", "debug gate"], "notes": "Plugin lifecycle evidence.", "stub_or_todo": false},
+        {"path": "reference/coze-studio/backend/domain/plugin/service/tool/invocation_mcp.go:30", "capabilities": ["MCP invocation boundary"], "notes": "MCP tool invocation returns not implemented.", "stub_or_todo": true},
+        {"path": "reference/coze-studio/backend/domain/knowledge/service/retrieve.go:54", "capabilities": ["retrieval chain", "rerank", "NL2SQL", "slice hydration"], "notes": "Knowledge retrieval evidence.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Workflow", "Plugin / Hook / Skill System", "Knowledge / RAG", "Marketplace", "Agent"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "CPA-Manager",
+      "path": "reference/CPA-Manager",
+      "directories_scanned": ["reference/CPA-Manager/usage-service", "reference/CPA-Manager/src"],
+      "source_files": [
+        {"path": "reference/CPA-Manager/usage-service/internal/store/store.go:119", "capabilities": ["SQLite usage events", "dead letters", "model prices"], "notes": "Local ledger reference.", "stub_or_todo": false},
+        {"path": "reference/CPA-Manager/usage-service/internal/collector/collector.go:379", "capabilities": ["queue normalization", "dead-letter", "event insert"], "notes": "Collector pipeline.", "stub_or_todo": false},
+        {"path": "reference/CPA-Manager/usage-service/internal/httpapi/server.go:427", "capabilities": ["model price CRUD", "usage endpoints"], "notes": "Admin API reference.", "stub_or_todo": false},
+        {"path": "reference/CPA-Manager/src/pages/MonitoringCenterPage.tsx:2049", "capabilities": ["monitoring dashboard", "price sync"], "notes": "Frontend monitoring surface.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Billing / Quota", "Observability", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "dify",
+      "path": "reference/dify",
+      "directories_scanned": ["reference/dify/api/core/workflow", "reference/dify/api/core/plugin", "reference/dify/web", "reference/dify/dify-agent"],
+      "source_files": [
+        {"path": "reference/dify/api/core/workflow/workflow_entry.py:185", "capabilities": ["GraphEngine runtime"], "notes": "Workflow runtime entry.", "stub_or_todo": false},
+        {"path": "reference/dify/api/core/workflow/node_factory.py:271", "capabilities": ["node factory registry"], "notes": "Node registry evidence.", "stub_or_todo": false},
+        {"path": "reference/dify/api/services/workflow_event_snapshot_service.py:79", "capabilities": ["snapshot", "reconnect", "paused runs"], "notes": "Debugger/resume evidence.", "stub_or_todo": false},
+        {"path": "reference/dify/api/core/plugin/plugin_service.py:601", "capabilities": ["plugin install/uninstall lifecycle"], "notes": "Plugin lifecycle evidence.", "stub_or_todo": false},
+        {"path": "reference/dify/dify-agent/src/dify_agent/server/routes/runs.py:80", "capabilities": ["run cancellation boundary"], "notes": "Cancellation returns 501.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Workflow", "Agent", "Plugin / Hook / Skill System", "Marketplace"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "FastGPT",
+      "path": "reference/FastGPT",
+      "directories_scanned": ["reference/FastGPT/projects/app", "reference/FastGPT/packages", "reference/FastGPT/projects/mcp_server"],
+      "source_files": [
+        {"path": "reference/FastGPT/packages/global/core/workflow/node/constant.ts:128", "capabilities": ["node-type registry"], "notes": "Workflow node catalog.", "stub_or_todo": false},
+        {"path": "reference/FastGPT/packages/service/core/workflow/dispatch/index.ts:159", "capabilities": ["workflow dispatcher"], "notes": "Executor dispatcher.", "stub_or_todo": false},
+        {"path": "reference/FastGPT/projects/app/src/pageComponents/app/detail/WorkflowComponents/context/workflowDebugContext.tsx:94", "capabilities": ["workflow debugger context"], "notes": "Frontend debug state.", "stub_or_todo": false},
+        {"path": "reference/FastGPT/projects/mcp_server/src/index.ts:55", "capabilities": ["MCP server lists/calls tools"], "notes": "MCP bridge evidence.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Workflow", "Agent", "Knowledge / RAG", "Plugin / Hook / Skill System"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "Flowise",
+      "path": "reference/Flowise",
+      "directories_scanned": ["reference/Flowise/packages/ui", "reference/Flowise/packages/server", "reference/Flowise/packages/components"],
+      "source_files": [
+        {"path": "reference/Flowise/packages/ui/src/views/canvas/index.jsx:586", "capabilities": ["ReactFlow canvas"], "notes": "Visual workflow reference.", "stub_or_todo": false},
+        {"path": "reference/Flowise/packages/server/src/NodesPool.ts:10", "capabilities": ["runtime node registry"], "notes": "Node registry pool.", "stub_or_todo": false},
+        {"path": "reference/Flowise/packages/server/src/utils/buildChatflow.ts:299", "capabilities": ["graph traversal", "chatflow execution"], "notes": "Chatflow executor.", "stub_or_todo": false},
+        {"path": "reference/Flowise/packages/components/src/agents.ts:59", "capabilities": ["agent tool runtime"], "notes": "Tool streaming TODO nearby.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Workflow", "Agent", "Plugin / Hook / Skill System"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "gateway",
+      "path": "reference/gateway",
+      "directories_scanned": ["reference/gateway/src", "reference/gateway/plugins"],
+      "source_files": [
+        {"path": "reference/gateway/src/index.ts:45", "capabilities": ["Hono gateway entrypoint"], "notes": "Route entry.", "stub_or_todo": false},
+        {"path": "reference/gateway/src/handlers/handlerUtils.ts:288", "capabilities": ["relay pipeline", "hooks", "cache", "validation"], "notes": "Core relay path.", "stub_or_todo": false},
+        {"path": "reference/gateway/src/handlers/retryHandler.ts:65", "capabilities": ["retry", "provider 429 handling"], "notes": "Retry reference.", "stub_or_todo": false},
+        {"path": "reference/gateway/src/handlers/streamHandler.ts:392", "capabilities": ["SSE stream normalization"], "notes": "Streaming reference.", "stub_or_todo": false},
+        {"path": "reference/gateway/src/middlewares/requestValidator/index.ts:25", "capabilities": ["custom host validation", "private IP blocking"], "notes": "Security reference.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System", "Deployment / Security"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "helicone",
+      "path": "reference/helicone",
+      "directories_scanned": ["reference/helicone/worker", "reference/helicone/clickhouse", "reference/helicone/valhalla", "reference/helicone/web"],
+      "source_files": [
+        {"path": "reference/helicone/worker/src/lib/dbLogger/DBLoggable.ts:590", "capabilities": ["latency", "TTFT", "tokens", "request body logging"], "notes": "Request log evidence.", "stub_or_todo": false},
+        {"path": "reference/helicone/clickhouse/migrations/schema_41_request_response_replacing_merge_tree.sql:1", "capabilities": ["ClickHouse request-response schema"], "notes": "Analytics storage evidence.", "stub_or_todo": false},
+        {"path": "reference/helicone/valhalla/jawn/src/managers/MetricsManager.ts:266", "capabilities": ["metrics queries", "cost", "latency", "errors"], "notes": "Dashboard query manager.", "stub_or_todo": false},
+        {"path": "reference/helicone/worker/src/lib/managers/AlertManager.ts:31", "capabilities": ["alert loop", "history", "email/Slack"], "notes": "SLO alert reference.", "stub_or_todo": false},
+        {"path": "reference/helicone/worker/src/index.ts:420", "capabilities": ["fallback queue boundary"], "notes": "Fallback queue not implemented.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Observability", "Billing / Quota", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "LibreChat",
+      "path": "reference/LibreChat",
+      "directories_scanned": ["reference/LibreChat/api", "reference/LibreChat/packages", "reference/LibreChat/client"],
+      "source_files": [
+        {"path": "reference/LibreChat/api/server/routes/convos.js:32", "capabilities": ["conversation list/get/delete/archive/import/fork"], "notes": "Chat session lifecycle.", "stub_or_todo": false},
+        {"path": "reference/LibreChat/api/server/routes/messages.js:13", "capabilities": ["message query/save/update/delete"], "notes": "Message persistence surface.", "stub_or_todo": false},
+        {"path": "reference/LibreChat/api/server/controllers/agents/openai.js:421", "capabilities": ["agent runtime", "tool callbacks", "MCP auth map"], "notes": "Agent/tool evidence.", "stub_or_todo": false},
+        {"path": "reference/LibreChat/packages/api/src/mcp/MCPManager.ts:43", "capabilities": ["MCP connection manager", "tool discovery", "calls"], "notes": "MCP lifecycle reference.", "stub_or_todo": false},
+        {"path": "reference/LibreChat/packages/api/src/mcp/registry/MCPServersRegistry.ts:659", "capabilities": ["MCP OAuth boundary"], "notes": "OAuth TODO.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Chat", "Agent", "Plugin / Hook / Skill System", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "litellm",
+      "path": "reference/litellm",
+      "directories_scanned": ["reference/litellm/litellm", "reference/litellm/schema.prisma"],
+      "source_files": [
+        {"path": "reference/litellm/litellm/proxy/proxy_server.py:1095", "capabilities": ["FastAPI proxy route surface"], "notes": "Gateway route map.", "stub_or_todo": false},
+        {"path": "reference/litellm/litellm/proxy/auth/route_checks.py:67", "capabilities": ["RBAC route checks"], "notes": "Backend auth enforcement.", "stub_or_todo": false},
+        {"path": "reference/litellm/schema.prisma:12", "capabilities": ["budgets", "teams", "keys", "spend logs", "audit logs"], "notes": "Durable schema reference.", "stub_or_todo": false},
+        {"path": "reference/litellm/litellm/proxy/guardrails/init_guardrails.py:19", "capabilities": ["guardrail registry"], "notes": "Guardrail lifecycle.", "stub_or_todo": false},
+        {"path": "reference/litellm/litellm/proxy/hooks/parallel_request_limiter.py:322", "capabilities": ["request limiting boundary"], "notes": "Partial/TODO limiter coverage.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry", "Deployment / Security"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "llm-gateway",
+      "path": "reference/llm-gateway",
+      "directories_scanned": ["reference/llm-gateway/backend/app"],
+      "source_files": [
+        {"path": "reference/llm-gateway/backend/app/api/proxy/openai.py:226", "capabilities": ["OpenAI-compatible proxy routes"], "notes": "Chat/completions/embeddings/audio/images/responses.", "stub_or_todo": false},
+        {"path": "reference/llm-gateway/backend/app/services/proxy_service.py:99", "capabilities": ["model resolution", "candidate strategy", "retry", "logging"], "notes": "Proxy orchestration.", "stub_or_todo": false},
+        {"path": "reference/llm-gateway/backend/app/services/strategy.py:392", "capabilities": ["round-robin", "priority", "cost-first"], "notes": "Route strategy.", "stub_or_todo": false},
+        {"path": "reference/llm-gateway/backend/app/config.py:61", "capabilities": ["development defaults"], "notes": "Localhost/dev defaults.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "Billing / Quota"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "llmgateway",
+      "path": "reference/llmgateway",
+      "directories_scanned": ["reference/llmgateway/apps/gateway", "reference/llmgateway/apps/api", "reference/llmgateway/packages"],
+      "source_files": [
+        {"path": "reference/llmgateway/apps/gateway/src/chat/chat.ts:940", "capabilities": ["OpenAI chat completions"], "notes": "Gateway handler.", "stub_or_todo": false},
+        {"path": "reference/llmgateway/packages/actions/src/get-cheapest-from-available-providers.ts:330", "capabilities": ["provider selection by price/priority/sticky metadata"], "notes": "Routing strategy.", "stub_or_todo": false},
+        {"path": "reference/llmgateway/apps/gateway/src/lib/costs.ts:115", "capabilities": ["token/cache/image/audio/search cost"], "notes": "Cost engine.", "stub_or_todo": false},
+        {"path": "reference/llmgateway/packages/db/src/schema.ts:471", "capabilities": ["API keys", "logs", "routing", "discounts", "rate limits"], "notes": "DB schema.", "stub_or_todo": false},
+        {"path": "reference/llmgateway/apps/ui/src/components/features/cost-analytics-demo.tsx:14", "capabilities": ["cost analytics demo boundary"], "notes": "Mock data.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "lobe-chat",
+      "path": "reference/lobe-chat",
+      "directories_scanned": ["reference/lobe-chat/src"],
+      "source_files": [
+        {"path": "reference/lobe-chat/src/app/api/chat/[provider]/route.ts:12", "capabilities": ["authenticated provider chat endpoint"], "notes": "Provider chat route.", "stub_or_todo": false},
+        {"path": "reference/lobe-chat/src/libs/agent-runtime/AgentRuntime.ts:80", "capabilities": ["provider runtime abstraction"], "notes": "Provider adapter runtime.", "stub_or_todo": false},
+        {"path": "reference/lobe-chat/src/app/api/plugin/gateway/route.ts:17", "capabilities": ["plugin gateway auth/settings/manifest"], "notes": "Plugin gateway.", "stub_or_todo": false},
+        {"path": "reference/lobe-chat/src/server/services/dataImporter/index.ts:319", "capabilities": ["import boundary"], "notes": "TTS/images import TODO.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Chat", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "lobehub",
+      "path": "reference/lobehub",
+      "directories_scanned": ["reference/lobehub/packages", "reference/lobehub/src", "reference/lobehub/apps/desktop"],
+      "source_files": [
+        {"path": "reference/lobehub/packages/agent-gateway-client/src/client.ts:144", "capabilities": ["agent gateway websocket messages", "interrupt", "resume"], "notes": "Remote agent gateway.", "stub_or_todo": false},
+        {"path": "reference/lobehub/src/libs/mcp/client.ts:157", "capabilities": ["MCP HTTP/stdio connect", "list", "call"], "notes": "MCP client.", "stub_or_todo": false},
+        {"path": "reference/lobehub/src/store/tool/slices/mcpStore/action.ts:71", "capabilities": ["MCP market install/test/list"], "notes": "MCP market lifecycle.", "stub_or_todo": false},
+        {"path": "reference/lobehub/apps/desktop/stubs/types/src/index.ts:2", "capabilities": ["desktop boundary"], "notes": "Stub type package.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Plugin / Hook / Skill System", "CLI / TUI / SDK / Remote Bridge", "Marketplace"],
+      "usable_as_reference": true,
+      "product_relevance": "P2"
+    },
+    {
+      "name": "MaxKB",
+      "path": "reference/MaxKB",
+      "directories_scanned": ["reference/MaxKB/apps/knowledge", "reference/MaxKB/apps/application"],
+      "source_files": [
+        {"path": "reference/MaxKB/apps/knowledge/serializers/document.py:996", "capabilities": ["document create/ingest"], "notes": "Knowledge document lifecycle.", "stub_or_todo": false},
+        {"path": "reference/MaxKB/apps/knowledge/task/embedding.py:61", "capabilities": ["Celery embedding worker"], "notes": "Async embedding.", "stub_or_todo": false},
+        {"path": "reference/MaxKB/apps/knowledge/vector/pg_vector.py:148", "capabilities": ["pgvector retrieval"], "notes": "Vector retrieval.", "stub_or_todo": false},
+        {"path": "reference/MaxKB/apps/application/views/application.py:466", "capabilities": ["demo boundary"], "notes": "Demo/play-demo path.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Knowledge / RAG", "Workflow", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "new-api",
+      "path": "reference/new-api",
+      "directories_scanned": ["reference/new-api/router", "reference/new-api/middleware", "reference/new-api/model", "reference/new-api/service"],
+      "source_files": [
+        {"path": "reference/new-api/router/relay-router.go:69", "capabilities": ["OpenAI-compatible route group", "auth", "rate limit"], "notes": "Relay route map.", "stub_or_todo": false},
+        {"path": "reference/new-api/router/relay-router.go:153", "capabilities": ["explicit unsupported endpoints"], "notes": "Unsupported files/fine-tune/delete model routes.", "stub_or_todo": true},
+        {"path": "reference/new-api/middleware/auth.go:170", "capabilities": ["user/token/admin auth layering"], "notes": "Backend auth middleware.", "stub_or_todo": false},
+        {"path": "reference/new-api/model/channel.go:23", "capabilities": ["channel schema", "provider settings"], "notes": "Provider/channel registry.", "stub_or_todo": false},
+        {"path": "reference/new-api/service/billing_session.go:20", "capabilities": ["reserve", "settle", "refund", "preconsume"], "notes": "Quota/billing lifecycle.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "NextChat",
+      "path": "reference/NextChat",
+      "directories_scanned": ["reference/NextChat/app", "reference/NextChat/public", "reference/NextChat/src-tauri"],
+      "source_files": [
+        {"path": "reference/NextChat/app/store/chat.ts:243", "capabilities": ["sessions", "fork", "delete", "provider call"], "notes": "Client chat store.", "stub_or_todo": false},
+        {"path": "reference/NextChat/app/utils/chat.ts:224", "capabilities": ["client-side tool-call loop"], "notes": "UX/tool loop.", "stub_or_todo": false},
+        {"path": "reference/NextChat/app/mcp/actions.ts:22", "capabilities": ["MCP config", "tool listing", "execute"], "notes": "MCP actions.", "stub_or_todo": false},
+        {"path": "reference/NextChat/public/serviceWorker.js:22", "capabilities": ["PWA cache"], "notes": "Browser-local cache, not backend durability.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Chat", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System", "CLI / TUI / SDK / Remote Bridge"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "one-api",
+      "path": "reference/one-api",
+      "directories_scanned": ["reference/one-api/router", "reference/one-api/middleware", "reference/one-api/model", "reference/one-api/relay"],
+      "source_files": [
+        {"path": "reference/one-api/router/relay.go:20", "capabilities": ["v1 relay route map"], "notes": "Relay route surface.", "stub_or_todo": false},
+        {"path": "reference/one-api/router/api.go:71", "capabilities": ["admin/user APIs"], "notes": "Admin route map.", "stub_or_todo": false},
+        {"path": "reference/one-api/middleware/distributor.go:47", "capabilities": ["group/model channel selection", "upstream auth"], "notes": "Channel distributor.", "stub_or_todo": false},
+        {"path": "reference/one-api/relay/billing/billing.go:23", "capabilities": ["post-consume quota", "usage logs"], "notes": "Billing path.", "stub_or_todo": false},
+        {"path": "reference/one-api/controller/relay.go:134", "capabilities": ["unsupported API boundary"], "notes": "Returns API not implemented.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "open-webui",
+      "path": "reference/open-webui",
+      "directories_scanned": ["reference/open-webui/backend/open_webui", "reference/open-webui/src"],
+      "source_files": [
+        {"path": "reference/open-webui/backend/open_webui/models/chats.py:43", "capabilities": ["persisted chat table"], "notes": "Chat persistence.", "stub_or_todo": false},
+        {"path": "reference/open-webui/backend/open_webui/routers/chats.py:52", "capabilities": ["chat create/import/search/folder/share"], "notes": "Chat API lifecycle.", "stub_or_todo": false},
+        {"path": "reference/open-webui/backend/open_webui/routers/files.py:218", "capabilities": ["file upload/process/list/search/delete"], "notes": "File ACL lifecycle.", "stub_or_todo": false},
+        {"path": "reference/open-webui/backend/open_webui/utils/tools.py:430", "capabilities": ["builtin/OpenAPI/MCP tool conversion and execution"], "notes": "Tool execution reference.", "stub_or_todo": false},
+        {"path": "reference/open-webui/backend/open_webui/utils/mcp/client.py:97", "capabilities": ["MCP output schema boundary"], "notes": "outputSchema TODO.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Admin", "Plugin / Hook / Skill System"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "openai-oauth",
+      "path": "reference/openai-oauth",
+      "directories_scanned": ["reference/openai-oauth/packages"],
+      "source_files": [
+        {"path": "reference/openai-oauth/packages/openai-oauth-core/src/auth.ts:256", "capabilities": ["ChatGPT token refresh"], "notes": "Refresh lifecycle.", "stub_or_todo": false},
+        {"path": "reference/openai-oauth/packages/openai-oauth-core/src/transport.ts:72", "capabilities": ["bearer injection", "responses body normalization", "SSE state"], "notes": "Transport adapter.", "stub_or_todo": false},
+        {"path": "reference/openai-oauth/packages/openai-oauth-core/src/sse.ts:30", "capabilities": ["SSE iterator"], "notes": "SSE parser.", "stub_or_todo": false},
+        {"path": "reference/openai-oauth/packages/openai-oauth/src/server.ts:53", "capabilities": ["local OpenAI-compatible endpoints"], "notes": "Local adapter server.", "stub_or_todo": false}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "usable_as_reference": true,
+      "product_relevance": "P1"
+    },
+    {
+      "name": "ragflow",
+      "path": "reference/ragflow",
+      "directories_scanned": ["reference/ragflow/api", "reference/ragflow/rag", "reference/ragflow/deepdoc", "reference/ragflow/web"],
+      "source_files": [
+        {"path": "reference/ragflow/api/apps/restful_apis/document_api.py:59", "capabilities": ["document upload API"], "notes": "Ingestion API.", "stub_or_todo": false},
+        {"path": "reference/ragflow/api/apps/restful_apis/document_api.py:1430", "capabilities": ["parse/reparse"], "notes": "Parser lifecycle.", "stub_or_todo": false},
+        {"path": "reference/ragflow/rag/svr/task_executor.py:270", "capabilities": ["background chunk builder"], "notes": "Async task executor.", "stub_or_todo": false},
+        {"path": "reference/ragflow/rag/svr/task_executor.py:696", "capabilities": ["embedding stage"], "notes": "Embedding worker.", "stub_or_todo": false},
+        {"path": "reference/ragflow/rag/nlp/search.py:562", "capabilities": ["retrieval threshold", "vector weight", "rerank", "highlights"], "notes": "Retrieval debug evidence.", "stub_or_todo": false},
+        {"path": "reference/ragflow/deepdoc/parser/pdf_parser.py:2023", "capabilities": ["parser boundary"], "notes": "PlainParser.crop NotImplemented.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Knowledge / RAG"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    },
+    {
+      "name": "sub2api",
+      "path": "reference/sub2api",
+      "directories_scanned": ["reference/sub2api/backend", "reference/sub2api/frontend", "reference/sub2api/deploy"],
+      "source_files": [
+        {"path": "reference/sub2api/backend/internal/server/routes/auth.go:16", "capabilities": ["register/login/2FA/refresh/OAuth/OIDC"], "notes": "Auth route map.", "stub_or_todo": false},
+        {"path": "reference/sub2api/backend/internal/server/routes/admin.go:15", "capabilities": ["admin proxy/settings/usage/channel/monitor routes"], "notes": "Admin route map.", "stub_or_todo": false},
+        {"path": "reference/sub2api/backend/internal/server/middleware/admin_auth.go:14", "capabilities": ["admin API key", "JWT role", "WebSocket subprotocol JWT"], "notes": "Backend RBAC enforcement.", "stub_or_todo": false},
+        {"path": "reference/sub2api/backend/internal/service/gateway_service.go:588", "capabilities": ["account selection", "sticky sessions", "failover", "model mapping"], "notes": "Gateway orchestration.", "stub_or_todo": false},
+        {"path": "reference/sub2api/deploy/docker-compose.yml:223", "capabilities": ["deploy defaults boundary"], "notes": "Local/debug-oriented defaults.", "stub_or_todo": true}
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry", "Deployment / Security"],
+      "usable_as_reference": true,
+      "product_relevance": "P0"
+    }
+  ],
+  "capability_domains": [
+    {
+      "name": "Relay / API Gateway",
+      "reference_projects": ["new-api", "gateway", "llmgateway", "llm-gateway", "one-api", "litellm", "bifrost", "sub2api"],
+      "strongest_evidence": ["reference/new-api/router/relay-router.go:69", "reference/gateway/src/handlers/handlerUtils.ts:288", "reference/litellm/litellm/proxy/proxy_server.py:1095", "reference/bifrost/core/bifrost.go:719"],
+      "oblivious_product_requirements": ["explicit supported and unsupported route map", "true upstream streaming", "provider error normalization", "authenticated metered relay", "provider/account selection with retry and failover"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Chat",
+      "reference_projects": ["LibreChat", "open-webui", "lobe-chat", "NextChat"],
+      "strongest_evidence": ["reference/LibreChat/api/server/routes/convos.js:32", "reference/open-webui/backend/open_webui/routers/chats.py:52", "reference/lobe-chat/src/app/api/chat/[provider]/route.ts:12"],
+      "oblivious_product_requirements": ["durable conversations/messages", "fork/share/import/export boundaries", "model selector tied to live availability", "no production demo reply fallback"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Knowledge / RAG",
+      "reference_projects": ["ragflow", "MaxKB", "coze-studio", "open-webui", "anything-llm"],
+      "strongest_evidence": ["reference/ragflow/rag/svr/task_executor.py:270", "reference/MaxKB/apps/knowledge/task/embedding.py:61", "reference/coze-studio/backend/domain/knowledge/service/event_handle.go:71"],
+      "oblivious_product_requirements": ["durable ingestion job", "parser and embedding workers", "delete/reindex outbox", "retrieval debug", "citation payload"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Agent",
+      "reference_projects": ["LibreChat", "open-webui", "coze-studio", "bifrost", "dify"],
+      "strongest_evidence": ["reference/LibreChat/api/server/controllers/agents/openai.js:421", "reference/open-webui/backend/open_webui/utils/tools.py:430", "reference/bifrost/core/mcp/agent.go:35"],
+      "oblivious_product_requirements": ["tool call extraction", "approval gates", "execution timeout", "tool trace", "budget accounting"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Workflow",
+      "reference_projects": ["coze-studio", "dify", "FastGPT", "Flowise"],
+      "strongest_evidence": ["reference/coze-studio/backend/domain/workflow/internal/compose/workflow_run.go:46", "reference/dify/api/core/workflow/workflow_entry.py:185", "reference/FastGPT/packages/service/core/workflow/dispatch/index.ts:159"],
+      "oblivious_product_requirements": ["versioned node registry", "durable run state", "transition event log", "retry/cancel policy", "debug snapshot"],
+      "mvp_priority": "P1"
+    },
+    {
+      "name": "Billing / Quota",
+      "reference_projects": ["new-api", "sub2api", "llmgateway", "litellm", "CPA-Manager", "one-api"],
+      "strongest_evidence": ["reference/new-api/service/billing_session.go:20", "reference/llmgateway/apps/gateway/src/lib/costs.ts:115", "reference/CPA-Manager/usage-service/internal/store/store.go:119", "reference/litellm/schema.prisma:12"],
+      "oblivious_product_requirements": ["versioned price catalog", "preconsume/reserve", "settle/refund", "immutable usage ledger", "reconciliation jobs"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Marketplace",
+      "reference_projects": ["coze-studio", "dify", "lobehub", "lobe-chat"],
+      "strongest_evidence": ["reference/coze-studio/idl/marketplace/public_api.thrift:7", "reference/coze-studio/idl/marketplace/product_common.thrift:72", "reference/dify/api/core/plugin/plugin_service.py:601"],
+      "oblivious_product_requirements": ["publish/review/install lifecycle", "versioning", "delist/appeal audit", "paid install and payout later"],
+      "mvp_priority": "P2"
+    },
+    {
+      "name": "Admin",
+      "reference_projects": ["new-api", "sub2api", "llmgateway", "litellm", "open-webui", "LibreChat"],
+      "strongest_evidence": ["reference/new-api/router/api-router.go:227", "reference/sub2api/backend/internal/server/middleware/admin_auth.go:14", "reference/litellm/litellm/proxy/auth/route_checks.py:67"],
+      "oblivious_product_requirements": ["backend RBAC", "provider/key admin", "pricing/quota admin", "usage/log visibility", "settings/risk controls"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Observability",
+      "reference_projects": ["helicone", "bifrost", "CPA-Manager", "ai-gateway", "gateway"],
+      "strongest_evidence": ["reference/helicone/worker/src/lib/dbLogger/DBLoggable.ts:590", "reference/bifrost/plugins/telemetry/main.go:230", "reference/ai-gateway/internal/metrics/metrics_impl.go:131"],
+      "oblivious_product_requirements": ["request log", "cost/latency/error/token metrics", "trace id", "dashboard drilldown", "SLO alerts after P0"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Provider / Model / Auth Registry",
+      "reference_projects": ["new-api", "llmgateway", "litellm", "CLIProxyAPI", "CliRelay", "openai-oauth", "lobe-chat"],
+      "strongest_evidence": ["reference/new-api/model/channel.go:23", "reference/llmgateway/packages/models/src/providers.ts:95", "reference/CLIProxyAPI/sdk/cliproxy/auth/conductor.go:3091"],
+      "oblivious_product_requirements": ["durable provider registry", "model aliases", "credential isolation", "account pool", "refresh/revoke lifecycle"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "Plugin / Hook / Skill System",
+      "reference_projects": ["gateway", "bifrost", "coze-studio", "dify", "open-webui", "LibreChat", "lobehub"],
+      "strongest_evidence": ["reference/gateway/src/middlewares/hooks/index.ts:253", "reference/bifrost/core/bifrost.go:6524", "reference/coze-studio/backend/domain/plugin/service/plugin_release.go:67"],
+      "oblivious_product_requirements": ["bounded tool/plugin lifecycle", "auth injection", "approval", "logs", "timeouts", "install/test/uninstall later"],
+      "mvp_priority": "P0"
+    },
+    {
+      "name": "CLI / TUI / SDK / Remote Bridge",
+      "reference_projects": ["CLIProxyAPI", "CliRelay", "codex-oauth", "openai-oauth", "copilot-api", "claude-code-api", "NextChat"],
+      "strongest_evidence": ["reference/CLIProxyAPI/internal/runtime/executor/codex_executor.go:253", "reference/CliRelay/internal/tui/oauth_tab.go:21", "reference/openai-oauth/packages/openai-oauth/src/server.ts:53"],
+      "oblivious_product_requirements": ["separate local bridge from production gateway", "encrypted token storage", "refresh/revoke", "adapter conversion tests"],
+      "mvp_priority": "later"
+    }
+  ],
+  "unscanned_projects": [],
+  "scan_exceptions": [
+    {
+      "project": "bifrost",
+      "note": "Not assigned in A1-A11, so main agent performed a read-only supplemental source scan."
+    }
+  ],
+  "top_p0_reference_projects": ["new-api", "sub2api", "litellm", "llmgateway", "gateway", "one-api", "ragflow", "MaxKB", "coze-studio", "LibreChat", "open-webui", "helicone", "CPA-Manager", "bifrost"],
+  "sketch_only_projects": ["codex-oauth", "copilot-api", "claude-code-api", "Cli-Proxy-API-Management-Center"],
+  "single_next_ticket": "P0-Execution-Evidence-Spine"
+}
