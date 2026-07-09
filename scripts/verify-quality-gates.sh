@@ -252,6 +252,7 @@ target_release_artifact_collector_fixtures_file="$repo_root/scripts/collect-targ
 target_release_digest_file="$repo_root/scripts/compute-target-release-digests.sh"
 target_release_digest_impl_file="$repo_root/scripts/target_release_digests.py"
 target_release_digest_fixtures_file="$repo_root/scripts/compute-target-release-digests-fixtures.sh"
+target_release_workdir_initializer_file="$repo_root/scripts/init-target-release-evidence-workdir.sh"
 target_evidence_source_file="$repo_root/scripts/target_evidence_source.py"
 strict_verifier_collector_file="$repo_root/scripts/collect-strict-verifier-evidence.sh"
 strict_verifier_collector_impl_file="$repo_root/scripts/collect_strict_verifier_evidence.py"
@@ -1042,6 +1043,8 @@ assert_file_contains "$release_checklist_file" "--workflow-telemetry-proof-file"
 assert_file_contains "$release_checklist_file" "--validate"
 assert_file_contains "$release_checklist_file" "The assembler does not create evidence"
 assert_file_contains "$release_checklist_file" "Final Commercial Release Runbook"
+assert_file_contains "$release_checklist_file" "init-target-release-evidence-workdir.sh --workdir"
+assert_file_contains "$release_checklist_file" "refuses repository-internal paths"
 assert_file_contains "$release_checklist_file" "collect-target-release-artifacts.sh"
 assert_file_contains "$release_checklist_file" "verify-commercial-preflight.mjs --target-evidence-only"
 assert_file_contains "$release_checklist_file" "--strict-verifier-url"
@@ -2362,8 +2365,12 @@ assert_file_contains "$dependency_security_file" "v1.3.0"
 assert_file_contains "$package_file" '"check:security": "bash scripts/check.sh security"'
 assert_file_contains "$package_file" '"verify:commercial:preflight": "node scripts/verify-commercial-preflight.mjs"'
 assert_file_contains "$package_file" '"verify:commercial:local": "node scripts/verify-commercial-local.mjs"'
+assert_file_contains "$package_file" '"init:target-release:evidence": "bash scripts/init-target-release-evidence-workdir.sh"'
 assert_file_contains "$package_file" '"verify:target-release:evidence": "bash scripts/verify-target-release-evidence.sh"'
 assert_file_contains "$package_file" '"verify:target-release:digests": "bash scripts/compute-target-release-digests.sh"'
+assert_file_contains "$target_release_workdir_initializer_file" "target release evidence workdir must be outside the repository"
+assert_file_contains "$target_release_workdir_initializer_file" "collect-target-evidence.todo.md"
+assert_file_contains "$target_release_workdir_initializer_file" "This script does not create target evidence"
 assert_file_contains "$commercial_preflight_verifier_file" "Checking strict final commercial release prerequisites"
 assert_file_contains "$commercial_preflight_verifier_file" "target artifact body coverage"
 assert_file_contains "$commercial_preflight_verifier_file" "target evidence verifier"

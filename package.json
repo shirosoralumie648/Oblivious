@@ -10,6 +10,7 @@
     "verify:commercial:preflight": "node scripts/verify-commercial-preflight.mjs",
     "verify:commercial:blockers": "node scripts/verify-commercial-preflight.mjs --local --json-output .tmp/commercial-preflight-blockers.json",
     "verify:commercial:local": "node scripts/verify-commercial-local.mjs",
+    "init:target-release:evidence": "bash scripts/init-target-release-evidence-workdir.sh",
     "verify:target-release:evidence": "bash scripts/verify-target-release-evidence.sh",
     "verify:target-release:digests": "bash scripts/compute-target-release-digests.sh",
     "dev:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web dev",
