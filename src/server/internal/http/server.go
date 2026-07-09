@@ -8,6 +8,7 @@ import (
 	stdhttp "net/http"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/google/uuid"
 
 	"oblivious/server/internal/admin"
@@ -27,7 +28,7 @@ import (
 )
 
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
-	requestLogCloser := configureRequestLogSink(cfg)
+	requestLogEvidenceStore, requestLogCloser := configureRequestLogSink(cfg)
 	var relayPricingStore *relay.PricingStore
 	var relayPool *relay.ChannelPool
 	var relayStore *relay.RelayStore
@@ -77,6 +78,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		RelayPricingStore:           relayPricingStore,
 		ChannelRuntimeStatsProvider: relayPool,
 		RelayConfigApplier:          relayConfigApplier,
+		RequestLogEvidenceStore:     requestLogEvidenceStore,
 		WorkflowService:             workflowService,
 		ScheduleService:             scheduleService,
 		AlertStateStore:             alertStateStore,
@@ -238,22 +240,37 @@ func buildChannelMessageLogArchiveSink(cfg config.Config) (publishingchannel.Mes
 	}
 }
 
-func configureRequestLogSink(cfg config.Config) func() {
+func configureRequestLogSink(cfg config.Config) (admin.RequestLogEvidenceStore, func()) {
 	if cfg.ObservabilityRequestLogBackend != "clickhouse" {
-		return nil
+		return nil, nil
 	}
 	clickHouseDB, err := sql.Open(cfg.ClickHouseDriver, cfg.ClickHouseDSN)
 	if err != nil {
-		log.Printf("warning: failed to open ClickHouse request log sink: %v", err)
-		return nil
+		handleRequestLogSinkConfigurationError(cfg, fmt.Errorf("open ClickHouse request log sink: %w", err))
+		return nil, nil
 	}
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := clickHouseDB.PingContext(pingCtx); err != nil {
+		_ = clickHouseDB.Close()
+		handleRequestLogSinkConfigurationError(cfg, fmt.Errorf("ping ClickHouse request log sink: %w", err))
+		return nil, nil
+	}
+	requestLogEvidenceStore := admin.NewClickHouseUsageAnalyticsStore(clickHouseDB)
 	restoreSink := setRequestLogSink(observability.NewSQLRequestLogSink(clickHouseDB))
-	return func() {
+	return requestLogEvidenceStore, func() {
 		restoreSink()
 		if err := clickHouseDB.Close(); err != nil {
 			log.Printf("warning: failed to close ClickHouse request log sink: %v", err)
 		}
 	}
+}
+
+func handleRequestLogSinkConfigurationError(cfg config.Config, err error) {
+	if cfg.Env == "production" {
+		panic(err)
+	}
+	log.Printf("warning: %v", err)
 }
 
 func configureHTTPAlerting(

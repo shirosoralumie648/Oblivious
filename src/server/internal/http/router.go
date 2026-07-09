@@ -46,6 +46,7 @@ type RouterOptions struct {
 	RelayPricingStore           *relay.PricingStore
 	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
 	RelayConfigApplier          admin.RelayConfigApplier
+	RequestLogEvidenceStore     admin.RequestLogEvidenceStore
 	MarketplacePayoutProvider   marketplace.MarketplacePayoutProvider
 	AdminService                *admin.Service
 	WorkflowService             *workflow.Service
@@ -194,6 +195,9 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			options.RelayPricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
 		}))
 	}
+	if options.RequestLogEvidenceStore != nil {
+		adminOptions = append(adminOptions, admin.WithRequestLogEvidenceStore(options.RequestLogEvidenceStore))
+	}
 	adminService := options.AdminService
 	if adminService == nil {
 		adminService = admin.NewService(admin.NewSQLStore(database), adminOptions...)
@@ -214,7 +218,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		adminQuotaSettingsService = quotaService
 	}
 	adminHandler := newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
-	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabase(cfg, database))
+	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg, database, options.RequestLogEvidenceStore))
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
 		marketplace.NewSearchService(database),

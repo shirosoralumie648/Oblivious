@@ -8,6 +8,7 @@ import (
 	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -323,6 +324,28 @@ func (c serverRequestLogCaptureConn) ExecContext(_ context.Context, query string
 	return driver.RowsAffected(1), nil
 }
 
+func (c serverRequestLogCaptureConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.capture.mu.Lock()
+	c.capture.query = query
+	c.capture.args = append([]driver.NamedValue(nil), args...)
+	c.capture.mu.Unlock()
+	return serverRequestLogCaptureRows{}, nil
+}
+
+type serverRequestLogCaptureRows struct{}
+
+func (serverRequestLogCaptureRows) Columns() []string {
+	return []string{"request_id", "path", "method", "status_code", "latency_ms"}
+}
+
+func (serverRequestLogCaptureRows) Close() error {
+	return nil
+}
+
+func (serverRequestLogCaptureRows) Next(_ []driver.Value) error {
+	return io.EOF
+}
+
 func TestNewServerConfiguresClickHouseRequestLogSink(t *testing.T) {
 	database, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
 	if err != nil {
@@ -359,6 +382,55 @@ func TestNewServerConfiguresClickHouseRequestLogSink(t *testing.T) {
 	if len(args) == 0 {
 		t.Fatal("expected request log insert args")
 	}
+}
+
+func TestConfigureRequestLogSinkReturnsClickHouseEvidenceStore(t *testing.T) {
+	driverName := fmt.Sprintf("http_server_request_log_evidence_%d", time.Now().UnixNano())
+	capture := &serverRequestLogCapture{}
+	registerServerRequestLogCaptureDriver(driverName, capture)
+	cfg := testConfig()
+	cfg.ObservabilityRequestLogBackend = "clickhouse"
+	cfg.ClickHouseDriver = driverName
+	cfg.ClickHouseDSN = "capture-dsn"
+
+	store, closer := configureRequestLogSink(cfg)
+	if closer != nil {
+		defer closer()
+	}
+	if store == nil {
+		t.Fatal("expected ClickHouse request-log evidence store")
+	}
+
+	_, err := store.ListRequestLogEvidence(context.Background(), []string{"req-1"})
+	if err != nil {
+		t.Fatalf("list request-log evidence: %v", err)
+	}
+	capture.mu.Lock()
+	query := capture.query
+	args := append([]driver.NamedValue(nil), capture.args...)
+	capture.mu.Unlock()
+	if !strings.Contains(query, "FROM request_logs") {
+		t.Fatalf("expected request-log evidence query, got %q", query)
+	}
+	if len(args) == 0 || args[0].Value != "req-1" {
+		t.Fatalf("expected request id query arg req-1, got %#v", args)
+	}
+}
+
+func TestConfigureRequestLogSinkPanicsInProductionWhenClickHouseUnavailable(t *testing.T) {
+	cfg := testConfig()
+	cfg.Env = "production"
+	cfg.ObservabilityRequestLogBackend = "clickhouse"
+	cfg.ClickHouseDriver = "missing-clickhouse-driver"
+	cfg.ClickHouseDSN = "capture-dsn"
+
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected production ClickHouse request-log sink configuration to panic")
+		}
+	}()
+
+	_, _ = configureRequestLogSink(cfg)
 }
 
 func TestConfigureHTTPAlertingRoutes5xxToSignedWebhookAndRecovery(t *testing.T) {
