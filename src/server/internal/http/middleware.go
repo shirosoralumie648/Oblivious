@@ -1,8 +1,11 @@
 package http
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"net"
 	stdhttp "net/http"
 	"os"
 	"strings"
@@ -51,6 +54,45 @@ type observabilityScope struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(stdhttp.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	conn, readWriter, err := hijacker.Hijack()
+	if err == nil && r.status == stdhttp.StatusOK {
+		r.status = stdhttp.StatusSwitchingProtocols
+	}
+	return conn, readWriter, err
+}
+
+func (r *statusRecorder) Flush() {
+	flusher, ok := r.ResponseWriter.(stdhttp.Flusher)
+	if ok {
+		flusher.Flush()
+	}
+}
+
+func (r *statusRecorder) ReadFrom(reader io.Reader) (int64, error) {
+	readerFrom, ok := r.ResponseWriter.(io.ReaderFrom)
+	if ok {
+		return readerFrom.ReadFrom(reader)
+	}
+	return io.Copy(r.ResponseWriter, reader)
+}
+
+func (r *statusRecorder) Push(target string, opts *stdhttp.PushOptions) error {
+	pusher, ok := r.ResponseWriter.(stdhttp.Pusher)
+	if ok {
+		return pusher.Push(target, opts)
+	}
+	return stdhttp.ErrNotSupported
+}
+
+func (r *statusRecorder) Unwrap() stdhttp.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func applyMiddleware(handler stdhttp.Handler, middleware ...func(stdhttp.Handler) stdhttp.Handler) stdhttp.Handler {
@@ -115,6 +157,9 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 
 		requestID := requestIDFromContext(r.Context())
 		duration := time.Since(startedAt)
+		if duration <= 0 {
+			duration = time.Nanosecond
+		}
 		organizationID, userID := scope.snapshot()
 		metrics.RecordHTTPRequest(r.Method, route, recorder.status)
 		metrics.ObserveHTTPRequestDuration(r.Method, route, duration.Seconds())
@@ -388,27 +433,6 @@ func routeHTTPLatencySLOAlert(ctx context.Context, method, route string, status 
 	}
 }
 
-func httpLatencySLOAlertEvent(method, route string, status int, latency time.Duration, threshold time.Duration, occurredAt time.Time, requestID string) observability.AlertEvent {
-	return observability.AlertEvent{
-		Key:        fmt.Sprintf("http-slo:%s:latency", route),
-		Severity:   observability.AlertSeverityWarning,
-		Title:      fmt.Sprintf("HTTP latency SLO exceeded on %s", route),
-		Message:    fmt.Sprintf("%s %s returned %d in %dms over %dms SLO", method, route, status, latency.Milliseconds(), threshold.Milliseconds()),
-		Component:  observability.ComponentHTTP,
-		OccurredAt: occurredAt,
-		Fields: map[string]any{
-			"method":       method,
-			"route":        route,
-			"status":       status,
-			"latency_ms":   latency.Milliseconds(),
-			"threshold_ms": threshold.Milliseconds(),
-			"request_id":   requestID,
-			"source":       "http.slo",
-			"slo":          "latency",
-		},
-	}
-}
-
 func routeHTTPPanicAlert(ctx context.Context, method, route string, latency time.Duration, occurredAt time.Time, requestID string, recovered any) {
 	alertSink := currentHTTPAlertSink()
 	recoveryController := currentHTTPRecoveryController()
@@ -438,6 +462,61 @@ func routeHTTPPanicAlert(ctx context.Context, method, route string, latency time
 	}
 	if recoveryController != nil {
 		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func routeRequestLogSinkAlert(ctx context.Context, method, route string, occurredAt time.Time, requestID string, failure error) {
+	alertSink := currentHTTPAlertSink()
+	recoveryController := currentHTTPRecoveryController()
+	if alertSink == nil && recoveryController == nil {
+		return
+	}
+	message := "request log sink write failed"
+	if failure != nil {
+		message = failure.Error()
+	}
+	event := observability.AlertEvent{
+		Key:        "observability:request-log-sink",
+		Severity:   observability.AlertSeverityCritical,
+		Title:      "Request log sink write failed",
+		Message:    fmt.Sprintf("%s %s request log sink failed: %s", method, route, message),
+		Component:  observability.ComponentObservability,
+		OccurredAt: occurredAt,
+		Fields: map[string]any{
+			"method":       method,
+			"route":        route,
+			"request_id":   requestID,
+			"source":       "http.request_log",
+			"failure_kind": "request_log_sink",
+			"error":        message,
+		},
+	}
+	if alertSink != nil {
+		_ = alertSink.Notify(ctx, event)
+	}
+	if recoveryController != nil {
+		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func httpLatencySLOAlertEvent(method, route string, status int, latency time.Duration, threshold time.Duration, occurredAt time.Time, requestID string) observability.AlertEvent {
+	return observability.AlertEvent{
+		Key:        fmt.Sprintf("http-slo:%s:latency", route),
+		Severity:   observability.AlertSeverityWarning,
+		Title:      fmt.Sprintf("HTTP latency SLO exceeded on %s", route),
+		Message:    fmt.Sprintf("%s %s returned %d in %dms over %dms SLO", method, route, status, latency.Milliseconds(), threshold.Milliseconds()),
+		Component:  observability.ComponentHTTP,
+		OccurredAt: occurredAt,
+		Fields: map[string]any{
+			"method":       method,
+			"route":        route,
+			"status":       status,
+			"latency_ms":   latency.Milliseconds(),
+			"threshold_ms": threshold.Milliseconds(),
+			"request_id":   requestID,
+			"source":       "http.slo",
+			"slo":          "latency",
+		},
 	}
 }
 

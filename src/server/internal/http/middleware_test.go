@@ -313,11 +313,23 @@ func TestWithLoggingEnrichesRelayRequestLogFromBillingScope(t *testing.T) {
 			t.Fatal("expected relay request log scope in request context")
 		}
 		scope.Record(relaytypes.RequestLogMetadata{
-			Model: "gpt-4o-mini", RequestedModel: "gpt-4o-mini", ResolvedModel: "gpt-4o-mini-2026-07",
-			ChannelID: "channel_primary", Provider: "openai", BillingSessionID: "bill_relay_scope",
-			PreauthorizedAmount: 0.023, TokenPreauthorizedAmount: 0.023, Cost: 0.019, ChannelCost: 0.017,
-			RequestTokens: 120, ResponseTokens: 30, TotalTokens: 150, Status: "success",
-			PriceCurrency: "quota", PriceSource: "sql_catalog", PriceSnapshot: map[string]any{"total_cost": 0.019},
+			Model:                    "gpt-4o-mini",
+			RequestedModel:           "gpt-4o-mini",
+			ResolvedModel:            "gpt-4o-mini-2026-07",
+			ChannelID:                "channel_primary",
+			Provider:                 "openai",
+			BillingSessionID:         "bill_relay_scope",
+			PreauthorizedAmount:      0.023,
+			TokenPreauthorizedAmount: 0.023,
+			Cost:                     0.019,
+			ChannelCost:              0.017,
+			RequestTokens:            120,
+			ResponseTokens:           30,
+			TotalTokens:              150,
+			Status:                   "success",
+			PriceCurrency:            "quota",
+			PriceSource:              "sql_catalog",
+			PriceSnapshot:            map[string]any{"total_cost": 0.019},
 		})
 		w.WriteHeader(stdhttp.StatusOK)
 	})))
@@ -332,7 +344,12 @@ func TestWithLoggingEnrichesRelayRequestLogFromBillingScope(t *testing.T) {
 		t.Fatalf("expected one request log row, got %+v", sink.rows)
 	}
 	row := sink.rows[0]
-	if row.Service != "relay" || row.Endpoint != "/v1/chat/completions" || row.Model != "gpt-4o-mini" || row.RequestTokens != 120 || row.ResponseTokens != 30 || row.CostUSD != 0.019 {
+	if row.Service != "relay" ||
+		row.Endpoint != "/v1/chat/completions" ||
+		row.Model != "gpt-4o-mini" ||
+		row.RequestTokens != 120 ||
+		row.ResponseTokens != 30 ||
+		row.CostUSD != 0.019 {
 		t.Fatalf("relay request log did not carry usage/cost columns: %+v", row)
 	}
 	var metadata map[string]any
@@ -340,10 +357,18 @@ func TestWithLoggingEnrichesRelayRequestLogFromBillingScope(t *testing.T) {
 		t.Fatalf("expected JSON metadata, got %v: %s", err, row.Metadata)
 	}
 	for key, want := range map[string]any{
-		"provider": "openai", "channel_id": "channel_primary", "billing_session_id": "bill_relay_scope",
-		"requested_model": "gpt-4o-mini", "resolved_model": "gpt-4o-mini-2026-07", "relay_usage_status": "success",
-		"price_currency": "quota", "price_source": "sql_catalog", "preauthorized_amount": float64(0.023),
-		"token_preauthorized_amount": float64(0.023), "channel_cost": float64(0.017), "total_tokens": float64(150),
+		"provider":                   "openai",
+		"channel_id":                 "channel_primary",
+		"billing_session_id":         "bill_relay_scope",
+		"requested_model":            "gpt-4o-mini",
+		"resolved_model":             "gpt-4o-mini-2026-07",
+		"relay_usage_status":         "success",
+		"price_currency":             "quota",
+		"price_source":               "sql_catalog",
+		"preauthorized_amount":       float64(0.023),
+		"token_preauthorized_amount": float64(0.023),
+		"channel_cost":               float64(0.017),
+		"total_tokens":               float64(150),
 	} {
 		if metadata[key] != want {
 			t.Fatalf("metadata[%s] = %#v, want %#v; metadata=%+v", key, metadata[key], want, metadata)
@@ -371,6 +396,76 @@ func TestWithLoggingRequestLogSinkFailureDoesNotBreakResponse(t *testing.T) {
 	}
 	if len(sink.rows) != 1 {
 		t.Fatalf("expected sink to be attempted once, got %+v", sink.rows)
+	}
+}
+
+func TestWithLoggingRoutesRequestLogSinkFailureToAlertAndRecovery(t *testing.T) {
+	sink := &captureMiddlewareRequestLogSink{err: errors.New("clickhouse unavailable")}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	store := observability.NewInMemoryAlertStateStore()
+	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityCritical: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{inApp},
+		HistoryStore: store,
+	})
+	router := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: store,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:         "record-request-log-sink-failure",
+				Severity:     observability.AlertSeverityCritical,
+				Component:    observability.ComponentObservability,
+				FieldMatches: map[string]string{"failure_kind": "request_log_sink"},
+				ActionType:   observability.RecoveryActionFailover,
+			},
+		},
+	})
+	restoreAlertRouter := setHTTPAlertRouterForTest(router)
+	defer restoreAlertRouter()
+	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusNoContent)
+	})))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodGet, "/v1/chat/completions", nil))
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected request log sink error not to break response, got %d", recorder.Code)
+	}
+	const alertKey = "observability:request-log-sink"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get request log sink alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityCritical || state.Component != observability.ComponentObservability {
+		t.Fatalf("expected open critical request log alert state, found=%v state=%+v", found, state)
+	}
+	if len(inApp.events) != 1 {
+		t.Fatalf("expected one request log sink alert delivery, got %+v", inApp.events)
+	}
+	if inApp.events[0].Fields["failure_kind"] != "request_log_sink" || inApp.events[0].Fields["source"] != "http.request_log" {
+		t.Fatalf("expected request log sink alert fields, got %+v", inApp.events[0].Fields)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list request log sink recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-request-log-sink-failure" || actions[0].Status != observability.RecoveryActionRecorded {
+		t.Fatalf("expected recorded request log sink recovery action, got %+v", actions)
 	}
 }
 
@@ -449,76 +544,6 @@ func TestWithLoggingRoutesHTTP5xxToAlertDeliveryAndRecovery(t *testing.T) {
 	}
 }
 
-func TestWithLoggingRoutesRequestLogSinkFailureToAlertAndRecovery(t *testing.T) {
-	sink := &captureMiddlewareRequestLogSink{err: errors.New("clickhouse unavailable")}
-	restoreSink := setRequestLogSinkForTest(sink)
-	defer restoreSink()
-
-	store := observability.NewInMemoryAlertStateStore()
-	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
-	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
-		Policy: observability.DeliveryPolicy{
-			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
-				observability.AlertSeverityCritical: {observability.AlertDeliveryChannelInApp},
-			},
-		},
-		Sinks:        []observability.AlertDeliverySink{inApp},
-		HistoryStore: store,
-	})
-	router := observability.NewAlertRouter(observability.AlertRouterOptions{
-		StateStore: store,
-		NotifySink: dispatcher,
-	})
-	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
-		StateStore: store,
-		Policies: []observability.RecoveryPolicy{
-			{
-				Name:         "record-request-log-sink-failure",
-				Severity:     observability.AlertSeverityCritical,
-				Component:    observability.ComponentObservability,
-				FieldMatches: map[string]string{"failure_kind": "request_log_sink"},
-				ActionType:   observability.RecoveryActionFailover,
-			},
-		},
-	})
-	restoreAlertRouter := setHTTPAlertRouterForTest(router)
-	defer restoreAlertRouter()
-	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
-	defer restoreRecovery()
-
-	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		w.WriteHeader(stdhttp.StatusNoContent)
-	})))
-
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodGet, "/v1/chat/completions", nil))
-
-	if recorder.Code != stdhttp.StatusNoContent {
-		t.Fatalf("expected request log sink error not to break response, got %d", recorder.Code)
-	}
-	const alertKey = "observability:request-log-sink"
-	state, found, err := store.GetAlertState(context.Background(), alertKey)
-	if err != nil {
-		t.Fatalf("get request log sink alert state: %v", err)
-	}
-	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityCritical || state.Component != observability.ComponentObservability {
-		t.Fatalf("expected open critical request log alert state, found=%v state=%+v", found, state)
-	}
-	if len(inApp.events) != 1 {
-		t.Fatalf("expected one request log sink alert delivery, got %+v", inApp.events)
-	}
-	if inApp.events[0].Fields["failure_kind"] != "request_log_sink" || inApp.events[0].Fields["source"] != "http.request_log" {
-		t.Fatalf("expected request log sink alert fields, got %+v", inApp.events[0].Fields)
-	}
-	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
-	if err != nil {
-		t.Fatalf("list request log sink recovery actions: %v", err)
-	}
-	if len(actions) != 1 || actions[0].PolicyName != "record-request-log-sink-failure" || actions[0].Status != observability.RecoveryActionRecorded {
-		t.Fatalf("expected recorded request log sink recovery action, got %+v", actions)
-	}
-}
-
 func TestWithLoggingRoutesLatencySLOToAlertDeliveryAndRecovery(t *testing.T) {
 	restoreThreshold := setHTTPAlertLatencySLOThresholdForTest(time.Nanosecond)
 	defer restoreThreshold()
@@ -556,17 +581,19 @@ func TestWithLoggingRoutesLatencySLOToAlertDeliveryAndRecovery(t *testing.T) {
 	defer restoreRecovery()
 
 	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		time.Sleep(time.Millisecond)
-		w.WriteHeader(stdhttp.StatusAccepted)
+		time.Sleep(2 * time.Millisecond)
+		w.WriteHeader(stdhttp.StatusNoContent)
 	})))
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/run", nil))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_123/messages", nil)
 
-	if recorder.Code != stdhttp.StatusAccepted {
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusNoContent {
 		t.Fatalf("expected original response to survive SLO alert handling, got %d", recorder.Code)
 	}
-	const alertKey = "http-slo:/api/v1/workflows/run:latency"
+	const alertKey = "http-slo:/api/v1/app/conversations/:id/messages:latency"
 	state, found, err := store.GetAlertState(context.Background(), alertKey)
 	if err != nil {
 		t.Fatalf("get latency SLO alert state: %v", err)
@@ -578,11 +605,11 @@ func TestWithLoggingRoutesLatencySLOToAlertDeliveryAndRecovery(t *testing.T) {
 		t.Fatalf("expected one latency SLO alert delivery, got %+v", inApp.events)
 	}
 	fields := inApp.events[0].Fields
-	if fields["source"] != "http.slo" || fields["slo"] != "latency" || fields["route"] != "/api/v1/workflows/run" {
+	if fields["slo"] != "latency" || fields["source"] != "http.slo" || fields["request_id"] == "" {
 		t.Fatalf("expected latency SLO evidence fields, got %+v", fields)
 	}
-	if _, ok := fields["latency_ms"]; !ok {
-		t.Fatalf("expected latency_ms evidence field, got %+v", fields)
+	if fields["threshold_ms"] == nil || fields["latency_ms"] == nil {
+		t.Fatalf("expected threshold_ms and latency_ms evidence fields, got %+v", fields)
 	}
 	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
 	if err != nil {

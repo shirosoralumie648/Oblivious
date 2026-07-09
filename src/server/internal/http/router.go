@@ -690,7 +690,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
-		ws.ServeWS(ws.DefaultHub(), w, r, session.User.ID)
+		ws.ServeWSWithOriginPolicy(ws.DefaultHub(), w, r, session.User.ID, ws.NewOriginPolicy(cfg.CORSAllowedOrigins))
 	})
 
 	// Admin routes (require admin role)
