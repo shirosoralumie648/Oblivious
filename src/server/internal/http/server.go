@@ -386,6 +386,7 @@ func buildRelayConfig(
 		Production:               cfg.Env == "production",
 		APITokenAuthenticator:    apiTokenAuthenticator,
 		RateLimiter:              rateLimiter,
+		RouteAuditSink:           newRelayRouteAuditRequestLogSink(currentRequestLogSink()),
 		HealthAlertSink:          currentHTTPAlertSink(),
 		HealthRecoveryController: currentHTTPRecoveryController(),
 		HealthAlertStateStore:    alertStateStore,
