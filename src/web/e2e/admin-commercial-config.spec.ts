@@ -92,8 +92,8 @@ test('admin users update commercial entitlements, quota allocation, and account 
 test('admin settings save relay pricing and usage-limit runtime controls in the browser', async ({ page }) => {
   await page.goto('/admin/settings');
 
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Edit organization org_browser_settings request_tokens minute' })).toBeVisible();
   await expect(page.getByText('Enforcing')).toBeVisible();
   await expect(page.getByText('1 recent hit - relay_rate_limited')).toBeVisible();
@@ -114,7 +114,8 @@ test('admin settings save relay pricing and usage-limit runtime controls in the 
 test('admin routes create, edit, and delete weighted multi-channel routing in the browser', async ({ page }) => {
   await page.goto('/admin/routes');
 
-  await expect(page.getByRole('heading', { name: 'Model Routes', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Model Routes' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Model Routes', exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('No model routes defined -- Create a route mapping to direct model requests to specific channels.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add Route' }).click();

@@ -8,6 +8,7 @@ export type StatusBadgeStatus =
   | 'disabled'
   | 'pending'
   | 'pending_review'
+  | 'appeal_pending'
   | 'needs_changes'
   | 'open'
   | 'resolved'
@@ -34,6 +35,7 @@ const statusTone: Record<StatusBadgeStatus, string> = {
   degraded: 'bg-[oklch(0.795_0.184_86.047)]',
   pending: 'bg-[oklch(0.795_0.184_86.047)]',
   pending_review: 'bg-[oklch(0.795_0.184_86.047)]',
+  appeal_pending: 'bg-[oklch(0.795_0.184_86.047)]',
   needs_changes: 'bg-[oklch(0.795_0.184_86.047)]',
   open: 'bg-[oklch(0.795_0.184_86.047)]',
   offline: 'bg-[oklch(0.704_0.191_22.216)]',

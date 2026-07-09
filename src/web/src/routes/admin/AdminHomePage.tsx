@@ -188,6 +188,28 @@ export function AdminHomePage() {
         />
       </div>
 
+      <section className="space-y-4" aria-labelledby="commercial-operations-heading">
+        <div className="space-y-1">
+          <h2 id="commercial-operations-heading" className="font-heading text-xl font-semibold text-foreground">Commercial operations</h2>
+          <p className="text-sm text-muted-foreground">Routed modules required to operate Relay, billing, users, audit, and Marketplace review.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {commercialOperations.map((operation) => (
+            <a
+              key={operation.href}
+              href={operation.href}
+              className="flex min-h-[92px] gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">{operation.icon}</span>
+              <span className="min-w-0 space-y-1">
+                <span className="block text-sm font-medium text-foreground">{operation.label}</span>
+                <span className="block text-xs leading-5 text-muted-foreground">{operation.description}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      </section>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <StatChart title="API Call Volume (7 days)" data={apiCallsData} type="bar" />
         <StatChart title="Channel Uptime" data={uptimeData} type="bar" />
@@ -225,28 +247,6 @@ export function AdminHomePage() {
           </CardContent>
         </Card>
       </div>
-
-      <section className="space-y-4" aria-labelledby="commercial-operations-heading">
-        <div className="space-y-1">
-          <h2 id="commercial-operations-heading" className="font-heading text-xl font-semibold text-foreground">Commercial operations</h2>
-          <p className="text-sm text-muted-foreground">Routed modules required to operate Relay, billing, users, audit, and Marketplace review.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {commercialOperations.map((operation) => (
-            <a
-              key={operation.href}
-              href={operation.href}
-              className="flex min-h-[92px] gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">{operation.icon}</span>
-              <span className="min-w-0 space-y-1">
-                <span className="block text-sm font-medium text-foreground">{operation.label}</span>
-                <span className="block text-xs leading-5 text-muted-foreground">{operation.description}</span>
-              </span>
-            </a>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

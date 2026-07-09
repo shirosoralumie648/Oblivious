@@ -9,6 +9,7 @@ import type {
   KnowledgeBaseSummary,
   KnowledgeChunkStrategy,
   KnowledgeDocumentChunk,
+  KnowledgeDocumentIngestionJob,
   KnowledgeDocumentVersion,
   KnowledgeDocumentSummary,
   KnowledgeRetrievalResult,
@@ -128,6 +129,14 @@ function formatRunResultSource(result: KnowledgeRetrievalResult) {
 
 function formatDocumentVersion(version: string | undefined) {
   return version && version.trim() !== '' ? version : 'v1';
+}
+
+function formatIngestionJobStatus(status: KnowledgeDocumentIngestionJob['status']) {
+  return status.replace('_', ' ');
+}
+
+function isTerminalIngestionJobStatus(status: KnowledgeDocumentIngestionJob['status']) {
+  return status === 'succeeded' || status === 'dead_letter';
 }
 
 function addSourceMetadataToPayload<T extends { pageNumber?: number; sourceUrl?: string }>(payload: T, sourceUrl: string, pageNumber: string): T {
@@ -451,6 +460,7 @@ export function KnowledgePage() {
   const [knowledgeChunkContentDraft, setKnowledgeChunkContentDraft] = useState('');
   const [knowledgeChunkSplitAt, setKnowledgeChunkSplitAt] = useState(0);
   const [knowledgeDocumentChunks, setKnowledgeDocumentChunks] = useState<KnowledgeDocumentChunk[]>([]);
+  const [knowledgeDocumentIngestionJobs, setKnowledgeDocumentIngestionJobs] = useState<KnowledgeDocumentIngestionJob[]>([]);
   const [knowledgeDocumentVersions, setKnowledgeDocumentVersions] = useState<KnowledgeDocumentVersion[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
   const [lastRetrievedQuery, setLastRetrievedQuery] = useState('');
@@ -476,6 +486,7 @@ export function KnowledgePage() {
   const [uploadDocumentUpdateStrategy, setUploadDocumentUpdateStrategy] = useState<KnowledgeUpdateStrategy>(defaultDocumentUpdateStrategy);
   const [uploadDocumentSourceUrl, setUploadDocumentSourceUrl] = useState('');
   const [uploadDocumentSourcePage, setUploadDocumentSourcePage] = useState('');
+  const [isRefreshingDocumentStatus, setIsRefreshingDocumentStatus] = useState(false);
 
   const resetDocumentEditor = () => {
     setEditingDocumentId(null);
@@ -559,6 +570,32 @@ export function KnowledgePage() {
     setUploadDocumentSourcePage('');
   };
 
+  const refreshKnowledgeDocumentStatus = async () => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    setIsRefreshingDocumentStatus(true);
+    setError(null);
+
+    try {
+      const [nextKnowledgeBase, nextKnowledgeDocuments, nextIngestionJobs] = await Promise.all([
+        knowledgeApi.getKnowledgeBase(knowledgeBaseId),
+        knowledgeApi.listKnowledgeDocuments(knowledgeBaseId),
+        knowledgeApi.listKnowledgeDocumentIngestionJobs(knowledgeBaseId)
+      ]);
+      setSelectedKnowledgeBase(nextKnowledgeBase);
+      setKnowledgeBaseRagConfig(nextKnowledgeBase as KnowledgeBaseWithRagConfig);
+      setKnowledgeBaseName(nextKnowledgeBase.name);
+      setKnowledgeDocuments(nextKnowledgeDocuments);
+      setKnowledgeDocumentIngestionJobs(nextIngestionJobs);
+    } catch {
+      setError('Unable to refresh knowledge ingestion status. Retry the request or check the backend session.');
+    } finally {
+      setIsRefreshingDocumentStatus(false);
+    }
+  };
+
   const handleUploadDocumentFileChange = (file: File | null) => {
     if (!file) {
       setUploadDocumentFile(null);
@@ -601,9 +638,10 @@ export function KnowledgePage() {
 
       try {
         if (knowledgeBaseId) {
-          const [nextKnowledgeBase, nextKnowledgeDocuments, nextRetrievalTestCases] = await Promise.all([
+          const [nextKnowledgeBase, nextKnowledgeDocuments, nextIngestionJobs, nextRetrievalTestCases] = await Promise.all([
             knowledgeApi.getKnowledgeBase(knowledgeBaseId),
             knowledgeApi.listKnowledgeDocuments(knowledgeBaseId),
+            knowledgeApi.listKnowledgeDocumentIngestionJobs(knowledgeBaseId),
             knowledgeApi.listRetrievalTestCases(knowledgeBaseId)
           ]);
           if (!cancelled) {
@@ -611,6 +649,7 @@ export function KnowledgePage() {
             setKnowledgeBaseRagConfig(nextKnowledgeBase as KnowledgeBaseWithRagConfig);
             setKnowledgeBaseName(nextKnowledgeBase.name);
             setKnowledgeDocuments(nextKnowledgeDocuments);
+            setKnowledgeDocumentIngestionJobs(nextIngestionJobs);
             setRetrievalTestCases(nextRetrievalTestCases);
             setKnowledgeBases([]);
             resetDocumentEditor();
@@ -623,6 +662,7 @@ export function KnowledgePage() {
           if (!cancelled) {
             setKnowledgeBases(nextKnowledgeBases);
             setKnowledgeDocuments([]);
+            setKnowledgeDocumentIngestionJobs([]);
             setSelectedKnowledgeBase(null);
             setKnowledgeBaseName('');
             resetRetrievalTestSet();
@@ -637,6 +677,7 @@ export function KnowledgePage() {
         if (!cancelled) {
           setKnowledgeBases([]);
           setKnowledgeDocuments([]);
+          setKnowledgeDocumentIngestionJobs([]);
           setSelectedKnowledgeBase(null);
           setKnowledgeBaseName('');
           resetRetrievalTestSet();
@@ -1064,7 +1105,7 @@ export function KnowledgePage() {
     setError(null);
 
     try {
-      const uploadedDocument = await knowledgeApi.uploadKnowledgeDocument(
+      const ingestionJob = await knowledgeApi.uploadKnowledgeDocument(
         knowledgeBaseId,
         buildUploadDocumentPayload(
           uploadDocumentFile,
@@ -1075,15 +1116,7 @@ export function KnowledgePage() {
           uploadDocumentSourcePage
         )
       );
-      setKnowledgeDocuments((current) => [uploadedDocument, ...current]);
-      setSelectedKnowledgeBase((current) =>
-        current
-          ? {
-              ...current,
-              documentCount: current.documentCount + 1
-            }
-          : current
-      );
+      setKnowledgeDocumentIngestionJobs((current) => [ingestionJob, ...current.filter((job) => job.id !== ingestionJob.id)]);
       resetKnowledgeRetrieval();
       resetDocumentChunks();
       resetDocumentVersions();
@@ -1541,6 +1574,34 @@ export function KnowledgePage() {
           >
             Upload document
           </button>
+          <button
+            disabled={isRefreshingDocumentStatus}
+            onClick={() => void refreshKnowledgeDocumentStatus()}
+            type="button"
+          >
+            Refresh ingestion status
+          </button>
+          {knowledgeDocumentIngestionJobs.length > 0 ? (
+            <section aria-label="Document ingestion jobs">
+              <h2>Ingestion jobs</h2>
+              <ul>
+                {knowledgeDocumentIngestionJobs.map((job) => (
+                  <li key={job.id}>
+                    <strong>{job.title}</strong>
+                    <p>{`Status: ${formatIngestionJobStatus(job.status)}`}</p>
+                    <p>{`Attempts: ${job.attempts}/${job.maxAttempts}`}</p>
+                    {job.documentId ? <p>{`Document: ${job.documentId}`}</p> : null}
+                    {job.error ? <p>{`Error: ${job.error}`}</p> : null}
+                    {isTerminalIngestionJobStatus(job.status) && job.completedAt ? (
+                      <p>{`Completed: ${job.completedAt}`}</p>
+                    ) : (
+                      <p>{`Available: ${job.availableAt}`}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {knowledgeDocuments.length === 0 ? <p>No documents yet. Add one to seed this knowledge base.</p> : null}
           {knowledgeDocuments.length > 0 ? (
             <ul>

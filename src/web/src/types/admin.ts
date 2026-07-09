@@ -65,6 +65,9 @@ export type ChannelProviderInfo = {
   kind: string;
   status: string;
   defaultBaseURL: string;
+  configurable?: boolean;
+  installable?: boolean;
+  runtimeReady?: boolean;
 };
 
 export type ChannelCreateRequest = {
@@ -472,6 +475,22 @@ export type UsageLogEntry = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  requestLogEvidence?: {
+    requestId?: string;
+    requestLogId: string;
+    timestamp?: string;
+    service: string;
+    endpoint: string;
+    method: string;
+    statusCode?: number;
+    durationMs: number;
+    requestTokens?: number;
+    responseTokens?: number;
+    model?: string;
+    costUsd: number;
+    traceId?: string;
+    metadata?: Record<string, unknown>;
+  };
   createdAt: string;
 };
 
@@ -661,7 +680,8 @@ export type PublishedAgent = {
   ownerID: string;
   ownerId?: string;
   ownerName: string;
-  status: 'draft' | 'pending_review' | 'pending' | 'approved' | 'rejected' | 'needs_changes' | 'takedown';
+  status: 'draft' | 'pending_review' | 'appeal_pending' | 'pending' | 'approved' | 'rejected' | 'needs_changes' | 'takedown';
+  reviewerUserId?: string;
   reviewReason?: string;
   rejectionReason?: string | null;
   visibility: 'public' | 'private' | 'unlisted';

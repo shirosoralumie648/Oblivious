@@ -19,10 +19,15 @@ func newDomesticWebhookMemoryLedger() *domesticWebhookMemoryLedger {
 }
 
 func (s *domesticWebhookMemoryLedger) RecordWebhookEvent(_ context.Context, event stripebilling.WebhookEvent) (bool, error) {
-	if _, exists := s.events[event.EventID]; exists {
+	provider := strings.TrimSpace(event.Provider)
+	if provider == "" {
+		provider = "stripe"
+	}
+	key := provider + "\x00" + strings.TrimSpace(event.EventID)
+	if _, exists := s.events[key]; exists {
 		return false, nil
 	}
-	s.events[event.EventID] = event
+	s.events[key] = event
 	return true, nil
 }
 

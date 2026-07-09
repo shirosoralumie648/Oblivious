@@ -434,6 +434,7 @@ export type AdminApi = {
   revokeAPIToken: (id: string) => Promise<void>;
   listReviews: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<PublishedAgent>>;
   enforceReviewSLA: (params?: { limit?: number; offset?: number }) => Promise<ReviewSLAEnforcementResult>;
+  claimReview: (id: string) => Promise<void>;
   approveAgent: (id: string) => Promise<void>;
   rejectAgent: (id: string, reason: string) => Promise<void>;
   requestAgentChanges: (id: string, reason: string) => Promise<void>;
@@ -442,6 +443,7 @@ export type AdminApi = {
   dismissMarketplaceAbuseReport: (id: string, resolution: string) => Promise<{ status: 'resolved' | 'dismissed' | string }>;
   takedownMarketplaceAgent: (id: string, reason: string) => Promise<{ status: string }>;
   reinstateMarketplaceAgent: (id: string, reason: string) => Promise<{ status: string }>;
+  rejectMarketplaceAgentAppeal: (id: string, reason: string) => Promise<{ status: string }>;
   getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
   refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
@@ -744,6 +746,9 @@ export function createAdminApi(client: HttpClient): AdminApi {
     },
     enforceReviewSLA: (params) =>
       client.post<ReviewSLAEnforcementResult>(`${apiPrefix}/reviews/sla/enforce${buildQuery(params)}`),
+    claimReview: async (id) => {
+      await client.post<{ status: string }>(`${apiPrefix}/reviews/${id}/claim`);
+    },
     approveAgent: async (id) => {
       await client.post<{ status: string }>(`${apiPrefix}/reviews/${id}/approve`);
     },
@@ -765,6 +770,8 @@ export function createAdminApi(client: HttpClient): AdminApi {
       client.post<{ status: string }>(`${apiPrefix}/marketplace/agents/${id}/takedown`, { reason }),
     reinstateMarketplaceAgent: (id, reason) =>
       client.post<{ status: string }>(`${apiPrefix}/marketplace/agents/${id}/reinstate`, { reason }),
+    rejectMarketplaceAgentAppeal: (id, reason) =>
+      client.post<{ status: string }>(`${apiPrefix}/marketplace/agents/${id}/reject-appeal`, { reason }),
 
     getBillingSummary: (params) => {
       const queryParams = {

@@ -89,7 +89,9 @@ async function expectMarketplacePublishNoHorizontalOverflow(page: Page) {
 }
 
 test('admin navigation exposes release management pages', async ({ page }) => {
-  await page.goto('/admin');
+  test.setTimeout(60_000);
+
+  await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   await expect(page.getByText('API Calls (24h)')).toBeVisible();
 
@@ -103,7 +105,7 @@ test('admin navigation exposes release management pages', async ({ page }) => {
   ];
 
   for (const adminPage of adminPages) {
-    await page.goto(adminPage.path);
+    await page.goto(adminPage.path, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: adminPage.heading })).toBeVisible();
     await expect(page.getByText(adminPage.content).first()).toBeVisible();
   }

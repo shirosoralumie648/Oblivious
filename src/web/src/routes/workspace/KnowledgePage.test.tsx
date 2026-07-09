@@ -11,6 +11,7 @@ const deleteKnowledgeBase = vi.fn();
 const deleteKnowledgeDocument = vi.fn();
 const getKnowledgeBase = vi.fn();
 const listKnowledgeDocumentChunks = vi.fn();
+const listKnowledgeDocumentIngestionJobs = vi.fn();
 const listKnowledgeDocumentVersions = vi.fn();
 const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
@@ -64,6 +65,7 @@ vi.mock('../../features/knowledge/api', () => ({
     deleteKnowledgeDocument,
     getKnowledgeBase,
     listKnowledgeDocumentChunks,
+    listKnowledgeDocumentIngestionJobs,
     listKnowledgeDocumentVersions,
     listKnowledgeDocuments,
     listKnowledgeBases,
@@ -96,6 +98,8 @@ describe('KnowledgePage', () => {
     deleteKnowledgeDocument.mockReset();
     getKnowledgeBase.mockReset();
     listKnowledgeDocumentChunks.mockReset();
+    listKnowledgeDocumentIngestionJobs.mockReset();
+    listKnowledgeDocumentIngestionJobs.mockResolvedValue([]);
     listKnowledgeDocumentVersions.mockReset();
     listKnowledgeDocuments.mockReset();
     listKnowledgeBases.mockReset();
@@ -195,6 +199,44 @@ describe('KnowledgePage', () => {
     expect(screen.getByText('Documents: 9')).toBeInTheDocument();
     expect(screen.getByText('Overview')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to knowledge bases' })).toBeInTheDocument();
+  });
+
+  it('renders knowledge document ingestion job status without counting pending uploads as documents', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    listKnowledgeDocumentIngestionJobs.mockResolvedValue([
+      {
+        attempts: 5,
+        availableAt: '2026-04-03T12:45:00Z',
+        completedAt: '2026-04-03T12:50:00Z',
+        createdAt: '2026-04-03T12:40:00Z',
+        error: 'parser failed',
+        id: 'kig_dead',
+        knowledgeBaseId: 'kb_9',
+        maxAttempts: 5,
+        status: 'dead_letter',
+        title: 'Broken PDF',
+        updatedAt: '2026-04-03T12:50:00Z'
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    expect(await screen.findByRole('heading', { name: 'Architecture Notes' })).toBeInTheDocument();
+    expect(listKnowledgeDocumentIngestionJobs).toHaveBeenCalledWith('kb_9');
+    expect(screen.getByRole('heading', { name: 'Ingestion jobs' })).toBeInTheDocument();
+    expect(screen.getByText('Broken PDF')).toBeInTheDocument();
+    expect(screen.getByText('Status: dead letter')).toBeInTheDocument();
+    expect(screen.getByText('Attempts: 5/5')).toBeInTheDocument();
+    expect(screen.getByText('Error: parser failed')).toBeInTheDocument();
+    expect(screen.getByText('Documents: 1')).toBeInTheDocument();
+    expect(screen.getByText('No documents yet. Add one to seed this knowledge base.')).toBeInTheDocument();
   });
 
   it('shows a back-to-chat action when returnTo is present on the knowledge route', async () => {
@@ -337,11 +379,14 @@ describe('KnowledgePage', () => {
       }
     ]);
     uploadKnowledgeDocument.mockResolvedValue({
-      content: 'Uploaded architecture runbook content',
-      documentVersion: 'v4',
-      id: 'doc_upload',
+      attempts: 0,
+      availableAt: '2026-04-03T12:45:00Z',
+      createdAt: '2026-04-03T12:45:00Z',
+      id: 'kig_upload',
+      knowledgeBaseId: 'kb_9',
+      maxAttempts: 5,
+      status: 'pending',
       title: 'Uploaded Runbook',
-      updateStrategy: 'versioned',
       updatedAt: '2026-04-03T12:45:00Z'
     });
 
@@ -379,9 +424,11 @@ describe('KnowledgePage', () => {
     const uploadedTitle = screen.getByText('Uploaded Runbook');
     const existingTitle = screen.getByText('Overview');
     expect(uploadedTitle.compareDocumentPosition(existingTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Status: pending')).toBeInTheDocument();
+    expect(screen.getByText('Attempts: 0/5')).toBeInTheDocument();
     expect(screen.queryByText('System boundaries include deployment controls.')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Chunks for Overview' })).not.toBeInTheDocument();
-    expect(screen.getByText('Documents: 2')).toBeInTheDocument();
+    expect(screen.getByText('Documents: 1')).toBeInTheDocument();
   });
 
   it('uploads a DOCX document file now that the backend parser supports it', async () => {
@@ -394,11 +441,14 @@ describe('KnowledgePage', () => {
     });
     listKnowledgeDocuments.mockResolvedValue([]);
     uploadKnowledgeDocument.mockResolvedValue({
-      content: 'DOCX architecture runbook content',
-      documentVersion: 'v5',
-      id: 'doc_docx',
+      attempts: 0,
+      availableAt: '2026-04-03T13:00:00Z',
+      createdAt: '2026-04-03T13:00:00Z',
+      id: 'kig_docx',
+      knowledgeBaseId: 'kb_9',
+      maxAttempts: 5,
+      status: 'pending',
       title: 'DOCX Runbook',
-      updateStrategy: 'versioned',
       updatedAt: '2026-04-03T13:00:00Z'
     });
 
@@ -427,6 +477,7 @@ describe('KnowledgePage', () => {
     });
     expect(screen.queryByText(/DOCX parsing is not available yet/)).not.toBeInTheDocument();
     expect(screen.getByText('DOCX Runbook')).toBeInTheDocument();
+    expect(screen.getByText('Status: pending')).toBeInTheDocument();
   });
 
   it('uploads a CSV document file through the expanded parser path', async () => {
@@ -439,11 +490,14 @@ describe('KnowledgePage', () => {
     });
     listKnowledgeDocuments.mockResolvedValue([]);
     uploadKnowledgeDocument.mockResolvedValue({
-      content: 'title | owner\nDeploy | Ops',
-      documentVersion: 'v6',
-      id: 'doc_csv',
+      attempts: 0,
+      availableAt: '2026-04-03T13:30:00Z',
+      createdAt: '2026-04-03T13:30:00Z',
+      id: 'kig_csv',
+      knowledgeBaseId: 'kb_9',
+      maxAttempts: 5,
+      status: 'pending',
       title: 'CSV Matrix',
-      updateStrategy: 'incremental',
       updatedAt: '2026-04-03T13:30:00Z'
     });
 
@@ -469,6 +523,7 @@ describe('KnowledgePage', () => {
     });
     expect(screen.queryByText(/Legacy \.doc parsing is not available yet/)).not.toBeInTheDocument();
     expect(screen.getByText('CSV Matrix')).toBeInTheDocument();
+    expect(screen.getByText('Status: pending')).toBeInTheDocument();
   });
 
   it('blocks unsupported document upload formats before calling the API', async () => {

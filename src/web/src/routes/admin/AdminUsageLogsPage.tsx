@@ -112,6 +112,25 @@ function providerCell(log: UsageLogEntry) {
   return `${log.provider || '-'} / ${log.channelId || '-'}`;
 }
 
+function requestLogEvidenceCell(log: UsageLogEntry) {
+  const evidence = log.requestLogEvidence;
+  if (!evidence) {
+    return <span className="text-muted-foreground">No ClickHouse row</span>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-1 text-xs">
+      <div className="break-all font-mono text-foreground">{evidence.requestLogId}</div>
+      <div className="break-words text-muted-foreground [overflow-wrap:anywhere]">
+        {evidence.service} {evidence.method} {evidence.endpoint}
+      </div>
+      <div className="font-mono text-muted-foreground">
+        CH {money(evidence.costUsd)} / {evidence.durationMs} ms
+      </div>
+    </div>
+  );
+}
+
 const usageStatusTone: Record<string, StatusBadgeStatus> = {
   success: 'approved',
   settled: 'approved',
@@ -279,6 +298,7 @@ export function AdminUsageLogsPage() {
 
   const columns: DataTableColumn<UsageLogEntry>[] = [
     { key: 'requestId', header: 'Request', render: (log) => idCell(log.requestId ?? log.id), width: '180px' },
+    { key: 'requestLogEvidence', header: 'Request Log Evidence', render: requestLogEvidenceCell, width: '260px' },
     { key: 'userId', header: 'User', render: (log) => idCell(log.userId), width: '160px' },
     { key: 'apiTokenId', header: 'API Token', render: (log) => idCell(log.apiTokenId), width: '160px' },
     { key: 'apiType', header: 'API Type', render: (log) => log.apiType || '-' },

@@ -60,7 +60,7 @@ test('console usage fixture rejects unexpected usage query params', async ({ pag
 test('console usage renders current workspace usage in the built app', async ({ page }) => {
   await page.goto('/console/usage');
 
-  await expect(page.getByRole('heading', { name: 'Console' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Usage' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Current workspace scope' })).toBeVisible();

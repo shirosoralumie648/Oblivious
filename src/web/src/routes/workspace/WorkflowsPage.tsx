@@ -1609,6 +1609,25 @@ function debugSnapshotBottleneckText(snapshot: WorkflowExecutionDebugSnapshot) {
   return `Bottleneck: ${bottleneckNodeId} (${formatDuration(snapshot.performance.nodeDurationsMs[bottleneckNodeId])})`;
 }
 
+function debugSnapshotStateReplayPath(snapshot: WorkflowExecutionDebugSnapshot) {
+  const replay = snapshot.stateReplay;
+  if (!replay) {
+    return 'No state replay recorded';
+  }
+  return `${replay.initialStatus} -> ${replay.finalStatus}`;
+}
+
+function debugSnapshotStateReplayValidity(snapshot: WorkflowExecutionDebugSnapshot) {
+  const replay = snapshot.stateReplay;
+  if (!replay) {
+    return 'Replay unavailable';
+  }
+  if (replay.valid) {
+    return 'Replay valid';
+  }
+  return replay.invalidReason ? `Replay invalid: ${replay.invalidReason}` : 'Replay invalid';
+}
+
 const executionStatusLabels: Record<WorkflowExecutionStatus, string> = {
   cancelled: 'Cancelled',
   completed: 'Completed',
@@ -5133,6 +5152,43 @@ export function WorkflowsPage() {
                                           <pre className="mt-2 max-h-52 overflow-auto rounded-lg bg-[#181611] p-3 font-mono text-xs leading-5 text-[#f7f4ea]">
                                             {formatJson(buildDebugSnapshotErrors(executionDebugSnapshot))}
                                           </pre>
+                                        </section>
+                                        <section className="min-w-0 rounded-lg border border-[#e4dfd2] bg-white p-3 lg:col-span-2">
+                                          <h6 className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">
+                                            State replay
+                                          </h6>
+                                          <div className="mt-2 grid gap-2 text-xs font-semibold text-[#625b4f] md:grid-cols-2">
+                                            <p className="break-all rounded-lg bg-[#fbfaf7] px-3 py-2 font-mono text-[#181611]">
+                                              {debugSnapshotStateReplayPath(executionDebugSnapshot)}
+                                            </p>
+                                            <p
+                                              className={
+                                                executionDebugSnapshot.stateReplay?.valid
+                                                  ? 'rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800'
+                                                  : 'rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800'
+                                              }
+                                            >
+                                              {debugSnapshotStateReplayValidity(executionDebugSnapshot)}
+                                            </p>
+                                          </div>
+                                          {executionDebugSnapshot.stateReplay?.transitions.length ? (
+                                            <ol className="mt-2 space-y-2">
+                                              {executionDebugSnapshot.stateReplay.transitions.map((transition, replayIndex) => (
+                                                <li
+                                                  className="break-all rounded-lg bg-[#fbfaf7] px-3 py-2 font-mono text-xs text-[#181611]"
+                                                  key={`${executionDebugSnapshot.executionId}-state-replay-${transition.eventId ?? replayIndex}`}
+                                                >
+                                                  {[transition.event, `${transition.fromStatus} -> ${transition.toStatus}`]
+                                                    .filter(Boolean)
+                                                    .join(' | ')}
+                                                </li>
+                                              ))}
+                                            </ol>
+                                          ) : (
+                                            <p className="mt-2 rounded-lg bg-[#fbfaf7] px-3 py-2 text-xs font-semibold text-[#625b4f]">
+                                              No state transitions recorded
+                                            </p>
+                                          )}
                                         </section>
                                         <section className="min-w-0 rounded-lg border border-[#e4dfd2] bg-white p-3 lg:col-span-2">
                                           <h6 className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">

@@ -28,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 test('console notifications manages unread count and notification lifecycle', async ({ page }) => {
   await page.goto('/console/notifications');
 
-  await expect(page.getByRole('heading', { name: 'Console' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Notifications' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
   await expect(page.getByText('Review in-app alerts routed from workspace and system events.')).toBeVisible();

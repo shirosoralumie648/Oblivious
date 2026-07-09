@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listReviews = vi.fn();
 const enforceReviewSLA = vi.fn();
 const approveAgent = vi.fn();
+const claimReview = vi.fn();
 const rejectAgent = vi.fn();
 const requestAgentChanges = vi.fn();
 const listMarketplaceAbuseReports = vi.fn();
@@ -11,12 +12,14 @@ const resolveMarketplaceAbuseReport = vi.fn();
 const dismissMarketplaceAbuseReport = vi.fn();
 const takedownMarketplaceAgent = vi.fn();
 const reinstateMarketplaceAgent = vi.fn();
+const rejectMarketplaceAgentAppeal = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     listReviews,
     enforceReviewSLA,
     approveAgent,
+    claimReview,
     rejectAgent,
     requestAgentChanges,
     listMarketplaceAbuseReports,
@@ -24,6 +27,7 @@ vi.mock('../../features/admin/api', () => ({
     dismissMarketplaceAbuseReport,
     takedownMarketplaceAgent,
     reinstateMarketplaceAgent,
+    rejectMarketplaceAgentAppeal,
   }),
 }));
 
@@ -49,6 +53,13 @@ const pendingAgent = {
   updatedAt: '2026-01-02T00:00:00Z',
 };
 
+const appealPendingAgent = {
+  ...pendingAgent,
+  id: 'agent_appeal_pending',
+  name: 'Appeal Queue Agent',
+  status: 'appeal_pending' as const,
+};
+
 const openAbuseReport = {
   id: 'report_1',
   reporterOrganizationId: 'org_1',
@@ -66,6 +77,7 @@ describe('AdminReviewsPage', () => {
     listReviews.mockReset();
     enforceReviewSLA.mockReset();
     approveAgent.mockReset();
+    claimReview.mockReset();
     rejectAgent.mockReset();
     requestAgentChanges.mockReset();
     listMarketplaceAbuseReports.mockReset();
@@ -73,6 +85,7 @@ describe('AdminReviewsPage', () => {
     dismissMarketplaceAbuseReport.mockReset();
     takedownMarketplaceAgent.mockReset();
     reinstateMarketplaceAgent.mockReset();
+    rejectMarketplaceAgentAppeal.mockReset();
     listMarketplaceAbuseReports.mockResolvedValue({ data: [], total: 0 });
   });
 
@@ -86,6 +99,34 @@ describe('AdminReviewsPage', () => {
     expect(screen.getByText('Publisher')).toBeInTheDocument();
     expect(screen.getByText('Productivity')).toBeInTheDocument();
     expect(screen.getByLabelText('Pending Review')).toBeInTheDocument();
+  });
+
+  it('renders assigned reviewer and claims pending reviews', async () => {
+    listReviews.mockResolvedValue({
+      data: [{ ...pendingAgent, reviewerUserId: 'reviewer_user' }],
+      total: 1,
+    });
+    claimReview.mockResolvedValue(undefined);
+
+    render(<AdminReviewsPage />);
+
+    expect(await screen.findByText('Reviewer: reviewer_user')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim review Research Agent' }));
+
+    await waitFor(() => expect(claimReview).toHaveBeenCalledWith('agent_1'));
+  });
+
+  it('loads appeal pending agents from the review queue filter', async () => {
+    listReviews.mockResolvedValue({ data: [appealPendingAgent], total: 1 });
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.change(await screen.findByLabelText('Review status filter'), { target: { value: 'appeal_pending' } });
+
+    await waitFor(() => expect(listReviews).toHaveBeenCalledWith({ status: 'appeal_pending', limit: 100 }));
+    expect(await screen.findByText('Appeal Queue Agent')).toBeInTheDocument();
+    expect(screen.getByLabelText('Appeal Pending')).toBeInTheDocument();
+    expect(screen.getByText('Governance status: appeal_pending')).toBeInTheDocument();
   });
 
   it('renders pricing and governance context before approval or rejection', async () => {
@@ -270,5 +311,20 @@ describe('AdminReviewsPage', () => {
 
     await waitFor(() => expect(reinstateMarketplaceAgent).toHaveBeenCalledWith('agent_1', 'appeal accepted'));
     expect(await screen.findByText('Marketplace agent reinstated.')).toBeInTheDocument();
+  });
+
+  it('rejects marketplace agent appeals from the governance panel', async () => {
+    listReviews.mockResolvedValue({ data: [], total: 0 });
+    rejectMarketplaceAgentAppeal.mockResolvedValue({ status: 'takedown' });
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.change(await screen.findByLabelText('Agent ID'), { target: { value: 'agent_1' } });
+    fireEvent.change(screen.getByLabelText('Governance action'), { target: { value: 'reject_appeal' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'appeal evidence insufficient' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+
+    await waitFor(() => expect(rejectMarketplaceAgentAppeal).toHaveBeenCalledWith('agent_1', 'appeal evidence insufficient'));
+    expect(await screen.findByText('Marketplace agent appeal rejected.')).toBeInTheDocument();
   });
 });

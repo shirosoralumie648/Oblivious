@@ -134,6 +134,18 @@ func TestRegisterKnowledgeAliasRoutesDispatchesDocumentsAndRetrieve(t *testing.T
 		t.Fatalf("expected retrieve kb_2/deployment, got id=%q query=%q", store.requestedID, store.retrievalQuery)
 	}
 
+	retrieveDebug := httptest.NewRecorder()
+	mux.ServeHTTP(retrieveDebug, knowledgeAliasRequest(stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_2/retrieve/debug", `{"query":"deployment","mode":"hybrid","limit":3}`))
+	if retrieveDebug.Code != stdhttp.StatusOK {
+		t.Fatalf("retrieve debug expected 200, got %d with body %s", retrieveDebug.Code, retrieveDebug.Body.String())
+	}
+	if !strings.Contains(retrieveDebug.Body.String(), `"citationCoverage"`) || !strings.Contains(retrieveDebug.Body.String(), `"resultCount":1`) {
+		t.Fatalf("expected retrieval debug citation coverage, got %s", retrieveDebug.Body.String())
+	}
+	if store.requestedID != "kb_2" || store.retrievalQuery != "deployment" || store.retrievalOptions.Mode != knowledge.KnowledgeRetrievalModeHybrid {
+		t.Fatalf("expected retrieve debug kb_2/deployment hybrid, got id=%q query=%q options=%+v", store.requestedID, store.retrievalQuery, store.retrievalOptions)
+	}
+
 	testCase := httptest.NewRecorder()
 	mux.ServeHTTP(testCase, knowledgeAliasRequest(stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_2/retrieval-test-cases", `{
 		"query":"deployment",
@@ -166,9 +178,7 @@ func TestRegisterKnowledgeAliasRoutesDispatchesDocumentsAndRetrieve(t *testing.T
 }
 
 func TestRegisterKnowledgeAliasRoutesDispatchesDocumentUpload(t *testing.T) {
-	store := &knowledgeFakeStore{
-		createdDoc: knowledge.KnowledgeDocument{ID: "doc_upload", Title: "Runbook.txt"},
-	}
+	store := &knowledgeFakeStore{}
 	handler := newKnowledgeTestHandler(store)
 	mux := stdhttp.NewServeMux()
 	registerKnowledgeAliasRoutes(mux, &recordingSessionMiddleware{}, handler)
@@ -181,11 +191,24 @@ func TestRegisterKnowledgeAliasRoutesDispatchesDocumentUpload(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("upload expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("upload expected 202, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
-	if store.requestedID != "kb_2" || store.requestedDoc.Title != "Runbook.txt" {
-		t.Fatalf("expected upload kb_2/Runbook.txt, got id=%q doc=%+v", store.requestedID, store.requestedDoc)
+	if len(store.createdIngestionJobs) != 1 {
+		t.Fatalf("expected one durable ingestion job, got %+v", store.createdIngestionJobs)
+	}
+	req := store.createdIngestionJobs[0]
+	if req.KnowledgeBaseID != "kb_2" || req.Title != "Runbook.txt" || req.Content != "deploy rollback" {
+		t.Fatalf("expected upload job kb_2/Runbook.txt, got %+v", req)
+	}
+	if string(req.RawContent) != "deploy rollback" || req.RawFilename != "Runbook.txt" || req.RawContentType != "text/plain" {
+		t.Fatalf("expected raw upload payload on alias route, got raw=%q filename=%q contentType=%q", string(req.RawContent), req.RawFilename, req.RawContentType)
+	}
+	if store.requestedDoc.Title != "" {
+		t.Fatalf("alias upload must not synchronously create a document, got %+v", store.requestedDoc)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"kig_upload"`) || !strings.Contains(recorder.Body.String(), `"status":"pending"`) {
+		t.Fatalf("expected ingestion job response, got %s", recorder.Body.String())
 	}
 }
 

@@ -18,7 +18,7 @@ type AbuseReportAction = {
   report: MarketplaceAbuseReport;
 };
 
-type GovernanceAction = 'reinstate' | 'takedown';
+type GovernanceAction = 'reinstate' | 'reject_appeal' | 'takedown';
 
 type ReviewsState = {
   reviews: PublishedAgent[];
@@ -218,6 +218,9 @@ function agentStatus(agent: PublishedAgent) {
   if (agent.status === 'takedown') {
     return { status: 'rejected' as const, label: 'Takedown' };
   }
+  if (agent.status === 'appeal_pending') {
+    return { status: 'appeal_pending' as const, label: 'Appeal Pending' };
+  }
   return { status: agent.status, label: undefined };
 }
 
@@ -325,6 +328,17 @@ export function AdminReviewsPage() {
     await loadReviews();
   };
 
+  const handleClaimReview = async (agent: PublishedAgent) => {
+    dispatch({ type: 'ACTION_START' });
+    try {
+      await api.claimReview(agent.id);
+      dispatch({ type: 'ACTION_DONE' });
+      await loadReviews();
+    } catch (error) {
+      dispatch({ type: 'FORM_ERROR', error: error instanceof Error ? error.message : 'Unable to claim marketplace review.' });
+    }
+  };
+
   const handleReject = async () => {
     if (!state.rejectAgent) {
       return;
@@ -415,9 +429,12 @@ export function AdminReviewsPage() {
       if (state.governanceAction === 'takedown') {
         await api.takedownMarketplaceAgent(agentID, reason);
         dispatch({ type: 'GOVERNANCE_DONE', message: 'Marketplace agent taken down.' });
-      } else {
+      } else if (state.governanceAction === 'reinstate') {
         await api.reinstateMarketplaceAgent(agentID, reason);
         dispatch({ type: 'GOVERNANCE_DONE', message: 'Marketplace agent reinstated.' });
+      } else {
+        await api.rejectMarketplaceAgentAppeal(agentID, reason);
+        dispatch({ type: 'GOVERNANCE_DONE', message: 'Marketplace agent appeal rejected.' });
       }
     } catch (error) {
       dispatch({ type: 'GOVERNANCE_ERROR', error: error instanceof Error ? error.message : 'Unable to update marketplace governance.' });
@@ -441,12 +458,13 @@ export function AdminReviewsPage() {
       key: 'commercialContext',
       header: 'Commercial Context',
       render: (agent) => (
-        <div className="min-w-56 space-y-1 text-xs text-muted-foreground">
-          <div>{pricingLabel(agent)}</div>
-          <div>{`Visibility: ${agent.visibility}`}</div>
-          <div>{`Governance status: ${agent.status}`}</div>
-        </div>
-      ),
+          <div className="min-w-56 space-y-1 text-xs text-muted-foreground">
+            <div>{pricingLabel(agent)}</div>
+            <div>{`Visibility: ${agent.visibility}`}</div>
+            <div>{`Governance status: ${agent.status}`}</div>
+            <div>{`Reviewer: ${agent.reviewerUserId || 'Unassigned'}`}</div>
+          </div>
+        ),
     },
     { key: 'reviewSLA', header: 'Review SLA', render: reviewSLALabel },
     { key: 'ratingAvg', header: 'Rating', render: ratingLabel },
@@ -510,6 +528,7 @@ export function AdminReviewsPage() {
           className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
         >
           <option value="pending_review">Pending review</option>
+          <option value="appeal_pending">Appeal pending</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
@@ -526,6 +545,9 @@ export function AdminReviewsPage() {
         onRetry={loadReviews}
         renderActions={(agent) => (
           <div className="flex justify-end gap-1">
+            <Button type="button" variant="ghost" size="icon" aria-label={`Claim review ${agent.name}`} onClick={() => void handleClaimReview(agent)}>
+              <RiShieldCheckLine className="size-4" aria-hidden="true" />
+            </Button>
             <Button type="button" variant="ghost" size="icon" aria-label={`Approve agent ${agent.name}`} onClick={() => dispatch({ type: 'CONFIRM_APPROVE', agent })}>
               <RiCheckLine className="size-4" aria-hidden="true" />
             </Button>
@@ -624,6 +646,7 @@ export function AdminReviewsPage() {
             >
               <option value="takedown">Takedown</option>
               <option value="reinstate">Reinstate</option>
+              <option value="reject_appeal">Reject appeal</option>
             </select>
           </div>
           <div className="space-y-2 lg:col-span-2">

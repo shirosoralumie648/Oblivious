@@ -28,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 test('console access creates API token views sanitized usage and revokes token', async ({ page }) => {
   await page.goto('/console/access');
 
-  await expect(page.getByRole('heading', { name: 'Console' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Access' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Current workspace scope' })).toBeVisible();

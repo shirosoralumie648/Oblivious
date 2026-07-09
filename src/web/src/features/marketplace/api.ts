@@ -195,7 +195,7 @@ export type TemplateInstall = {
 };
 
 export type MarketplaceActionStatus = {
-  status: 'deleted' | 'uninstalled' | 'appealed' | 'takedown' | 'approved';
+  status: 'deleted' | 'uninstalled' | 'appeal_pending' | 'takedown' | 'approved';
 };
 
 export type MarketplaceAbuseReport = {

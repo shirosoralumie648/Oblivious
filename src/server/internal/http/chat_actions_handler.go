@@ -251,8 +251,14 @@ func (h chatHandler) streamMessage(w stdhttp.ResponseWriter, r *stdhttp.Request,
 	w.WriteHeader(stdhttp.StatusOK)
 	flusher, _ := w.(stdhttp.Flusher)
 
+	ctx := chat.WithRelayRequestMetadata(r.Context(), chat.RelayRequestMetadata{
+		OrganizationID: session.OrganizationID,
+		UserID:         session.User.ID,
+		WorkspaceID:    session.WorkspaceID,
+		RequestID:      requestIDFromContext(r.Context()),
+	})
 	err := h.service.SendMessageStream(
-		r.Context(),
+		ctx,
 		session,
 		conversationID,
 		strings.TrimSpace(payload.Content),

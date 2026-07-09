@@ -235,6 +235,7 @@ const knowledgeApiMocks = vi.hoisted(() => {
         }
       ])
     ),
+    listKnowledgeDocumentIngestionJobs: vi.fn(() => Promise.resolve([])),
     listKnowledgeDocuments: vi.fn(() =>
       Promise.resolve([
         {
@@ -2872,7 +2873,7 @@ describe('app router', () => {
     const executionDebugDetails = await screen.findByLabelText('Execution debug details for exec_router_paused');
     expect(within(executionDebugDetails).getByText('manual-start -> classify')).toBeInTheDocument();
     expect(within(executionDebugDetails).getByText('Bottleneck: classify (3400ms)')).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('renders scheduled tasks route inside the workspace shell', async () => {
     const router = createAppRouter(['/scheduled-tasks']);

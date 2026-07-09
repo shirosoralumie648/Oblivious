@@ -223,7 +223,7 @@ function resetMarketplaceMocks() {
     ],
   });
   submitReview.mockResolvedValue({ id: 'rev_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful', createdAt: '2026-01-05T00:00:00Z' });
-  appealAgent.mockResolvedValue({ status: 'appealed' });
+  appealAgent.mockResolvedValue({ status: 'appeal_pending' });
   reportAbuse.mockResolvedValue({
     id: 'report_1',
     reporterOrganizationId: 'org_1',
@@ -449,7 +449,7 @@ describe('Marketplace pages', () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => expect(appealAgent).toHaveBeenCalledWith('agent_1', { reason: 'Fixed the review finding.' }));
-    expect(await screen.findByText('Appeal submitted.')).toBeInTheDocument();
+    expect(await screen.findByText('Appeal submitted for review.')).toBeInTheDocument();
     expect(screen.getByLabelText('Appeal reason')).toHaveValue('');
   });
 
