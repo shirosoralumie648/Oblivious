@@ -100,6 +100,10 @@ func TestHostedCheckoutCreatorRejectsSecretBearingBaseURLs(t *testing.T) {
 		baseURL string
 	}{
 		{
+			name:    "insecure checkout URL",
+			baseURL: "http://checkout.alipay.test/session",
+		},
+		{
 			name:    "userinfo credentials",
 			baseURL: "https://merchant:secret-password@checkout.alipay.test/session",
 		},
@@ -125,6 +129,32 @@ func TestHostedCheckoutCreatorRejectsSecretBearingBaseURLs(t *testing.T) {
 				t.Fatalf("expected secret-bearing hosted checkout base URL %q to fail closed, got session URL %q", tc.baseURL, session.URL)
 			}
 		})
+	}
+}
+
+func TestBuildPaymentCheckoutProvidersHidesInvalidDomesticHostedProviders(t *testing.T) {
+	stripeCreator := stripebilling.CheckoutCreatorFunc(func(context.Context, stripebilling.CheckoutConfig, stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
+		return nil, nil
+	})
+
+	registry, creators := buildPaymentCheckoutProviders(config.Config{
+		AlipayCheckoutBaseURL:    "http://checkout.alipay.test/session",
+		WeChatPayCheckoutBaseURL: "https://checkout.wechatpay.test/session?token=target-secret-token",
+	}, stripeCreator, nil, nil)
+
+	for _, providerName := range []string{"alipay", "wechatpay"} {
+		if creators[providerName] != nil {
+			t.Fatalf("expected invalid %s checkout URL to stay hidden from checkout creators", providerName)
+		}
+		provider, err := registry.Resolve(providerName)
+		if err == nil || provider.Configured {
+			t.Fatalf("expected invalid %s checkout URL to remain unconfigured, provider=%+v err=%v", providerName, provider, err)
+		}
+	}
+
+	providers := consoleBillingPaymentProviders(registry, creators)
+	if len(providers) != 1 || providers[0].Name != "stripe" {
+		t.Fatalf("expected invalid domestic checkout providers to be hidden from console billing, got %+v", providers)
 	}
 }
 

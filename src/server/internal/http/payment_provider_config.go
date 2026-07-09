@@ -61,6 +61,12 @@ func (c hostedCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripe
 }
 
 func validateHostedCheckoutBaseURL(provider string, base *url.URL) error {
+	if !strings.EqualFold(base.Scheme, "https") {
+		return fmt.Errorf("%s checkout base url must use https", provider)
+	}
+	if strings.TrimSpace(base.Host) == "" {
+		return fmt.Errorf("%s checkout base url must include a host", provider)
+	}
 	if base.User != nil {
 		return fmt.Errorf("%s checkout base url must not embed credentials", provider)
 	}
@@ -201,6 +207,13 @@ func registerHostedDomesticCheckout(registry *payment.Registry, creators map[str
 	providerName = strings.ToLower(strings.TrimSpace(providerName))
 	baseURL = strings.TrimSpace(baseURL)
 	if providerName == "" || baseURL == "" {
+		return
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return
+	}
+	if err := validateHostedCheckoutBaseURL(providerName, base); err != nil {
 		return
 	}
 	if _, exists := creators[providerName]; !exists {

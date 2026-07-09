@@ -52,7 +52,11 @@ const defaultRelayProviderOptions: RelayProviderOption[] = [
 
 function providerCatalogToOptions(providers: ChannelProviderInfo[]): RelayProviderOption[] {
   const options = providers
-    .filter((provider) => provider.status === 'supported')
+    .filter((provider) => {
+      const installable = provider.installable ?? provider.configurable ?? provider.status === 'supported';
+      const runtimeReady = provider.runtimeReady ?? provider.status === 'supported';
+      return provider.status === 'supported' && installable && runtimeReady && provider.configurable !== false;
+    })
     .map((provider) => ({
       value: canonicalProvider(provider.id),
       label: provider.displayName || provider.id,
