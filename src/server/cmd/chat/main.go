@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
-	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
+	serverhttp "oblivious/server/internal/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
@@ -36,21 +36,16 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	store := chat.NewSQLStore(db)
-	replyGenerator := &demoReplyGenerator{}
-	usageRecorder := &noopUsageRecorder{}
-	service := chat.NewService(store, replyGenerator, cfg.ModelDefaultName, usageRecorder)
-
-	router := gin.Default()
-	registerRoutes(router, service)
+	handler := serverhttp.NewRouter(cfg, db)
+	addr := fmt.Sprintf(":%d", cfg.Port)
 
 	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+		Addr:    addr,
+		Handler: handler,
 	}
 
 	go func() {
-		log.Println("Chat service listening on :8080")
+		log.Printf("Chat service listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}
@@ -62,22 +57,4 @@ func main() {
 
 	log.Println("Shutting down chat service...")
 	srv.Shutdown(context.Background())
-}
-
-func registerRoutes(r *gin.Engine, service *chat.Service) {
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-}
-
-type demoReplyGenerator struct{}
-
-func (d *demoReplyGenerator) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
-	return "Demo reply", nil
-}
-
-type noopUsageRecorder struct{}
-
-func (n *noopUsageRecorder) RecordChatUsage(ctx context.Context, record chat.UsageRecord) error {
-	return nil
 }

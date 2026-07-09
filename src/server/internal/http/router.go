@@ -39,11 +39,35 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	return NewRouterWithOptions(cfg, database, RouterOptions{})
 }
 
+func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
+	mux := stdhttp.NewServeMux()
+	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	authStore := auth.NewSQLStore(database)
+	authService := auth.NewService(authStore)
+	authMiddleware := newAuthMiddleware(cfg, authService)
+	replyGenerator, _ := newConfiguredChatGateways(cfg)
+	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
+	chatHandler := newChatHandler(chatService)
+
+	registerChatRoutes(mux, authMiddleware, chatHandler)
+	registerConversationAliasRoutes(mux, authMiddleware, chatHandler)
+	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+}
+
 type RouterOptions struct {
 	CheckoutCreator             stripebilling.CheckoutCreator
 	CheckoutCreators            map[string]stripebilling.CheckoutCreator
 	PaymentProviderRegistry     *payment.Registry
 	RelayPricingStore           *relay.PricingStore
+	RelayPool                   *relay.ChannelPool
+	GatewayRelayHandler         stdhttp.Handler
 	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
 	RelayConfigApplier          admin.RelayConfigApplier
 	RequestLogEvidenceStore     admin.RequestLogEvidenceStore
@@ -271,6 +295,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	registerConsoleRoutes(mux, authMiddleware, consoleHandler)
 	registerChatRoutes(mux, authMiddleware, chatHandler)
 	registerConversationAliasRoutes(mux, authMiddleware, chatHandler)
+	registerGatewayRoutes(mux, authMiddleware, newGatewayHandler(options.RelayPool, options.GatewayRelayHandler))
 	registerPreferenceRoutes(mux, authMiddleware, preferencesHandler)
 	registerTaskRoutes(mux, authMiddleware, taskHandler)
 

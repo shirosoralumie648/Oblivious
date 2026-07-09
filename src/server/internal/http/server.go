@@ -27,6 +27,16 @@ import (
 	"oblivious/server/internal/workflow"
 )
 
+type relayBatchPollingWorkerRunner interface {
+	Run(context.Context)
+}
+
+type relayBatchPollingWorkerFactory func(relay.BatchPollingWorkerStore, relay.BatchStatusClient, relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner
+
+type shutdownRegistrar interface {
+	RegisterOnShutdown(func())
+}
+
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	requestLogEvidenceStore, requestLogCloser := configureRequestLogSink(cfg)
 	var relayPricingStore *relay.PricingStore
@@ -44,7 +54,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 
 		// Load channels from database
 		if err := relayStore.LoadPoolFromStore(relayPool); err != nil {
-			log.Printf("warning: failed to load channels from database: %v", err)
+			handleRelayPoolConfigurationError(cfg, fmt.Errorf("load relay channels from database: %w", err))
 		}
 
 		// Ensure default channel for development
@@ -65,7 +75,6 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	registerWorkflowAgentExecutor(workflowService, agentService)
 	scheduleService := newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
 
-	// Create main router
 	var relayConfigApplier admin.RelayConfigApplier
 	if relayStore != nil && relayPool != nil {
 		relayConfigApplier = func(ctx context.Context, change admin.RelayConfigChange) error {
@@ -74,8 +83,46 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 			return relayStore.ReloadPoolFromStore(relayPool)
 		}
 	}
+
+	var relayEngine stdhttp.Handler
+	var relayInstance *relay.Relay
+	var closeRateLimiter func() error
+	var cancelRelayHealthChecks context.CancelFunc
+	if cfg.RelayEnabled {
+		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
+		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
+		rateLimiter, rateLimiterCloser := buildRelayRateLimiter(cfg)
+		closeRateLimiter = rateLimiterCloser
+		createdRelay, err := relay.NewRelay(buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore))
+		if err != nil {
+			if closeRateLimiter != nil {
+				if closeErr := closeRateLimiter(); closeErr != nil {
+					log.Printf("warning: failed to close relay rate limiter: %v", closeErr)
+				}
+				closeRateLimiter = nil
+			}
+			handleRelayStartupError(cfg, fmt.Errorf("create relay: %w", err))
+		} else {
+			relayInstance = createdRelay
+			quotaStore := quota.NewSQLStore(database)
+			quotaService := quota.NewService(quotaStore)
+			relayInstance.Router().SetQuotaManager(quotaService)
+			relayInstance.Router().SetAPITokenQuotaManager(apiTokenStore)
+			relayInstance.Router().SetUsageLogger(usage.NewSQLRecorder(database))
+			relayInstance.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
+			relayHealthCheckCtx, cancelHealthChecks := context.WithCancel(context.Background())
+			cancelRelayHealthChecks = cancelHealthChecks
+			relayInstance.StartHealthChecks(relayHealthCheckCtx)
+			relayEngine = relayInstance.Engine()
+		}
+	}
+
+	// Create main router after Relay is prepared so gateway proxy routes can
+	// forward session-authenticated traffic into the same Relay engine.
 	mainHandler := NewRouterWithOptions(cfg, database, RouterOptions{
 		RelayPricingStore:           relayPricingStore,
+		RelayPool:                   relayPool,
+		GatewayRelayHandler:         relayEngine,
 		ChannelRuntimeStatsProvider: relayPool,
 		RelayConfigApplier:          relayConfigApplier,
 		RequestLogEvidenceStore:     requestLogEvidenceStore,
@@ -86,41 +133,9 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		AlertProviderConfigStore:    alertProviderConfigStore,
 	})
 
-	// If Relay is enabled, integrate it
-	var closeRateLimiter func() error
-	var cancelRelayHealthChecks context.CancelFunc
-	if cfg.RelayEnabled {
-
-		// Create Relay instance
-		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
-		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
-		rateLimiter, rateLimiterCloser := buildRelayRateLimiter(cfg)
-		closeRateLimiter = rateLimiterCloser
-		relayInstance, err := relay.NewRelay(buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore))
-		if err != nil {
-			if closeRateLimiter != nil {
-				if closeErr := closeRateLimiter(); closeErr != nil {
-					log.Printf("warning: failed to close relay rate limiter: %v", closeErr)
-				}
-				closeRateLimiter = nil
-			}
-			log.Printf("warning: failed to create relay: %v", err)
-		} else {
-			// Wire quota.Service into the relay billing lifecycle so that
-			// successful calls settle and failed calls refund correctly.
-			quotaStore := quota.NewSQLStore(database)
-			quotaService := quota.NewService(quotaStore)
-			relayInstance.Router().SetQuotaManager(quotaService)
-			relayInstance.Router().SetAPITokenQuotaManager(apiTokenStore)
-			relayInstance.Router().SetUsageLogger(usage.NewSQLRecorder(database))
-			relayInstance.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
-			relayHealthCheckCtx, cancelHealthChecks := context.WithCancel(context.Background())
-			cancelRelayHealthChecks = cancelHealthChecks
-			relayInstance.StartHealthChecks(relayHealthCheckCtx)
-
-			// Mount Relay under /v1/*
-			mainHandler = combineHandlers(mainHandler, relayInstance.Engine())
-		}
+	if relayEngine != nil {
+		// Mount Relay under /v1/*.
+		mainHandler = combineHandlers(mainHandler, relayEngine)
 	}
 
 	server := &stdhttp.Server{
@@ -140,6 +155,9 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		go worker.Run(workerCtx)
 		server.RegisterOnShutdown(cancelWorker)
 	}
+	startRelayBatchPollingWorkerIfEnabled(server, cfg, relayStore, nil, nil, nil, func(store relay.BatchPollingWorkerStore, client relay.BatchStatusClient, workerConfig relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner {
+		return relay.NewBatchPollingWorker(store, client, workerConfig)
+	})
 	if cfg.Env != "test" {
 		channelRetryWorkerCtx, cancelChannelRetryWorker := context.WithCancel(context.Background())
 		channelRetryStore := publishingchannel.NewSQLStore(database)
@@ -198,6 +216,52 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		server.RegisterOnShutdown(alertingCloser)
 	}
 	return server
+}
+
+func handleRelayPoolConfigurationError(cfg config.Config, err error) {
+	if err == nil {
+		return
+	}
+	if cfg.Env == "production" {
+		panic(err)
+	}
+	log.Printf("warning: %v", err)
+}
+
+func handleRelayStartupError(cfg config.Config, err error) {
+	if err == nil {
+		return
+	}
+	if cfg.Env == "production" {
+		panic(err)
+	}
+	log.Printf("warning: %v", err)
+}
+
+func startRelayBatchPollingWorkerIfEnabled(
+	server shutdownRegistrar,
+	cfg config.Config,
+	store relay.BatchPollingWorkerStore,
+	client relay.BatchStatusClient,
+	completionFinalizer relay.BatchCompletionFinalizer,
+	failureFinalizer relay.BatchFailureFinalizer,
+	newWorker relayBatchPollingWorkerFactory,
+) bool {
+	if !cfg.RelayEnabled || !cfg.RelayBatchPollingWorkerEnabled || store == nil || client == nil || newWorker == nil {
+		return false
+	}
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	worker := newWorker(store, client, relay.BatchPollingWorkerConfig{
+		Interval:            time.Duration(cfg.RelayBatchPollingWorkerIntervalMS) * time.Millisecond,
+		Limit:               cfg.RelayBatchPollingWorkerClaimLimit,
+		CompletionFinalizer: completionFinalizer,
+		FailureFinalizer:    failureFinalizer,
+	})
+	go worker.Run(workerCtx)
+	if server != nil {
+		server.RegisterOnShutdown(cancelWorker)
+	}
+	return true
 }
 
 func newAgentGateway(cfg config.Config) chat.ChatGateway {
@@ -381,15 +445,18 @@ func buildRelayConfig(
 	alertStateStore observability.AlertStateStore,
 ) *relay.Config {
 	relayConfig := &relay.Config{
-		Pool:                     relayPool,
-		PricingStore:             relayPricingStore,
-		Production:               cfg.Env == "production",
-		APITokenAuthenticator:    apiTokenAuthenticator,
-		RateLimiter:              rateLimiter,
-		RouteAuditSink:           newRelayRouteAuditRequestLogSink(currentRequestLogSink()),
-		HealthAlertSink:          currentHTTPAlertSink(),
-		HealthRecoveryController: currentHTTPRecoveryController(),
-		HealthAlertStateStore:    alertStateStore,
+		Pool:                               relayPool,
+		PricingStore:                       relayPricingStore,
+		Production:                         cfg.Env == "production",
+		APITokenAuthenticator:              apiTokenAuthenticator,
+		RateLimiter:                        rateLimiter,
+		RouteAuditSink:                     newRelayRouteAuditRequestLogSink(currentRequestLogSink()),
+		HealthAlertSink:                    currentHTTPAlertSink(),
+		HealthRecoveryController:           currentHTTPRecoveryController(),
+		HealthAlertStateStore:              alertStateStore,
+		BatchCommercialLifecycleEnabled:    cfg.RelayBatchCommercialLifecycleEnabled,
+		RealtimeCommercialLifecycleEnabled: cfg.RelayRealtimeCommercialLifecycleEnabled,
+		CORSAllowedOrigins:                 cfg.CORSAllowedOrigins,
 	}
 	if database != nil {
 		relayStore := relay.NewRelayStore(database)

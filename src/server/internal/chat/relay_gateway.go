@@ -24,6 +24,8 @@ type RelayGateway struct {
 	defaultModel string
 }
 
+const maxRelayStreamLineBytes = 4 * 1024 * 1024
+
 // RelayGatewayOption 配置选项
 type RelayGatewayOption func(*RelayGateway)
 
@@ -239,6 +241,7 @@ func (g *RelayGateway) completeStream(ctx context.Context, req *chatCompletionRe
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), maxRelayStreamLineBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
 

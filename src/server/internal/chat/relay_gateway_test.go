@@ -127,6 +127,34 @@ func TestRelayGateway_GenerateReplyStream(t *testing.T) {
 	}
 }
 
+func TestRelayGateway_GenerateReplyStreamAcceptsLargeSSEChunks(t *testing.T) {
+	largeChunk := strings.Repeat("stream-token-", 7000)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"` + largeChunk + `"}}]}` + "\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	gateway := NewRelayGateway(
+		WithRelayURL(server.URL+"/v1"),
+		WithDefaultModel("gpt-4o-mini"),
+	)
+
+	var received strings.Builder
+	err := gateway.GenerateReplyStream(context.Background(), []Message{{Role: "user", Content: "Hello"}}, ConversationConfig{}, func(chunk string) error {
+		received.WriteString(chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GenerateReplyStream should accept large SSE chunks, got error: %v", err)
+	}
+	if received.String() != largeChunk {
+		t.Fatalf("expected large chunk to round trip, got len=%d want=%d", received.Len(), len(largeChunk))
+	}
+}
+
 func TestCompositeGateway_Fallback(t *testing.T) {
 	// Create failing primary gateway
 	failingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
