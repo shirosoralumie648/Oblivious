@@ -171,13 +171,17 @@ func (d *AlertDeliveryDispatcher) FlushInfoEmailDigests(ctx context.Context, now
 func (d *AlertDeliveryDispatcher) deliverToChannel(ctx context.Context, channel AlertDeliveryChannel, event AlertEvent) []AlertDeliveryResult {
 	sinks, err := d.sinksForChannel(ctx, channel)
 	if err != nil {
-		return []AlertDeliveryResult{{Channel: channel, Err: err}}
+		results := []AlertDeliveryResult{{Channel: channel, Err: err}}
+		d.recordDeliveryAttempts(ctx, event, results)
+		return results
 	}
 	if len(sinks) == 0 {
-		return []AlertDeliveryResult{{
+		results := []AlertDeliveryResult{{
 			Channel: channel,
 			Err:     fmt.Errorf("%w: %s", ErrAlertDeliverySinkMissing, channel),
 		}}
+		d.recordDeliveryAttempts(ctx, event, results)
+		return results
 	}
 	results := make([]AlertDeliveryResult, 0, len(sinks))
 	for _, sink := range sinks {
@@ -189,10 +193,14 @@ func (d *AlertDeliveryDispatcher) deliverToChannel(ctx context.Context, channel 
 		}
 		results = append(results, result)
 	}
+	d.recordDeliveryAttempts(ctx, event, results)
+	return results
+}
+
+func (d *AlertDeliveryDispatcher) recordDeliveryAttempts(ctx context.Context, event AlertEvent, results []AlertDeliveryResult) {
 	if d.historyStore != nil && len(results) > 0 {
 		_ = d.historyStore.RecordDeliveryAttempts(ctx, event, results)
 	}
-	return results
 }
 
 func (d *AlertDeliveryDispatcher) sinksForChannel(ctx context.Context, channel AlertDeliveryChannel) ([]AlertDeliverySink, error) {

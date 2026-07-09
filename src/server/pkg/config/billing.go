@@ -16,6 +16,7 @@ func LoadBillingConfig() *BillingConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_BILLING")
 
 	port := strings.TrimSpace(os.Getenv("BILLING_PORT"))
 	if port == "" {

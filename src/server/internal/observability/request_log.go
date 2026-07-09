@@ -17,6 +17,7 @@ const nilUUID = "00000000-0000-0000-0000-000000000000"
 
 type RequestLogRow struct {
 	ID             string
+	RequestID      string
 	Timestamp      time.Time
 	OrganizationID string
 	UserID         string
@@ -62,12 +63,12 @@ func (s *SQLRequestLogSink) InsertRequestLog(ctx context.Context, row RequestLog
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO request_logs (
-			id, timestamp, organization_id, user_id, service, endpoint, method,
+			id, request_id, timestamp, organization_id, user_id, service, endpoint, method,
 			status_code, duration_ms, request_tokens, response_tokens, model,
 			cost_usd, error, trace_id, metadata
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, row.ID, row.Timestamp, row.OrganizationID, row.UserID, row.Service, row.Endpoint, row.Method,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, row.ID, row.RequestID, row.Timestamp, row.OrganizationID, row.UserID, row.Service, row.Endpoint, row.Method,
 		row.StatusCode, row.DurationMS, row.RequestTokens, row.ResponseTokens, row.Model,
 		row.CostUSD, row.Error, row.TraceID, row.Metadata)
 	if err != nil {
@@ -96,6 +97,7 @@ func RequestLogRowFromEvent(event Event, timestamp time.Time) (RequestLogRow, er
 
 	row := RequestLogRow{
 		ID:             normalizedUUID(event.RequestID),
+		RequestID:      strings.TrimSpace(event.RequestID),
 		Timestamp:      timestamp,
 		OrganizationID: normalizedUUID(event.OrganizationID),
 		UserID:         normalizedUUID(event.UserID),

@@ -16,6 +16,7 @@ func LoadAdminConfig() *AdminConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_ADMIN")
 
 	port := strings.TrimSpace(os.Getenv("ADMIN_PORT"))
 	if port == "" {

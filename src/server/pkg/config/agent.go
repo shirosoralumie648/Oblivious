@@ -17,6 +17,7 @@ func LoadAgentConfig() *AgentConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_AGENT")
 
 	port := strings.TrimSpace(os.Getenv("AGENT_PORT"))
 	if port == "" {

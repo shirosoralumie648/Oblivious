@@ -17,6 +17,7 @@ func LoadWorkflowConfig() *WorkflowConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_WORKFLOW")
 
 	port := strings.TrimSpace(os.Getenv("WORKFLOW_PORT"))
 	if port == "" {

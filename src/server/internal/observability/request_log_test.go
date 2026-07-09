@@ -58,6 +58,9 @@ func TestRequestLogRowFromEventMapsRelayCompletion(t *testing.T) {
 	if row.ID != "550e8400-e29b-41d4-a716-446655440000" {
 		t.Fatalf("expected request id to become row id, got %q", row.ID)
 	}
+	if row.RequestID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("expected raw request id to be preserved for usage joins, got %q", row.RequestID)
+	}
 	if !row.Timestamp.Equal(timestamp) {
 		t.Fatalf("expected timestamp %s, got %s", timestamp, row.Timestamp)
 	}
@@ -178,6 +181,7 @@ func TestSQLRequestLogSinkInsertsClickHouseRequestLogs(t *testing.T) {
 	timestamp := time.Date(2026, 6, 5, 11, 0, 0, 456000000, time.UTC)
 	row := RequestLogRow{
 		ID:             "550e8400-e29b-41d4-a716-446655440000",
+		RequestID:      "req_relay_usage_join",
 		Timestamp:      timestamp,
 		OrganizationID: "750e8400-e29b-41d4-a716-446655440000",
 		UserID:         "850e8400-e29b-41d4-a716-446655440000",
@@ -207,6 +211,7 @@ func TestSQLRequestLogSinkInsertsClickHouseRequestLogs(t *testing.T) {
 	for _, want := range []string{
 		"INSERT INTO request_logs",
 		"id",
+		"request_id",
 		"timestamp",
 		"organization_id",
 		"user_id",
@@ -227,13 +232,16 @@ func TestSQLRequestLogSinkInsertsClickHouseRequestLogs(t *testing.T) {
 	if got := requestLogArg(args, 1); got != row.ID {
 		t.Fatalf("id arg = %#v, want %q", got, row.ID)
 	}
-	if got := requestLogArg(args, 2); got != timestamp {
+	if got := requestLogArg(args, 2); got != row.RequestID {
+		t.Fatalf("request_id arg = %#v, want %q", got, row.RequestID)
+	}
+	if got := requestLogArg(args, 3); got != timestamp {
 		t.Fatalf("timestamp arg = %#v, want %s", got, timestamp)
 	}
-	if got := requestLogArg(args, 7); got != row.Method {
+	if got := requestLogArg(args, 8); got != row.Method {
 		t.Fatalf("method arg = %#v, want %q", got, row.Method)
 	}
-	if got := requestLogArg(args, 16); got != row.Metadata {
+	if got := requestLogArg(args, 17); got != row.Metadata {
 		t.Fatalf("metadata arg = %#v, want %q", got, row.Metadata)
 	}
 }
@@ -248,6 +256,7 @@ func TestClickHouseRequestLogsMigrationMatchesSpec(t *testing.T) {
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS request_logs",
 		"id UUID",
+		"request_id String",
 		"timestamp DateTime64(3)",
 		"organization_id UUID",
 		"user_id UUID",

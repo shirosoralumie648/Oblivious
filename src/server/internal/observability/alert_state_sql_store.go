@@ -178,6 +178,12 @@ func (s *SQLAlertStateStore) ListAlertStates(ctx context.Context, filter AlertSt
 	if filter.KeyPrefix != "" {
 		addCondition("alert_key LIKE $%d", filter.KeyPrefix+"%")
 	}
+	if !filter.From.IsZero() {
+		addCondition("last_occurred_at >= $%d", filter.From)
+	}
+	if !filter.To.IsZero() {
+		addCondition("last_occurred_at <= $%d", filter.To)
+	}
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -343,10 +349,26 @@ func (s *SQLAlertStateStore) ListDeliveryAttempts(ctx context.Context, filter Al
 	query := `
 SELECT id, alert_key, severity, component, channel, provider_id, provider_kind, delivered, error, attempted_at
 FROM observability_alert_delivery_attempts`
-	args := make([]any, 0, 3)
+	conditions := make([]string, 0, 4)
+	args := make([]any, 0, 6)
+	addCondition := func(condition string, value any) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+	}
 	if filter.AlertKey != "" {
-		args = append(args, filter.AlertKey)
-		query += fmt.Sprintf(" WHERE alert_key = $%d", len(args))
+		addCondition("alert_key = $%d", filter.AlertKey)
+	}
+	if filter.KeyPrefix != "" {
+		addCondition("alert_key LIKE $%d", filter.KeyPrefix+"%")
+	}
+	if !filter.From.IsZero() {
+		addCondition("attempted_at >= $%d", filter.From)
+	}
+	if !filter.To.IsZero() {
+		addCondition("attempted_at <= $%d", filter.To)
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY attempted_at DESC, id ASC"
 	if filter.Limit > 0 {
@@ -433,6 +455,9 @@ FROM observability_recovery_actions`
 	if filter.AlertKey != "" {
 		addCondition("alert_key = $%d", filter.AlertKey)
 	}
+	if filter.KeyPrefix != "" {
+		addCondition("alert_key LIKE $%d", filter.KeyPrefix+"%")
+	}
 	if filter.PolicyName != "" {
 		addCondition("policy_name = $%d", filter.PolicyName)
 	}
@@ -441,6 +466,12 @@ FROM observability_recovery_actions`
 	}
 	if filter.Type != "" {
 		addCondition("action_type = $%d", filter.Type)
+	}
+	if !filter.From.IsZero() {
+		addCondition("created_at >= $%d", filter.From)
+	}
+	if !filter.To.IsZero() {
+		addCondition("created_at <= $%d", filter.To)
 	}
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")

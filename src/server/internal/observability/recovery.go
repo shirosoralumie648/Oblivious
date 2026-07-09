@@ -102,7 +102,7 @@ func (c *RecoveryController) HandleAlert(ctx context.Context, event AlertEvent) 
 			Component:  event.Component,
 			Type:       policy.ActionType,
 			Status:     RecoveryActionRecorded,
-			Reason:     event.Title,
+			Reason:     auditOnlyRecoveryReason(event.Title),
 			CreatedAt:  event.OccurredAt,
 		}
 		if policy.ActionType == RecoveryActionRestart {
@@ -167,6 +167,15 @@ func (c *RecoveryController) planRestartAction(ctx context.Context, policy Recov
 	}
 	action.NextAttemptAt = action.CreatedAt.Add(delay)
 	return action, nil
+}
+
+func auditOnlyRecoveryReason(title string) string {
+	title = strings.TrimSpace(title)
+	auditNote := "audit-only remediation recorded; no infrastructure mutation executed"
+	if title == "" {
+		return auditNote
+	}
+	return title + "; " + auditNote
 }
 
 func policyMatchesAlert(policy RecoveryPolicy, event AlertEvent) bool {

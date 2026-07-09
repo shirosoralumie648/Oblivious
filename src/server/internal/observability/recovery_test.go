@@ -60,6 +60,39 @@ func TestRecoveryControllerRecordsCriticalPolicyActionWithCooldown(t *testing.T)
 	}
 }
 
+func TestRecoveryControllerRecordsAuditOnlyRemediationReason(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryAlertStateStore()
+	controller := NewRecoveryController(RecoveryControllerOptions{
+		StateStore: store,
+		Now:        func() time.Time { return time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC) },
+		Policies: []RecoveryPolicy{
+			{
+				Name:       "record-http-5xx",
+				Severity:   AlertSeverityWarning,
+				Component:  ComponentHTTP,
+				ActionType: RecoveryActionRestart,
+			},
+		},
+	})
+
+	decision, err := controller.HandleAlert(ctx, AlertEvent{
+		Key:       "http:/v1/chat:5xx",
+		Severity:  AlertSeverityWarning,
+		Component: ComponentHTTP,
+		Title:     "HTTP 5xx threshold breached",
+	})
+	if err != nil {
+		t.Fatalf("handle alert: %v", err)
+	}
+	if !decision.Created {
+		t.Fatalf("expected recovery audit action to be recorded, got %+v", decision)
+	}
+	if !strings.Contains(decision.Action.Reason, "audit-only") {
+		t.Fatalf("expected audit-only remediation reason, got %q", decision.Action.Reason)
+	}
+}
+
 func TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryAlertStateStore()

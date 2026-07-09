@@ -24,6 +24,7 @@ func LoadRelayConfig() (RelayConfig, error) {
 	if err != nil {
 		return RelayConfig{}, err
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_RELAY")
 
 	portRaw := strings.TrimSpace(os.Getenv("SERVER_PORT"))
 	if portRaw == "" {

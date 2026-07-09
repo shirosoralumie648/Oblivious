@@ -146,7 +146,7 @@ func eventAttrs(event Event) []slog.Attr {
 		attrs = append(attrs, slog.Int("status", event.Status))
 	}
 	if event.Latency > 0 {
-		attrs = append(attrs, slog.Float64("latency_ms", float64(event.Latency)/float64(time.Millisecond)))
+		attrs = append(attrs, slog.Int("latency_ms", durationMillis(event.Latency)))
 	}
 	addString("relay_route_class", event.RelayRouteClass)
 	addString("relay_api_type", event.RelayAPIType)
@@ -197,6 +197,9 @@ func cloneFields(fields map[string]any) map[string]any {
 
 func isSensitiveField(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	if isOperationalMeteringField(normalized) {
+		return false
+	}
 	for _, token := range []string{
 		"authorization",
 		"cookie",
@@ -217,4 +220,19 @@ func isSensitiveField(key string) bool {
 		}
 	}
 	return false
+}
+
+func isOperationalMeteringField(normalized string) bool {
+	switch normalized {
+	case "request_tokens",
+		"response_tokens",
+		"input_tokens",
+		"output_tokens",
+		"total_tokens",
+		"preauthorized_amount",
+		"token_preauthorized_amount":
+		return true
+	default:
+		return false
+	}
 }

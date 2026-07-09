@@ -6,16 +6,17 @@ import (
 
 // ObservabilityComponent constants define component identifiers.
 const (
-	ComponentHTTP     = "http"
-	ComponentRelay    = "relay"
-	ComponentBilling  = "billing"
-	ComponentWorkflow = "workflow"
-	ComponentAgent    = "agent"
-	ComponentSchedule = "schedule"
-	ComponentTask     = "task"
-	ComponentAuth     = "auth"
-	ComponentGateway  = "gateway"
-	ComponentUnknown  = "unknown"
+	ComponentHTTP          = "http"
+	ComponentRelay         = "relay"
+	ComponentBilling       = "billing"
+	ComponentWorkflow      = "workflow"
+	ComponentAgent         = "agent"
+	ComponentSchedule      = "schedule"
+	ComponentTask          = "task"
+	ComponentAuth          = "auth"
+	ComponentGateway       = "gateway"
+	ComponentObservability = "observability"
+	ComponentUnknown       = "unknown"
 )
 
 // RequestEvent constants define event types for request logging.

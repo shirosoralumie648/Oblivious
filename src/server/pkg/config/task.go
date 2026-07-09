@@ -17,6 +17,7 @@ func LoadTaskConfig() *TaskConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_TASK")
 
 	port := strings.TrimSpace(os.Getenv("TASK_PORT"))
 	if port == "" {

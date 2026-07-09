@@ -16,6 +16,7 @@ func LoadRAGConfig() *RAGConfig {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
+	common = withServiceDatabaseURL(common, "DB_URL_RAG")
 
 	port := strings.TrimSpace(os.Getenv("RAG_PORT"))
 	if port == "" {

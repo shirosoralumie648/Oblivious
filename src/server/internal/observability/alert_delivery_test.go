@@ -456,6 +456,42 @@ func TestAlertDeliveryFanOutReturnsMissingSinkResult(t *testing.T) {
 	}
 }
 
+func TestAlertDeliveryDispatcherRecordsMissingSinkAttempt(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryAlertStateStore()
+	dispatcher := NewAlertDeliveryDispatcher(AlertDeliveryDispatcherOptions{
+		Policy: DeliveryPolicy{
+			Routes: map[AlertSeverity][]AlertDeliveryChannel{
+				AlertSeverityWarning: {AlertDeliveryChannelEmail},
+			},
+			UnknownSeverityFallback: AlertSeverityWarning,
+		},
+		HistoryStore: store,
+	})
+	event := AlertEvent{
+		Key:        "http-slo:/api/v1/app/conversations/:id/messages:latency",
+		Severity:   AlertSeverityWarning,
+		Component:  "http",
+		OccurredAt: time.Date(2026, 6, 16, 0, 30, 0, 0, time.UTC),
+	}
+
+	results := dispatcher.Deliver(ctx, event)
+
+	if len(results) != 1 || !errors.Is(results[0].Err, ErrAlertDeliverySinkMissing) {
+		t.Fatalf("expected missing sink result, got %+v", results)
+	}
+	attempts, err := store.ListDeliveryAttempts(ctx, AlertDeliveryHistoryFilter{AlertKey: event.Key})
+	if err != nil {
+		t.Fatalf("list delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("expected one persisted failed delivery attempt, got %+v", attempts)
+	}
+	if attempts[0].Delivered || !strings.Contains(attempts[0].Error, ErrAlertDeliverySinkMissing.Error()) {
+		t.Fatalf("expected failed missing-sink attempt, got %+v", attempts[0])
+	}
+}
+
 func TestAlertDeliveryDispatcherRecordsDeliveryHistory(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryAlertStateStore()

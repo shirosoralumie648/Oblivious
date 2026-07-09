@@ -50,21 +50,29 @@ type AlertStateFilter struct {
 	Severity  AlertSeverity
 	Component string
 	KeyPrefix string
+	From      time.Time
+	To        time.Time
 	Limit     int
 	Offset    int
 }
 
 type AlertDeliveryHistoryFilter struct {
-	AlertKey string
-	Limit    int
-	Offset   int
+	AlertKey  string
+	KeyPrefix string
+	From      time.Time
+	To        time.Time
+	Limit     int
+	Offset    int
 }
 
 type RecoveryActionFilter struct {
 	AlertKey   string
+	KeyPrefix  string
 	PolicyName string
 	Component  string
 	Type       RecoveryActionType
+	From       time.Time
+	To         time.Time
 	Limit      int
 	Offset     int
 }
@@ -215,6 +223,12 @@ func (s *InMemoryAlertStateStore) ListAlertStates(_ context.Context, filter Aler
 		if filter.KeyPrefix != "" && !strings.HasPrefix(state.Key, filter.KeyPrefix) {
 			continue
 		}
+		if !filter.From.IsZero() && state.LastOccurredAt.Before(filter.From) {
+			continue
+		}
+		if !filter.To.IsZero() && state.LastOccurredAt.After(filter.To) {
+			continue
+		}
 		states = append(states, cloneAlertState(state))
 	}
 
@@ -349,8 +363,23 @@ func (s *InMemoryAlertStateStore) ListDeliveryAttempts(_ context.Context, filter
 		if filter.AlertKey != "" && attempt.AlertKey != filter.AlertKey {
 			continue
 		}
+		if filter.KeyPrefix != "" && !strings.HasPrefix(attempt.AlertKey, filter.KeyPrefix) {
+			continue
+		}
+		if !filter.From.IsZero() && attempt.AttemptedAt.Before(filter.From) {
+			continue
+		}
+		if !filter.To.IsZero() && attempt.AttemptedAt.After(filter.To) {
+			continue
+		}
 		attempts = append(attempts, cloneAlertDeliveryAttempt(attempt))
 	}
+	sort.Slice(attempts, func(i, j int) bool {
+		if !attempts[i].AttemptedAt.Equal(attempts[j].AttemptedAt) {
+			return attempts[i].AttemptedAt.After(attempts[j].AttemptedAt)
+		}
+		return attempts[i].ID < attempts[j].ID
+	})
 	if filter.Offset > 0 {
 		if filter.Offset >= len(attempts) {
 			return []AlertDeliveryAttempt{}, nil
@@ -413,6 +442,9 @@ func (s *InMemoryAlertStateStore) ListRecoveryActions(_ context.Context, filter 
 		if filter.AlertKey != "" && action.AlertKey != filter.AlertKey {
 			continue
 		}
+		if filter.KeyPrefix != "" && !strings.HasPrefix(action.AlertKey, filter.KeyPrefix) {
+			continue
+		}
 		if filter.PolicyName != "" && action.PolicyName != filter.PolicyName {
 			continue
 		}
@@ -420,6 +452,12 @@ func (s *InMemoryAlertStateStore) ListRecoveryActions(_ context.Context, filter 
 			continue
 		}
 		if filter.Type != "" && action.Type != filter.Type {
+			continue
+		}
+		if !filter.From.IsZero() && action.CreatedAt.Before(filter.From) {
+			continue
+		}
+		if !filter.To.IsZero() && action.CreatedAt.After(filter.To) {
 			continue
 		}
 		actions = append(actions, cloneRecoveryAction(action))
