@@ -1,0 +1,784 @@
+{
+  "generated_at": "2026-06-29T00:00:00+08:00",
+  "reference_root": "reference/",
+  "scope_note": "coverage_status records prior-round coverage evidence from the requested audit reports, not the new v2 read-only scan. Newly observed paths are included only to guide follow-up rescans.",
+  "status_rule": {
+    "Covered": "Multiple valid source-file paths and sufficient capability extraction in prior reports.",
+    "Partially Covered": "Some valid source-file paths in prior reports, but capability domains or directories are incomplete.",
+    "Mentioned Only": "Named or summarized in prior reports, but without enough concrete source-file evidence.",
+    "Not Scanned": "No effective project-specific scan evidence in the requested prior audit reports.",
+    "Not Useful / Stub-heavy": "Reference itself lacks enough usable source or is mostly stub/docs."
+  },
+  "projects": [
+    {
+      "name": "ai-gateway",
+      "path": "reference/ai-gateway",
+      "language": "Go; Kubernetes controller-runtime; Envoy Gateway ext_proc; Helm; Docusaurus docs",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/ai-gateway/api/v1beta1/ai_gateway_route.go",
+        "reference/ai-gateway/internal/extproc/processor.go",
+        "reference/ai-gateway/internal/translator/translator.go",
+        "reference/ai-gateway/tests/e2e/token_ratelimit_test.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Observability", "Deployment / Security", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace", "Admin"],
+      "notes": "No concrete source-path coverage found in the requested prior audit reports; useful for Kubernetes-native AI gateway and MCP proxy rescans."
+    },
+    {
+      "name": "anything-llm",
+      "path": "reference/anything-llm",
+      "language": "JavaScript; Node.js/Express; React/Vite; Prisma; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Mentioned Only",
+      "evidence_paths": [
+        "reference/anything-llm/server/endpoints",
+        "reference/anything-llm/server/utils/agents",
+        "reference/anything-llm/server/utils/DocumentManager",
+        "reference/anything-llm/frontend/src/pages"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Admin", "Deployment / Security", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Billing / Quota"],
+      "notes": "Prior audit had only generic RAG/upload mention; no concrete AnythingLLM source paths."
+    },
+    {
+      "name": "bifrost",
+      "path": "reference/bifrost",
+      "language": "Go core/proxy; React/TypeScript UI; Helm/Terraform/Nix",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/bifrost/core/bifrost.go",
+        "reference/bifrost/core/providers/openai/openai.go",
+        "reference/bifrost/core/mcp/mcp.go",
+        "reference/bifrost/plugins/otel/main.go",
+        "reference/bifrost/transports/bifrost-http/server/server.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Observability", "Billing / Quota", "Admin", "Deployment / Security", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace"],
+      "notes": "Prior reports had provider/MCP/API compatibility evidence, but some paths are broad or stale such as core/cache."
+    },
+    {
+      "name": "claude-code-api",
+      "path": "reference/claude-code-api",
+      "language": "TypeScript; Node.js; Express; @anthropic-ai/claude-code",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/claude-code-api/src/routes/api.ts",
+        "reference/claude-code-api/src/routes/admin.ts",
+        "reference/claude-code-api/src/services/claude.ts",
+        "reference/claude-code-api/src/services/claudeAuth.ts"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Chat", "Admin", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Knowledge / RAG", "Agent", "Workflow", "Billing / Quota", "Marketplace", "Observability"],
+      "notes": "No concrete prior audit source paths; narrow but real Claude Code OAuth/OpenAI-compatible adapter."
+    },
+    {
+      "name": "Cli-Proxy-API-Management-Center",
+      "path": "reference/Cli-Proxy-API-Management-Center",
+      "language": "React 19; TypeScript; Vite; Zustand; Axios; SCSS Modules",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/Cli-Proxy-API-Management-Center/src/router/MainRoutes.tsx",
+        "reference/Cli-Proxy-API-Management-Center/src/services/api/providers.ts",
+        "reference/Cli-Proxy-API-Management-Center/src/services/api/oauth.ts",
+        "reference/Cli-Proxy-API-Management-Center/src/pages/ConfigPage.tsx"
+      ],
+      "capability_domains": ["Admin", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Relay / API Gateway", "Billing / Quota", "Deployment / Security"],
+      "notes": "Management UI only; previous audit did not cite project source paths."
+    },
+    {
+      "name": "CLIProxyAPI",
+      "path": "reference/CLIProxyAPI",
+      "language": "Go; Gin; WebSocket; Bubble Tea TUI; OAuth2",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/CLIProxyAPI/internal/api/server.go",
+        "reference/CLIProxyAPI/internal/auth/codex/openai_auth.go",
+        "reference/CLIProxyAPI/internal/runtime/executor/codex_executor.go",
+        "reference/CLIProxyAPI/sdk/translator/registry.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "Session / Runtime / Event Model", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Marketplace", "Billing / Quota"],
+      "notes": "Older design paths such as pkg/oauth and pkg/router are stale; no valid prior audit source evidence."
+    },
+    {
+      "name": "CliRelay",
+      "path": "reference/CliRelay",
+      "language": "Go; Gin; Bubble Tea TUI; SQLite; Docker Compose",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/CliRelay/internal/api/server.go",
+        "reference/CliRelay/internal/runtime/executor/codex_executor.go",
+        "reference/CliRelay/internal/translator/codex/openai/responses/codex_openai-responses_request.go",
+        "reference/CliRelay/internal/tui/app.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "Session / Runtime / Event Model", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Marketplace", "Billing / Quota"],
+      "notes": "Previous reports only named/summarized the project; no source-path evidence."
+    },
+    {
+      "name": "codex-oauth",
+      "path": "reference/codex-oauth",
+      "language": "Python 3.13 single-file CLI; authlib; httpx; openai",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/codex-oauth/codex_oauth.py",
+        "reference/codex-oauth/README.md",
+        "reference/codex-oauth/pyproject.toml"
+      ],
+      "capability_domains": ["Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Admin", "Billing / Quota", "Observability", "Multi-agent / Team Runtime"],
+      "notes": "Working narrow OAuth sample; prior audit had no concrete source paths."
+    },
+    {
+      "name": "copilot-api",
+      "path": "reference/copilot-api",
+      "language": "TypeScript; Bun; Hono; srvx; static usage dashboard",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/copilot-api/src/routes/chat-completions/handler.ts",
+        "reference/copilot-api/src/routes/messages/stream-translation.ts",
+        "reference/copilot-api/src/services/github/get-copilot-token.ts",
+        "reference/copilot-api/src/lib/approval.ts"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Chat", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Admin", "Billing / Quota", "Knowledge / RAG", "Workflow"],
+      "notes": "Narrow GitHub Copilot proxy; no prior audit source-path coverage."
+    },
+    {
+      "name": "coze-studio",
+      "path": "reference/coze-studio",
+      "language": "Go backend with Hertz/Eino/GORM; React/TypeScript frontend; Thrift IDL; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/coze-studio/backend/application/workflow/workflow.go",
+        "reference/coze-studio/backend/types/errno/workflow.go",
+        "reference/coze-studio/idl/workflow/workflow_svc.thrift",
+        "reference/coze-studio/idl/marketplace/product_common.thrift",
+        "reference/coze-studio/backend/application/plugin/plugin.go"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace", "Admin", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Billing / Quota", "CLI / TUI / SDK / Remote Bridge"],
+      "notes": "Prior evidence covered workflow/IDL/marketplace, but plugin, knowledge, memory, connector, frontend agent IDE, and deployment were undercovered."
+    },
+    {
+      "name": "CPA-Manager",
+      "path": "reference/CPA-Manager",
+      "language": "React/TypeScript/Vite frontend; Go usage-service with SQLite",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/CPA-Manager/usage-service/internal/store/store.go",
+        "reference/CPA-Manager/usage-service/internal/httpapi/server.go",
+        "reference/CPA-Manager/src/pages/MonitoringCenterPage.tsx",
+        "reference/CPA-Manager/src/services/api/usageService.ts"
+      ],
+      "capability_domains": ["Billing / Quota", "Admin", "Observability", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Relay / API Gateway", "Chat", "Knowledge / RAG", "Workflow", "Marketplace"],
+      "notes": "Prior source evidence exists mainly for usage ledger/pricing; older metadata said Go/Vue but current source is React/TS plus Go."
+    },
+    {
+      "name": "dify",
+      "path": "reference/dify",
+      "language": "Python Flask/Celery backend; Next.js/React frontend; SQLAlchemy/Alembic; SDKs",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/dify/api/services/file_service.py",
+        "reference/dify/api/services/workflow_run_service.py",
+        "reference/dify/api/core/plugin/plugin_service.py",
+        "reference/dify/api/services/billing_service.py",
+        "reference/dify/dify-agent/src/dify_agent/runtime/runner.py"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Billing / Quota", "Marketplace", "Observability", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Relay / API Gateway", "CLI / TUI / SDK / Remote Bridge"],
+      "notes": "Prior evidence is real but narrow; web UI, dify-agent, VDB providers, trace providers, SDKs, and e2e need rescans."
+    },
+    {
+      "name": "FastGPT",
+      "path": "reference/FastGPT",
+      "language": "TypeScript/Node.js pnpm monorepo; Next.js app; MCP server; sandbox; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/FastGPT/projects/app/src/pageComponents/app/detail/WorkflowComponents/Flow/nodes/NodeAgent/index.tsx",
+        "reference/FastGPT/packages/service/core/workflow/dispatch/index.ts",
+        "reference/FastGPT/packages/service/core/dataset/search/defaultRecall/index.ts",
+        "reference/FastGPT/projects/mcp_server/src/index.ts"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace", "Plugin / Hook / Skill System", "Sandbox / Tool Execution"],
+      "missing_domains": ["Relay / API Gateway", "Admin"],
+      "notes": "Prior concrete evidence is sparse; prior reference/FastGPT/mcp path appears stale."
+    },
+    {
+      "name": "Flowise",
+      "path": "reference/Flowise",
+      "language": "TypeScript/JavaScript monorepo; Express/TypeORM server; React/Vite/MUI UI; LangChain/LlamaIndex components",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Mentioned Only",
+      "evidence_paths": [
+        "reference/Flowise/packages/server/src/routes/index.ts",
+        "reference/Flowise/packages/server/src/services/executions/index.ts",
+        "reference/Flowise/packages/components/src/Interface.ts",
+        "reference/Flowise/packages/ui/src/views/canvas/index.jsx"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace", "Observability", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Relay / API Gateway", "Billing / Quota"],
+      "notes": "Prior reports referenced Flowise conceptually or by broad directory, but not with concrete source-file evidence."
+    },
+    {
+      "name": "gateway",
+      "path": "reference/gateway",
+      "language": "TypeScript/Node.js; Hono; Cloudflare Workers/Wrangler; Jest/Rollup",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/gateway/src/handlers/proxyHandler.ts",
+        "reference/gateway/src/handlers/chatCompletionsHandler.ts",
+        "reference/gateway/src/services/conditionalRouter.ts",
+        "reference/gateway/plugins/index.ts"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System", "Observability", "Deployment / Security"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Marketplace", "Billing / Quota"],
+      "notes": "Generic word gateway in prior reports is not evidence for this Portkey gateway project."
+    },
+    {
+      "name": "helicone",
+      "path": "reference/helicone",
+      "language": "TypeScript monorepo; Next.js; Cloudflare Workers; Express/Tsoa; ClickHouse; Supabase/Postgres",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/helicone/worker/src/routers/aiGatewayRouter.ts",
+        "reference/helicone/valhalla/jawn/src/controllers/public/requestController.ts",
+        "reference/helicone/valhalla/jawn/src/managers/MetricsManager.ts",
+        "reference/helicone/web/components/templates/requests/RequestsPage.tsx"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Observability", "Billing / Quota", "Admin", "Deployment / Security", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Agent"],
+      "notes": "Requested prior audit reports did not cite Helicone source paths; design docs only had worker/clickhouse directory-level side evidence."
+    },
+    {
+      "name": "LibreChat",
+      "path": "reference/LibreChat",
+      "language": "Node.js/Express backend; React/Vite frontend; MongoDB/Mongoose; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/LibreChat/api/server/routes/agents/tools.js",
+        "reference/LibreChat/api/server/controllers/agents/openai.js",
+        "reference/LibreChat/api/server/controllers/agents/client.js",
+        "reference/LibreChat/api/server/routes/mcp.js"
+      ],
+      "capability_domains": ["Chat", "Agent", "Knowledge / RAG", "Admin", "Billing / Quota", "Plugin / Hook / Skill System", "Multi-agent / Team Runtime"],
+      "missing_domains": ["Workflow", "Marketplace", "Relay / API Gateway"],
+      "notes": "Prior concrete evidence focused on agents/tools; MCP lifecycle, admin/auth, files/speech, balance, frontend, and deploy need rescans."
+    },
+    {
+      "name": "litellm",
+      "path": "reference/litellm",
+      "language": "Python SDK/FastAPI proxy; Next.js dashboard; Prisma/Postgres; Redis; OpenTelemetry; Helm/Terraform",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/litellm/litellm/budget_manager.py",
+        "reference/litellm/litellm/__init__.py",
+        "reference/litellm/litellm/proxy/proxy_server.py",
+        "reference/litellm/schema.prisma"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Observability", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Chat", "Knowledge / RAG", "Workflow"],
+      "notes": "Prior evidence covered budget/cost/API compatibility only; proxy map, auth/RBAC, MCP/A2A, dashboard, schema/migrations, and deployment need rescans."
+    },
+    {
+      "name": "llm-gateway",
+      "path": "reference/llm-gateway",
+      "language": "Python FastAPI/SQLAlchemy/httpx backend; Next.js 16 dashboard; standalone Python protocol converter",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/llm-gateway/backend/app/api/proxy/openai.py",
+        "reference/llm-gateway/backend/app/services/proxy_service.py",
+        "reference/llm-gateway/backend/app/services/strategy.py",
+        "reference/llm-gateway/llm_api_converter/api_protocol_converter/converters/openai_chat.py"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Marketplace"],
+      "notes": "Prior reports only listed the project; no concrete source-path evidence."
+    },
+    {
+      "name": "llmgateway",
+      "path": "reference/llmgateway",
+      "language": "TypeScript monorepo; Hono/OpenAPI gateway/API; Next.js UI; Drizzle/Postgres; Redis; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/llmgateway/apps/gateway/src/app.ts",
+        "reference/llmgateway/apps/gateway/src/chat/tools/retry-with-fallback.ts",
+        "reference/llmgateway/apps/api/src/routes/keys-api.ts",
+        "reference/llmgateway/packages/db/src/schema.ts"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Observability", "Deployment / Security", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "IDE / Local Code Editing Workflow"],
+      "notes": "Distinct from llm-gateway; prior reports did not cite source paths."
+    },
+    {
+      "name": "lobe-chat",
+      "path": "reference/lobe-chat",
+      "language": "TypeScript; Next.js App Router; React; Zustand; tRPC; Drizzle/Postgres; Dexie",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/lobe-chat/src/store/chat/slices/topic/action.ts",
+        "reference/lobe-chat/src/services/upload.ts",
+        "reference/lobe-chat/src/libs/traces/event.ts",
+        "reference/lobe-chat/src/app/(main)/market/page.tsx"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Marketplace", "Plugin / Hook / Skill System", "Observability", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Workflow", "Billing / Quota", "Admin"],
+      "notes": "Prior evidence is valid but misses auth, sync, DB schema, API routes, settings, TTS/STT, PWA/mobile/i18n, and correct plugin layout."
+    },
+    {
+      "name": "lobehub",
+      "path": "reference/lobehub",
+      "language": "TypeScript monorepo; Next.js/React; Vite SPA; Electron; Drizzle/Postgres packages",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/lobehub/src/app/(backend)/webapi/chat/[provider]/route.ts",
+        "reference/lobehub/src/server/modules/AgentRuntime/AgentRuntimeCoordinator.ts",
+        "reference/lobehub/packages/model-runtime/src/core/ModelRuntime.ts",
+        "reference/lobehub/apps/desktop/src/main/controllers/GatewayConnectionCtr.ts"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Marketplace", "Plugin / Hook / Skill System", "IDE / Local Code Editing Workflow"],
+      "missing_domains": ["Workflow", "Billing / Quota", "Admin"],
+      "notes": "Prior evidence mostly used lobe-chat alias/paths, not this separate reference/lobehub checkout."
+    },
+    {
+      "name": "MaxKB",
+      "path": "reference/MaxKB",
+      "language": "Python Django/DRF; PostgreSQL pgvector; LangChain/LangGraph; Celery; Vue 3/TypeScript/Vite UI",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Mentioned Only",
+      "evidence_paths": [
+        "reference/MaxKB/apps/knowledge/vector/pg_vector.py",
+        "reference/MaxKB/apps/knowledge/task/embedding.py",
+        "reference/MaxKB/apps/application/flow/workflow_manage.py",
+        "reference/MaxKB/ui/src/workflow/index.vue"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Workflow", "Admin", "Provider / Model / Auth Registry", "Sandbox / Tool Execution"],
+      "missing_domains": ["Relay / API Gateway", "Billing / Quota", "Marketplace"],
+      "notes": "Prior reports referenced broad/stale apps/dataset paths; current source uses apps/knowledge and apps/application/flow."
+    },
+    {
+      "name": "new-api",
+      "path": "reference/new-api",
+      "language": "Go Gin/GORM/Redis backend; React/TypeScript UI; Electron shell",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Covered",
+      "evidence_paths": [
+        "reference/new-api/model/channel.go",
+        "reference/new-api/service/channel_select.go",
+        "reference/new-api/service/pre_consume_quota.go",
+        "reference/new-api/relay/helper/stream_scanner.go",
+        "reference/new-api/service/billing_session.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Deployment / Security", "Provider / Model / Auth Registry"],
+      "missing_domains": ["Knowledge / RAG", "Agent", "Workflow", "Marketplace", "Sandbox / Tool Execution"],
+      "notes": "Prior audit had the strongest valid source-path coverage, mainly for gateway/channel/quota/billing. It is not a reference for every product domain."
+    },
+    {
+      "name": "NextChat",
+      "path": "reference/NextChat",
+      "language": "TypeScript; React; Next.js App Router; Zustand; PWA; Tauri/Rust wrapper",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/NextChat/app/store/chat.ts",
+        "reference/NextChat/app/utils/chat.ts",
+        "reference/NextChat/app/utils/model.ts",
+        "reference/NextChat/app/mcp/actions.ts"
+      ],
+      "capability_domains": ["Chat", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Billing / Quota", "Admin", "Observability"],
+      "notes": "Prior evidence covered chat/model/tool loop; MCP, sync, artifacts, realtime, PWA/Tauri need rescans."
+    },
+    {
+      "name": "one-api",
+      "path": "reference/one-api",
+      "language": "Go Gin/GORM/Redis backend; React 18 frontends",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/one-api/router/relay.go",
+        "reference/one-api/controller/relay.go",
+        "reference/one-api/model/channel.go",
+        "reference/one-api/relay/billing/billing.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry", "Deployment / Security"],
+      "missing_domains": ["Knowledge / RAG", "Agent", "Workflow", "Marketplace"],
+      "notes": "Distinct from new-api; prior reports only listed it without source-path evidence."
+    },
+    {
+      "name": "open-webui",
+      "path": "reference/open-webui",
+      "language": "Python FastAPI backend; SvelteKit/Svelte 5 TypeScript frontend; SQLAlchemy/Alembic/Peewee",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/open-webui/backend/open_webui/models/chats.py",
+        "reference/open-webui/backend/open_webui/routers/files.py",
+        "reference/open-webui/backend/open_webui/utils/tools.py",
+        "reference/open-webui/src/lib/components/chat/ModelSelector.svelte"
+      ],
+      "capability_domains": ["Chat", "Knowledge / RAG", "Agent", "Admin", "Provider / Model / Auth Registry", "Plugin / Hook / Skill System", "Sandbox / Tool Execution"],
+      "missing_domains": ["Billing / Quota", "Marketplace", "Workflow"],
+      "notes": "Prior evidence is real but stale backend/apps paths also appear; auth/admin/media/channels/automations/terminal/code interpreter need rescans."
+    },
+    {
+      "name": "openai-oauth",
+      "path": "reference/openai-oauth",
+      "language": "TypeScript/Node.js ESM monorepo; Bun/Turbo; Vercel AI SDK provider; Vitest",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Not Scanned",
+      "evidence_paths": [
+        "reference/openai-oauth/packages/openai-oauth-core/src/auth.ts",
+        "reference/openai-oauth/packages/openai-oauth/src/server.ts",
+        "reference/openai-oauth/packages/openai-oauth/src/chat-completions.ts",
+        "reference/openai-oauth/packages/openai-oauth-provider/src/provider.ts"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Provider / Model / Auth Registry", "CLI / TUI / SDK / Remote Bridge"],
+      "missing_domains": ["Admin", "Billing / Quota", "Observability", "Multi-agent / Team Runtime"],
+      "notes": "Prior reports combined it with codex-oauth conceptually but did not cite source paths."
+    },
+    {
+      "name": "ragflow",
+      "path": "reference/ragflow",
+      "language": "Python Quart/RAG workers; React/Vite frontend; Go Gin/GORM service/admin/CLI; Docker/Helm",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Mentioned Only",
+      "evidence_paths": [
+        "reference/ragflow/api/apps/restful_apis/dataset_api.py",
+        "reference/ragflow/rag/svr/task_executor.py",
+        "reference/ragflow/deepdoc/parser/pdf_parser.py",
+        "reference/ragflow/mcp/server/server.py"
+      ],
+      "capability_domains": ["Knowledge / RAG", "Agent", "Workflow", "Deployment / Security", "Plugin / Hook / Skill System"],
+      "missing_domains": ["Relay / API Gateway", "Billing / Quota", "Marketplace", "Observability"],
+      "notes": "Prior reports cited only broad RAG directories; API, DeepDoc, task executor, retrieval backends, UI, Go service, SDK, and deploy are undercovered."
+    },
+    {
+      "name": "sub2api",
+      "path": "reference/sub2api",
+      "language": "Go Gin/Ent/Redis backend; Vue 3/TypeScript frontend; Wire; Tailwind",
+      "source_exists": true,
+      "docs_only_or_stub_heavy": false,
+      "can_be_capability_reference": true,
+      "product_sketch_only": false,
+      "coverage_status": "Partially Covered",
+      "evidence_paths": [
+        "reference/sub2api/backend/internal/service/payment_order.go",
+        "reference/sub2api/backend/internal/service/subscription_service.go",
+        "reference/sub2api/backend/internal/handler/payment_webhook_handler.go",
+        "reference/sub2api/backend/internal/service/payment_refund.go"
+      ],
+      "capability_domains": ["Relay / API Gateway", "Billing / Quota", "Admin", "Provider / Model / Auth Registry", "Deployment / Security"],
+      "missing_domains": ["Knowledge / RAG", "Workflow", "Marketplace"],
+      "notes": "Prior source coverage is mainly payment/subscription/refund/reconciliation. Gateway/auth/account scheduler/API-key/rate-limit/frontend ops need rescans."
+    }
+  ],
+  "capability_domains": [
+    {
+      "name": "Relay / API Gateway",
+      "covered_projects": ["new-api"],
+      "partially_covered_projects": ["bifrost", "litellm", "sub2api"],
+      "missing_expected_projects": ["ai-gateway", "gateway", "one-api", "llm-gateway", "llmgateway", "CLIProxyAPI", "CliRelay", "helicone", "openai-oauth", "claude-code-api", "copilot-api"],
+      "evidence_paths": ["reference/new-api/service/channel_select.go", "reference/litellm/litellm/proxy/proxy_server.py", "reference/sub2api/backend/internal/service/gateway_service.go"],
+      "coverage_assessment": "Insufficient. Prior coverage leaned on new-api and LiteLLM; several gateway projects had no source-path evidence."
+    },
+    {
+      "name": "Chat",
+      "covered_projects": [],
+      "partially_covered_projects": ["lobe-chat", "NextChat", "open-webui", "LibreChat"],
+      "missing_expected_projects": ["anything-llm", "lobehub", "claude-code-api", "copilot-api", "MaxKB"],
+      "evidence_paths": ["reference/lobe-chat/src/store/chat/slices/topic/action.ts", "reference/NextChat/app/store/chat.ts", "reference/open-webui/backend/open_webui/models/chats.py"],
+      "coverage_assessment": "Partial. Core chat/session evidence exists for several projects, but auth, persistence, frontend route depth, and media flows were undercovered."
+    },
+    {
+      "name": "Knowledge / RAG",
+      "covered_projects": [],
+      "partially_covered_projects": ["dify", "open-webui", "FastGPT"],
+      "missing_expected_projects": ["ragflow", "MaxKB", "anything-llm", "coze-studio", "Flowise", "LibreChat"],
+      "evidence_paths": ["reference/dify/api/services/file_service.py", "reference/open-webui/backend/open_webui/routers/files.py", "reference/FastGPT/packages/service/core/dataset/search/defaultRecall/index.ts"],
+      "coverage_assessment": "Insufficient. The strongest RAG references, RAGFlow and MaxKB, lacked concrete prior source-file evidence."
+    },
+    {
+      "name": "Agent",
+      "covered_projects": [],
+      "partially_covered_projects": ["LibreChat", "dify", "coze-studio", "FastGPT", "open-webui"],
+      "missing_expected_projects": ["anything-llm", "Flowise", "lobehub", "ragflow", "MaxKB"],
+      "evidence_paths": ["reference/LibreChat/api/server/controllers/agents/openai.js", "reference/dify/api/core/workflow/nodes/agent_v2/agent_node.py", "reference/coze-studio/backend/application/conversation/agent_run.go"],
+      "coverage_assessment": "Partial. Prior coverage was concentrated on LibreChat and a few Dify/Coze paths; many agent runtimes were not source-scanned."
+    },
+    {
+      "name": "Workflow",
+      "covered_projects": [],
+      "partially_covered_projects": ["coze-studio", "dify", "FastGPT"],
+      "missing_expected_projects": ["Flowise", "MaxKB", "ragflow", "anything-llm"],
+      "evidence_paths": ["reference/coze-studio/backend/application/workflow/workflow.go", "reference/dify/api/services/workflow_run_service.py", "reference/FastGPT/packages/service/core/workflow/dispatch/index.ts"],
+      "coverage_assessment": "Insufficient. Flowise, MaxKB, and RAGFlow are important workflow/RAG workflow references but lacked file-level prior evidence."
+    },
+    {
+      "name": "Billing / Quota",
+      "covered_projects": ["new-api"],
+      "partially_covered_projects": ["sub2api", "CPA-Manager", "litellm", "dify"],
+      "missing_expected_projects": ["one-api", "llmgateway", "helicone", "ai-gateway", "llm-gateway"],
+      "evidence_paths": ["reference/new-api/service/billing_session.go", "reference/sub2api/backend/internal/service/payment_order.go", "reference/CPA-Manager/usage-service/internal/store/store.go"],
+      "coverage_assessment": "Partial. Payment/subscription and usage ledger were covered in slices, but quota/rate-limit/account-pool projects need rescans."
+    },
+    {
+      "name": "Marketplace",
+      "covered_projects": [],
+      "partially_covered_projects": ["coze-studio", "dify", "lobe-chat"],
+      "missing_expected_projects": ["Flowise", "FastGPT", "lobehub", "LibreChat"],
+      "evidence_paths": ["reference/coze-studio/idl/marketplace/product_common.thrift", "reference/dify/api/core/plugin/plugin_service.py", "reference/lobe-chat/src/app/(main)/market/page.tsx"],
+      "coverage_assessment": "Partial. Marketplace/review/install paths exist, but frontend marketplace, plugin lifecycle, ranking, and commerce coverage were incomplete."
+    },
+    {
+      "name": "Admin",
+      "covered_projects": [],
+      "partially_covered_projects": ["new-api", "open-webui", "CPA-Manager", "coze-studio", "sub2api"],
+      "missing_expected_projects": ["llmgateway", "one-api", "Cli-Proxy-API-Management-Center", "llm-gateway", "LibreChat"],
+      "evidence_paths": ["reference/new-api/web/default/src/features/wallet/index.tsx", "reference/open-webui/src/lib/components/admin/Settings.svelte", "reference/sub2api/frontend/src/views/admin/ops/OpsDashboard.vue"],
+      "coverage_assessment": "Insufficient. Many admin consoles were found only in v2 and were absent from prior source-path evidence."
+    },
+    {
+      "name": "Observability",
+      "covered_projects": [],
+      "partially_covered_projects": ["litellm", "CPA-Manager"],
+      "missing_expected_projects": ["helicone", "bifrost", "gateway", "llmgateway", "open-webui"],
+      "evidence_paths": ["reference/CPA-Manager/usage-service/internal/store/store.go", "reference/helicone/valhalla/jawn/src/managers/MetricsManager.ts", "reference/bifrost/plugins/otel/main.go"],
+      "coverage_assessment": "Insufficient. Helicone, the most direct observability reference, had no requested prior audit source coverage."
+    },
+    {
+      "name": "Deployment / Security",
+      "covered_projects": [],
+      "partially_covered_projects": ["new-api", "litellm", "sub2api"],
+      "missing_expected_projects": ["ai-gateway", "helicone", "llmgateway", "ragflow", "bifrost", "open-webui"],
+      "evidence_paths": ["reference/ai-gateway/manifests/charts/ai-gateway-helm/Chart.yaml", "reference/litellm/deploy", "reference/sub2api/backend/internal/server/routes/auth.go"],
+      "coverage_assessment": "Insufficient. Prior reports mentioned deployment/security conceptually but did not scan most deploy/auth surfaces."
+    },
+    {
+      "name": "Provider / Model / Auth Registry",
+      "covered_projects": ["new-api"],
+      "partially_covered_projects": ["litellm", "lobe-chat", "NextChat", "open-webui"],
+      "missing_expected_projects": ["one-api", "llmgateway", "CLIProxyAPI", "CliRelay", "codex-oauth", "openai-oauth", "copilot-api", "claude-code-api"],
+      "evidence_paths": ["reference/new-api/model/channel.go", "reference/litellm/litellm/llms/openai/chat/gpt_transformation.py", "reference/openai-oauth/packages/openai-oauth-core/src/auth.ts"],
+      "coverage_assessment": "Partial. Model/provider selection was covered in product UIs and new-api, but OAuth/account-pool projects were not source-scanned."
+    },
+    {
+      "name": "Plugin / Hook / Skill System",
+      "covered_projects": [],
+      "partially_covered_projects": ["dify", "open-webui", "lobe-chat", "LibreChat"],
+      "missing_expected_projects": ["Flowise", "coze-studio", "anything-llm", "FastGPT", "bifrost", "gateway", "lobehub"],
+      "evidence_paths": ["reference/dify/api/core/plugin/plugin_service.py", "reference/open-webui/backend/open_webui/utils/tools.py", "reference/LibreChat/api/server/routes/mcp.js"],
+      "coverage_assessment": "Partial. Tool/plugin evidence exists, but hook systems and MCP/skill surfaces need broader file-level scans."
+    },
+    {
+      "name": "Session / Runtime / Event Model",
+      "covered_projects": [],
+      "partially_covered_projects": ["lobe-chat", "NextChat", "LibreChat", "dify"],
+      "missing_expected_projects": ["CLIProxyAPI", "CliRelay", "coze-studio", "lobehub", "ragflow"],
+      "evidence_paths": ["reference/lobe-chat/src/store/chat/slices/topic/action.ts", "reference/LibreChat/api/server/controllers/agents/client.js", "reference/CLIProxyAPI/internal/runtime/executor/codex_executor.go"],
+      "coverage_assessment": "Partial. Chat runtime and agent traces were sampled, but CLI/runtime and durable event models were missed."
+    },
+    {
+      "name": "Sandbox / Tool Execution",
+      "covered_projects": [],
+      "partially_covered_projects": ["open-webui", "FastGPT"],
+      "missing_expected_projects": ["MaxKB", "Flowise", "gateway", "LibreChat"],
+      "evidence_paths": ["reference/open-webui/backend/open_webui/utils/code_interpreter.py", "reference/FastGPT/projects/code-sandbox/src/index.ts", "reference/MaxKB/apps/application/flow/backend/sandbox_shell.py"],
+      "coverage_assessment": "Insufficient. Prior reports mentioned code/tool execution but did not cover sandbox implementations broadly."
+    },
+    {
+      "name": "Multi-agent / Team Runtime",
+      "covered_projects": [],
+      "partially_covered_projects": ["LibreChat", "dify"],
+      "missing_expected_projects": ["Flowise", "coze-studio", "lobehub", "ragflow", "anything-llm"],
+      "evidence_paths": ["reference/LibreChat/api/server/controllers/agents/client.js", "reference/dify/dify-agent/src/dify_agent/runtime/runner.py", "reference/lobehub/src/server/modules/AgentRuntime/AgentRuntimeCoordinator.ts"],
+      "coverage_assessment": "Insufficient. Multi-agent/team runtime was not a first-class prior coverage axis."
+    },
+    {
+      "name": "IDE / Local Code Editing Workflow",
+      "covered_projects": [],
+      "partially_covered_projects": [],
+      "missing_expected_projects": ["lobehub", "claude-code-api", "CLIProxyAPI", "CliRelay", "openai-oauth", "codex-oauth"],
+      "evidence_paths": ["reference/lobehub/apps/desktop/src/main/controllers/GatewayConnectionCtr.ts", "reference/claude-code-api/src/services/claude.ts", "reference/openai-oauth/packages/openai-oauth/src/cli-app.ts"],
+      "coverage_assessment": "Not covered. Prior reports did not establish IDE/local editing runtime coverage."
+    },
+    {
+      "name": "CLI / TUI / SDK / Remote Bridge",
+      "covered_projects": [],
+      "partially_covered_projects": ["NextChat"],
+      "missing_expected_projects": ["CLIProxyAPI", "CliRelay", "codex-oauth", "openai-oauth", "copilot-api", "ragflow", "litellm"],
+      "evidence_paths": ["reference/CliRelay/internal/tui/app.go", "reference/CLIProxyAPI/sdk/translator/registry.go", "reference/NextChat/src-tauri/tauri.conf.json"],
+      "coverage_assessment": "Insufficient. CLI/TUI/SDK bridge projects were mostly absent from prior source-path evidence."
+    }
+  ],
+  "unscanned_projects": [
+    "ai-gateway",
+    "claude-code-api",
+    "Cli-Proxy-API-Management-Center",
+    "CLIProxyAPI",
+    "CliRelay",
+    "codex-oauth",
+    "copilot-api",
+    "gateway",
+    "helicone",
+    "llm-gateway",
+    "llmgateway",
+    "lobehub",
+    "one-api",
+    "openai-oauth"
+  ],
+  "mentioned_only_projects": [
+    "anything-llm",
+    "Flowise",
+    "MaxKB",
+    "ragflow"
+  ],
+  "covered_projects": ["new-api"],
+  "partially_covered_projects": [
+    "bifrost",
+    "coze-studio",
+    "CPA-Manager",
+    "dify",
+    "FastGPT",
+    "LibreChat",
+    "litellm",
+    "lobe-chat",
+    "NextChat",
+    "open-webui",
+    "sub2api"
+  ],
+  "not_useful_or_stub_heavy_projects": [],
+  "top_rescan_targets": [
+    "reference/gateway/src",
+    "reference/ai-gateway/api + internal",
+    "reference/llmgateway/apps/gateway + apps/api + packages/db",
+    "reference/one-api/router + relay + model",
+    "reference/llm-gateway/backend/app + llm_api_converter",
+    "reference/CLIProxyAPI/internal + sdk",
+    "reference/CliRelay/internal + sdk",
+    "reference/helicone/worker + valhalla/jawn + web",
+    "reference/ragflow/api + deepdoc + rag/svr + agent + mcp",
+    "reference/MaxKB/apps/knowledge + apps/application/flow",
+    "reference/Flowise/packages/server + packages/components + packages/ui",
+    "reference/anything-llm/server + collector + frontend",
+    "reference/coze-studio/backend/application + backend/domain + frontend/packages",
+    "reference/dify/api/core/workflow + api/core/plugin + dify-agent + web",
+    "reference/sub2api/backend/internal/service + frontend/src",
+    "reference/open-webui/backend/open_webui + src/lib/components/admin",
+    "reference/LibreChat/api/server + client/src",
+    "reference/lobehub/src + packages + apps/desktop",
+    "reference/openai-oauth/packages",
+    "reference/copilot-api/src"
+  ]
+}
