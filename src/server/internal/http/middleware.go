@@ -139,7 +139,9 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 			event.RelayAPIType = featureType
 		}
 		currentObservabilityLogger().Log(ctx, event)
-		_ = observability.WriteRequestLog(ctx, currentRequestLogSink(), event, startedAt.UTC())
+		if err := observability.WriteRequestLog(ctx, currentRequestLogSink(), event, startedAt.UTC()); err != nil {
+			routeRequestLogSinkAlert(ctx, r.Method, route, startedAt.UTC(), requestID, err)
+		}
 		routeHTTPAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
 	})
 }

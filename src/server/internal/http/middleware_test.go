@@ -395,6 +395,76 @@ func TestWithLoggingRoutesHTTP5xxToAlertDeliveryAndRecovery(t *testing.T) {
 	}
 }
 
+func TestWithLoggingRoutesRequestLogSinkFailureToAlertAndRecovery(t *testing.T) {
+	sink := &captureMiddlewareRequestLogSink{err: errors.New("clickhouse unavailable")}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	store := observability.NewInMemoryAlertStateStore()
+	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityCritical: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{inApp},
+		HistoryStore: store,
+	})
+	router := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: store,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:         "record-request-log-sink-failure",
+				Severity:     observability.AlertSeverityCritical,
+				Component:    observability.ComponentObservability,
+				FieldMatches: map[string]string{"failure_kind": "request_log_sink"},
+				ActionType:   observability.RecoveryActionFailover,
+			},
+		},
+	})
+	restoreAlertRouter := setHTTPAlertRouterForTest(router)
+	defer restoreAlertRouter()
+	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusNoContent)
+	})))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodGet, "/v1/chat/completions", nil))
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected request log sink error not to break response, got %d", recorder.Code)
+	}
+	const alertKey = "observability:request-log-sink"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get request log sink alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityCritical || state.Component != observability.ComponentObservability {
+		t.Fatalf("expected open critical request log alert state, found=%v state=%+v", found, state)
+	}
+	if len(inApp.events) != 1 {
+		t.Fatalf("expected one request log sink alert delivery, got %+v", inApp.events)
+	}
+	if inApp.events[0].Fields["failure_kind"] != "request_log_sink" || inApp.events[0].Fields["source"] != "http.request_log" {
+		t.Fatalf("expected request log sink alert fields, got %+v", inApp.events[0].Fields)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list request log sink recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-request-log-sink-failure" || actions[0].Status != observability.RecoveryActionRecorded {
+		t.Fatalf("expected recorded request log sink recovery action, got %+v", actions)
+	}
+}
+
 func TestWithRecoverRoutesPanicToCriticalAlertAndRecovery(t *testing.T) {
 	store := observability.NewInMemoryAlertStateStore()
 	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
