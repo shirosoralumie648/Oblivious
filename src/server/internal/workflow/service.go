@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/metrics"
+	workflowexecutor "oblivious/server/internal/workflow/executor"
 )
 
 var (
@@ -65,6 +66,10 @@ type SemanticTriggerMatcher interface {
 
 type WorkflowFailurePauseNotificationSink interface {
 	NotifyWorkflowFailurePaused(ctx context.Context, event WorkflowFailurePauseNotification) error
+}
+
+type scheduleRunExecutionFinder interface {
+	FindExecutionByScheduleRunID(ctx context.Context, organizationID, workflowID, scheduledTaskRunID string) (*WorkflowExecution, error)
 }
 
 type agentApprovalNodeExecutor interface {
@@ -671,6 +676,17 @@ func (s *Service) StartExecution(ctx context.Context, req StartExecutionRequest)
 	if err != nil {
 		return nil, err
 	}
+	if scheduledTaskRunID := scheduledTaskRunIDFromTriggerPayload(triggerType, req.TriggerPayload); scheduledTaskRunID != "" {
+		if finder, ok := s.store.(scheduleRunExecutionFinder); ok {
+			existing, err := finder.FindExecutionByScheduleRunID(ctx, req.OrganizationID, req.WorkflowID, scheduledTaskRunID)
+			if err != nil {
+				return nil, err
+			}
+			if existing != nil {
+				return existing, nil
+			}
+		}
+	}
 	runtimeWorkflow, err := s.latestPublishedWorkflowVersion(ctx, workflow)
 	if err != nil {
 		return nil, err
@@ -959,6 +975,21 @@ func executionContextWithTrigger(contextValue map[string]any, triggerType Workfl
 	return next
 }
 
+func scheduledTaskRunIDFromTriggerPayload(triggerType WorkflowTriggerType, triggerPayload map[string]any) string {
+	if triggerType != WorkflowTriggerSchedule {
+		return ""
+	}
+	raw, ok := triggerPayload["scheduledTaskRunId"]
+	if !ok {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
 func (s *Service) ListExecutions(ctx context.Context, organizationID, workflowID string) ([]*WorkflowExecution, error) {
 	if strings.TrimSpace(organizationID) == "" {
 		return nil, fmt.Errorf("%w: organization ID is required", ErrInvalidInput)
@@ -1022,7 +1053,7 @@ func (s *Service) PromoteQueuedExecutions(ctx context.Context, organizationID st
 		if !canPromote {
 			continue
 		}
-		updated, err := s.store.UpdateExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusRunning, nil)
+		updated, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventStart, nil)
 		if err != nil {
 			return promoted, err
 		}
@@ -1038,8 +1069,43 @@ func (s *Service) GetExecution(ctx context.Context, organizationID, executionID 
 	return s.getExecutionForTransition(ctx, organizationID, executionID)
 }
 
+func (s *Service) BuildExecutionStateReplay(ctx context.Context, organizationID, executionID string) (*WorkflowStateReplay, error) {
+	execution, err := s.GetExecution(ctx, organizationID, executionID)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.store.ListExecutionEvents(ctx, organizationID, executionID)
+	if err != nil {
+		return nil, err
+	}
+	replay := buildWorkflowStateReplay(events, execution.Status)
+	return &replay, nil
+}
+
+func (s *Service) PruneExecutionDebugData(ctx context.Context, organizationID string, before time.Time) (*ExecutionDebugRetentionPruneResult, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("%w: organization ID is required", ErrInvalidInput)
+	}
+	if before.IsZero() {
+		return nil, fmt.Errorf("%w: prune cutoff is required", ErrInvalidInput)
+	}
+	retentionStore, ok := s.store.(executionDebugRetentionStore)
+	if !ok {
+		return nil, fmt.Errorf("%w: workflow debug retention store is not configured", ErrInvalidInput)
+	}
+	result, err := retentionStore.PruneExecutionDebugData(ctx, organizationID, before)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationID, executionID string) (*ExecutionDebugSnapshot, error) {
 	execution, err := s.GetExecution(ctx, organizationID, executionID)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.store.ListExecutionEvents(ctx, organizationID, executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1051,6 +1117,10 @@ func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationI
 	bottleneckDuration := 0
 
 	for _, node := range execution.NodeExecutions {
+		traceCreatedAt := node.StartedAt
+		if traceCreatedAt.IsZero() {
+			traceCreatedAt = execution.StartedAt
+		}
 		trace = append(trace, ExecutionDebugTraceEntry{
 			NodeID:      node.NodeID,
 			NodeType:    node.NodeType,
@@ -1063,6 +1133,7 @@ func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationI
 			StartedAt:   node.StartedAt,
 			CompletedAt: node.CompletedAt,
 			DurationMS:  node.DurationMS,
+			CreatedAt:   traceCreatedAt,
 		})
 		if isSuccessfulNodeStatus(node.Status) {
 			outputs[node.NodeID] = mergeWorkflowMaps(node.Output, nil)
@@ -1076,6 +1147,36 @@ func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationI
 		}
 	}
 
+	if traceStore, ok := s.store.(executionDebugTraceStore); ok {
+		durableTrace, err := traceStore.ListExecutionDebugTraceEntries(ctx, organizationID, executionID)
+		if err != nil {
+			return nil, err
+		}
+		if len(durableTrace) > 0 {
+			trace = durableTrace
+			outputs = workflowDebugOutputsFromTrace(trace)
+			nodeDurations, bottleneckNodeID, bottleneckDuration = workflowDebugPerformanceFromTrace(trace)
+			logs = buildExecutionDebugLogsFromTrace(trace)
+		}
+	}
+	variableSnapshot := ExecutionVariableSnapshot{
+		Input:       mergeWorkflowMaps(execution.Input, nil),
+		Context:     mergeWorkflowMaps(execution.Context, nil),
+		NodeOutputs: outputs,
+	}
+	if snapshotStore, ok := s.store.(executionVariableSnapshotStore); ok {
+		durableSnapshot, err := snapshotStore.LatestExecutionVariableSnapshot(ctx, organizationID, executionID)
+		if err != nil {
+			return nil, err
+		}
+		if durableSnapshot != nil {
+			variableSnapshot = *durableSnapshot
+			if len(durableSnapshot.NodeOutputs) > 0 {
+				outputs = mergeWorkflowNodeOutputMaps(durableSnapshot.NodeOutputs)
+			}
+		}
+	}
+
 	totalDuration := execution.DurationMS
 	if totalDuration <= 0 && execution.CompletedAt != nil && !execution.StartedAt.IsZero() {
 		totalDuration = int(execution.CompletedAt.Sub(execution.StartedAt).Milliseconds())
@@ -1085,16 +1186,14 @@ func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationI
 	}
 
 	return &ExecutionDebugSnapshot{
-		ExecutionID: execution.ID,
-		WorkflowID:  execution.WorkflowID,
-		Status:      execution.Status,
-		VariableSnapshot: ExecutionVariableSnapshot{
-			Input:       mergeWorkflowMaps(execution.Input, nil),
-			Context:     mergeWorkflowMaps(execution.Context, nil),
-			NodeOutputs: outputs,
-		},
-		Trace:   trace,
-		Outputs: outputs,
+		ExecutionID:      execution.ID,
+		WorkflowID:       execution.WorkflowID,
+		Status:           execution.Status,
+		VariableSnapshot: variableSnapshot,
+		Events:           events,
+		StateReplay:      buildWorkflowStateReplay(events, execution.Status),
+		Trace:            trace,
+		Outputs:          outputs,
 		Performance: ExecutionDebugPerformance{
 			TotalDurationMS:  totalDuration,
 			NodeDurationsMS:  nodeDurations,
@@ -1102,6 +1201,95 @@ func (s *Service) BuildExecutionDebugSnapshot(ctx context.Context, organizationI
 		},
 		Logs: logs,
 	}, nil
+}
+
+func buildWorkflowStateReplay(events []WorkflowExecutionEvent, currentStatus ExecutionStatus) WorkflowStateReplay {
+	replay := WorkflowStateReplay{
+		FinalStatus: currentStatus,
+		Valid:       true,
+		Transitions: []WorkflowStateReplayTransition{},
+	}
+	if len(events) == 0 {
+		replay.InitialStatus = currentStatus
+		return replay
+	}
+
+	for _, event := range events {
+		if event.EventType != "created" {
+			continue
+		}
+		replay.InitialStatus = event.ToStatus
+		replay.FinalStatus = event.ToStatus
+		break
+	}
+	if replay.InitialStatus == "" {
+		replay.InitialStatus = events[0].FromStatus
+		if replay.InitialStatus == "" {
+			replay.InitialStatus = events[0].ToStatus
+		}
+		replay.FinalStatus = replay.InitialStatus
+	}
+
+	expectedFrom := replay.InitialStatus
+	for _, event := range events {
+		if event.EventType != "status_changed" {
+			continue
+		}
+		stateEvent := workflowStateReplayEventForStatuses(event.FromStatus, event.ToStatus)
+		transition := WorkflowStateReplayTransition{
+			Event:      stateEvent,
+			FromStatus: event.FromStatus,
+			ToStatus:   event.ToStatus,
+			CreatedAt:  event.CreatedAt,
+			EventID:    event.ID,
+		}
+		replay.Transitions = append(replay.Transitions, transition)
+		if stateEvent == "" {
+			replay.Valid = false
+			if replay.InvalidReason == "" {
+				replay.InvalidReason = fmt.Sprintf("event %s has unsupported transition from %s to %s", event.ID, event.FromStatus, event.ToStatus)
+			}
+		}
+		if event.FromStatus != expectedFrom {
+			replay.Valid = false
+			replay.InvalidReason = fmt.Sprintf("event %s starts from %s after replay reached %s", event.ID, event.FromStatus, expectedFrom)
+		}
+		expectedFrom = event.ToStatus
+		replay.FinalStatus = event.ToStatus
+	}
+	if replay.FinalStatus != currentStatus {
+		replay.Valid = false
+		if replay.InvalidReason == "" {
+			replay.InvalidReason = fmt.Sprintf("event replay ended at %s but execution status is %s", replay.FinalStatus, currentStatus)
+		}
+	}
+	return replay
+}
+
+func workflowStateReplayEventForStatuses(from, to ExecutionStatus) WorkflowStateMachineEvent {
+	switch {
+	case to == ExecutionStatusRunning && (from == ExecutionStatusQueued || from == ExecutionStatusPaused || from == ExecutionStatusPartialSuccess):
+		if from == ExecutionStatusPaused {
+			return StateEventResume
+		}
+		return StateEventStart
+	case to == ExecutionStatusPaused:
+		return StateEventPause
+	case to == ExecutionStatusSucceeded || to == ExecutionStatusCompleted:
+		return StateEventComplete
+	case to == ExecutionStatusPartialSuccess:
+		return StateEventPartialSuccess
+	case to == ExecutionStatusFailed:
+		return StateEventFail
+	case to == ExecutionStatusTimedOut:
+		return StateEventTimeout
+	case to == ExecutionStatusMaxIterations:
+		return StateEventMaxIterations
+	case to == ExecutionStatusCancelled:
+		return StateEventCancel
+	default:
+		return WorkflowStateMachineEvent("")
+	}
 }
 
 func buildExecutionDebugLogs(nodeExecutions []WorkflowNodeExecution) []ExecutionDebugLogEntry {
@@ -1112,6 +1300,54 @@ func buildExecutionDebugLogs(nodeExecutions []WorkflowNodeExecution) []Execution
 			Message:   debugLogMessage(node),
 			Timestamp: debugLogTimestamp(node),
 			NodeID:    node.NodeID,
+		})
+	}
+	return logs
+}
+
+func workflowDebugOutputsFromTrace(trace []ExecutionDebugTraceEntry) map[string]map[string]any {
+	outputs := map[string]map[string]any{}
+	for _, entry := range trace {
+		if isSuccessfulNodeStatus(entry.Status) && len(entry.Output) > 0 {
+			outputs[entry.NodeID] = mergeWorkflowMaps(entry.Output, nil)
+		}
+	}
+	return outputs
+}
+
+func workflowDebugPerformanceFromTrace(trace []ExecutionDebugTraceEntry) (map[string]int, string, int) {
+	nodeDurations := map[string]int{}
+	bottleneckNodeID := ""
+	bottleneckDuration := 0
+	for _, entry := range trace {
+		if entry.DurationMS <= 0 {
+			continue
+		}
+		nodeDurations[entry.NodeID] += entry.DurationMS
+		if entry.DurationMS > bottleneckDuration {
+			bottleneckDuration = entry.DurationMS
+			bottleneckNodeID = entry.NodeID
+		}
+	}
+	return nodeDurations, bottleneckNodeID, bottleneckDuration
+}
+
+func mergeWorkflowNodeOutputMaps(input map[string]map[string]any) map[string]map[string]any {
+	outputs := map[string]map[string]any{}
+	for nodeID, output := range input {
+		outputs[nodeID] = mergeWorkflowMaps(output, nil)
+	}
+	return outputs
+}
+
+func buildExecutionDebugLogsFromTrace(trace []ExecutionDebugTraceEntry) []ExecutionDebugLogEntry {
+	logs := make([]ExecutionDebugLogEntry, 0, len(trace))
+	for _, entry := range trace {
+		logs = append(logs, ExecutionDebugLogEntry{
+			Level:     debugLogLevelForNodeStatus(entry.Status),
+			Message:   debugLogMessageFromTrace(entry),
+			Timestamp: debugLogTimestampFromTrace(entry),
+			NodeID:    entry.NodeID,
 		})
 	}
 	return logs
@@ -1138,6 +1374,13 @@ func debugLogTimestamp(node WorkflowNodeExecution) time.Time {
 	return node.CreatedAt
 }
 
+func debugLogTimestampFromTrace(entry ExecutionDebugTraceEntry) time.Time {
+	if entry.CompletedAt != nil {
+		return *entry.CompletedAt
+	}
+	return entry.StartedAt
+}
+
 func debugLogMessage(node WorkflowNodeExecution) string {
 	nodeID := strings.TrimSpace(node.NodeID)
 	if nodeID == "" {
@@ -1149,6 +1392,23 @@ func debugLogMessage(node WorkflowNodeExecution) string {
 	}
 	if node.Status == NodeStatusFailed {
 		if failureMessage := debugNodeErrorMessage(node.Error); failureMessage != "" {
+			message = fmt.Sprintf("%s: %s", message, failureMessage)
+		}
+	}
+	return message
+}
+
+func debugLogMessageFromTrace(entry ExecutionDebugTraceEntry) string {
+	nodeID := strings.TrimSpace(entry.NodeID)
+	if nodeID == "" {
+		nodeID = "node"
+	}
+	message := fmt.Sprintf("Node %s %s", nodeID, entry.Status)
+	if entry.DurationMS > 0 {
+		message = fmt.Sprintf("%s in %dms", message, entry.DurationMS)
+	}
+	if entry.Status == NodeStatusFailed {
+		if failureMessage := debugNodeErrorMessage(entry.Error); failureMessage != "" {
 			message = fmt.Sprintf("%s: %s", message, failureMessage)
 		}
 	}
@@ -1192,7 +1452,12 @@ func (s *Service) RunExecutionUntilBlocked(ctx context.Context, organizationID, 
 			}
 			if latestWorkflowNodesComplete(execution.NodeExecutions) {
 				now := time.Now().UTC()
-				updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, completedWorkflowExecutionStatus(execution.NodeExecutions), &now)
+				completedStatus := completedWorkflowExecutionStatus(execution.NodeExecutions)
+				completionEvent := StateEventComplete
+				if completedStatus == ExecutionStatusPartialSuccess {
+					completionEvent = StateEventPartialSuccess
+				}
+				updated, updateErr := s.transitionExecutionStatus(ctx, organizationID, executionID, completionEvent, &now)
 				if updateErr != nil {
 					return nil, updateErr
 				}
@@ -1206,7 +1471,7 @@ func (s *Service) RunExecutionUntilBlocked(ctx context.Context, organizationID, 
 		}
 		if executedNodes >= maxNodeExecutions {
 			now := time.Now().UTC()
-			updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusMaxIterations, &now)
+			updated, updateErr := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventMaxIterations, &now)
 			if updateErr != nil {
 				return nil, updateErr
 			}
@@ -1264,7 +1529,7 @@ func (s *Service) CheckResourceLimits(ctx context.Context, organizationID, execu
 	}
 
 	if policy.MaxExecutionDuration > 0 && !execution.StartedAt.IsZero() && now.Sub(execution.StartedAt) > policy.MaxExecutionDuration {
-		updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusTimedOut, &now)
+		updated, updateErr := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventTimeout, &now)
 		if updateErr != nil {
 			return nil, updateErr
 		}
@@ -1291,14 +1556,14 @@ func (s *Service) CheckResourceLimits(ctx context.Context, organizationID, execu
 		if nodeErr != nil {
 			return nil, nodeErr
 		}
-		updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusPaused, nil)
+		updated, updateErr := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventPause, nil)
 		if updateErr != nil {
 			return nil, updateErr
 		}
 		return updated, fmt.Errorf("%w: execution exceeded token budget", ErrWorkflowResourceLimit)
 	}
 	if policy.MaxNodeExecutions > 0 && usage.NodeExecutionCount > policy.MaxNodeExecutions {
-		updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusMaxIterations, &now)
+		updated, updateErr := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventMaxIterations, &now)
 		if updateErr != nil {
 			return nil, updateErr
 		}
@@ -1308,14 +1573,7 @@ func (s *Service) CheckResourceLimits(ctx context.Context, organizationID, execu
 }
 
 func (s *Service) PauseExecution(ctx context.Context, organizationID, executionID string) (*WorkflowExecution, error) {
-	execution, err := s.getExecutionForTransition(ctx, organizationID, executionID)
-	if err != nil {
-		return nil, err
-	}
-	if execution.Status != ExecutionStatusRunning {
-		return nil, fmt.Errorf("%w: pause requires running execution, got %s", ErrInvalidTransition, execution.Status)
-	}
-	return s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusPaused, nil)
+	return s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventPause, nil)
 }
 
 func (s *Service) ResumeExecution(ctx context.Context, organizationID, executionID string, requests ...ResumeExecutionRequest) (*WorkflowExecution, error) {
@@ -1334,7 +1592,7 @@ func (s *Service) ResumeExecution(ctx context.Context, organizationID, execution
 			}
 		}
 	}
-	updated, err := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusRunning, nil)
+	updated, err := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventResume, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1495,7 +1753,7 @@ func (s *Service) ResolvePausedFailure(ctx context.Context, organizationID, exec
 		}); err != nil {
 			return nil, err
 		}
-		if _, err := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusRunning, nil); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventResume, nil); err != nil {
 			return nil, err
 		}
 	case FailureActionContinue:
@@ -1510,7 +1768,7 @@ func (s *Service) ResolvePausedFailure(ctx context.Context, organizationID, exec
 		}); err != nil {
 			return nil, err
 		}
-		if _, err := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusRunning, nil); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventResume, nil); err != nil {
 			return nil, err
 		}
 		if err := s.seedReadyDownstreamNodes(ctx, organizationID, executionID, failedNode.NodeID); err != nil {
@@ -1518,7 +1776,7 @@ func (s *Service) ResolvePausedFailure(ctx context.Context, organizationID, exec
 		}
 	case FailureActionFail:
 		now := time.Now().UTC()
-		if _, err := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusFailed, &now); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventFail, &now); err != nil {
 			return nil, err
 		}
 	case FailureActionBranch:
@@ -1529,7 +1787,7 @@ func (s *Service) ResolvePausedFailure(ctx context.Context, organizationID, exec
 		if err := s.seedFailureBranchNode(ctx, organizationID, execution, nextNodeID, failedNode.NodeID, failureMessage(failedNode.Error)); err != nil {
 			return nil, err
 		}
-		if _, err := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusRunning, nil); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventResume, nil); err != nil {
 			return nil, err
 		}
 	default:
@@ -1540,15 +1798,8 @@ func (s *Service) ResolvePausedFailure(ctx context.Context, organizationID, exec
 }
 
 func (s *Service) CancelExecution(ctx context.Context, organizationID, executionID string) (*WorkflowExecution, error) {
-	execution, err := s.getExecutionForTransition(ctx, organizationID, executionID)
-	if err != nil {
-		return nil, err
-	}
-	if isTerminalExecutionStatus(execution.Status) {
-		return nil, fmt.Errorf("%w: cancel cannot be applied to terminal execution %s", ErrInvalidTransition, execution.Status)
-	}
 	now := time.Now().UTC()
-	return s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusCancelled, &now)
+	return s.transitionExecutionStatus(ctx, organizationID, executionID, StateEventCancel, &now)
 }
 
 func (s *Service) RecordNodeStatus(ctx context.Context, organizationID, executionID string, req RecordNodeStatusRequest) (*WorkflowNodeExecution, error) {
@@ -1561,6 +1812,9 @@ func (s *Service) RecordNodeStatus(ctx context.Context, organizationID, executio
 	execution, err := s.getExecutionForTransition(ctx, organizationID, executionID)
 	if err != nil {
 		return nil, err
+	}
+	if isTerminalExecutionStatus(execution.Status) && !isRunnableExecutionStatus(execution.Status) {
+		return nil, fmt.Errorf("%w: cannot record node status for terminal execution %s", ErrInvalidTransition, execution.Status)
 	}
 	if req.Status == NodeStatusFailed {
 		return s.recordFailedNodeStatus(ctx, organizationID, execution, req)
@@ -1620,7 +1874,7 @@ func (s *Service) recordFailedNodeStatus(ctx context.Context, organizationID str
 			if err != nil {
 				return nil, err
 			}
-			if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusFailed, &now); err != nil {
+			if _, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventFail, &now); err != nil {
 				return nil, err
 			}
 			return node, nil
@@ -1633,7 +1887,7 @@ func (s *Service) recordFailedNodeStatus(ctx context.Context, organizationID str
 			return nil, err
 		}
 		if execution.Status != ExecutionStatusRunning {
-			if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusRunning, nil); err != nil {
+			if _, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventStart, nil); err != nil {
 				return nil, err
 			}
 		}
@@ -1643,7 +1897,7 @@ func (s *Service) recordFailedNodeStatus(ctx context.Context, organizationID str
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusPartialSuccess, nil); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventPartialSuccess, nil); err != nil {
 			return nil, err
 		}
 		if err := s.seedReadyDownstreamNodes(ctx, organizationID, execution.ID, nodeID); err != nil {
@@ -1666,7 +1920,7 @@ func (s *Service) recordFailedNodeStatus(ctx context.Context, organizationID str
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusPaused, nil); err != nil {
+		if _, err := s.transitionExecutionStatus(ctx, organizationID, execution.ID, StateEventPause, nil); err != nil {
 			return nil, err
 		}
 		if err := s.notifyFailurePause(ctx, organizationID, execution, node, message); err != nil {
@@ -1934,6 +2188,68 @@ func (s *Service) setExecutionStatus(ctx context.Context, organizationID, execut
 	if execution == nil {
 		return nil, fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 	}
+	return s.afterExecutionStatusUpdate(ctx, organizationID, executionID, status, execution)
+}
+
+func (s *Service) transitionExecutionStatus(ctx context.Context, organizationID, executionID string, event WorkflowStateMachineEvent, completedAt *time.Time) (*WorkflowExecution, error) {
+	execution, err := s.getExecutionForTransition(ctx, organizationID, executionID)
+	if err != nil {
+		return nil, err
+	}
+	sink := &workflowExecutionTransitionSink{
+		store:          s.store,
+		organizationID: organizationID,
+		executionID:    executionID,
+		completedAt:    completedAt,
+	}
+	stateMachine := workflowexecutor.NewStateMachineWithStatusAndTransitionSink(string(execution.Status), sink)
+	status, err := stateMachine.TransitionWithContext(ctx, string(event))
+	if err != nil {
+		if errors.Is(err, workflowexecutor.ErrInvalidStateTransition) || errors.Is(err, workflowexecutor.ErrStateMachineLocked) {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
+		}
+		return nil, err
+	}
+	if sink.updated == nil {
+		return nil, fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+	}
+	return s.afterExecutionStatusUpdate(ctx, organizationID, executionID, ExecutionStatus(status), sink.updated)
+}
+
+type workflowExecutionTransitionSink struct {
+	store          Store
+	organizationID string
+	executionID    string
+	completedAt    *time.Time
+	updated        *WorkflowExecution
+}
+
+func (s *workflowExecutionTransitionSink) RecordTransition(ctx context.Context, record workflowexecutor.TransitionRecord) error {
+	updated, err := s.store.UpdateExecutionStatusIfCurrent(ctx, s.organizationID, s.executionID, ExecutionStatus(record.From), ExecutionStatus(record.To), s.completedAt)
+	if err != nil {
+		return err
+	}
+	if record.From == record.To {
+		appender, ok := s.store.(executionEventAppender)
+		if !ok {
+			return fmt.Errorf("%w: workflow execution event appender is required for same-state transition", ErrInvalidTransition)
+		}
+		if err := appender.AppendExecutionEvent(ctx, AppendExecutionEventRequest{
+			OrganizationID: s.organizationID,
+			ExecutionID:    s.executionID,
+			EventType:      "status_changed",
+			FromStatus:     ExecutionStatus(record.From),
+			ToStatus:       ExecutionStatus(record.To),
+			CreatedAt:      record.Timestamp,
+		}); err != nil {
+			return err
+		}
+	}
+	s.updated = updated
+	return nil
+}
+
+func (s *Service) afterExecutionStatusUpdate(ctx context.Context, organizationID, executionID string, status ExecutionStatus, execution *WorkflowExecution) (*WorkflowExecution, error) {
 	if refreshed, refreshErr := s.store.GetExecution(ctx, organizationID, executionID); refreshErr != nil {
 		return nil, refreshErr
 	} else if refreshed != nil {

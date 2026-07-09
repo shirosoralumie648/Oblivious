@@ -371,6 +371,11 @@ func (s *workflowServiceMemoryStore) GetExecution(ctx context.Context, organizat
 	return cloned, nil
 }
 
+func (s *workflowServiceMemoryStore) ListExecutionEvents(ctx context.Context, organizationID, executionID string) ([]workflow.WorkflowExecutionEvent, error) {
+	_ = ctx
+	return nil, nil
+}
+
 func (s *workflowServiceMemoryStore) ListActiveExecutionHealth(ctx context.Context, organizationID string, statuses []workflow.ExecutionStatus) ([]workflow.WorkflowExecutionHealthSummary, error) {
 	_ = ctx
 	return nil, nil
@@ -396,6 +401,17 @@ func (s *workflowServiceMemoryStore) UpdateExecutionStatus(ctx context.Context, 
 	execution.CompletedAt = completedAt
 	execution.UpdatedAt = time.Now().UTC()
 	return cloneWorkflowServiceExecution(execution), nil
+}
+
+func (s *workflowServiceMemoryStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status workflow.ExecutionStatus, completedAt *time.Time) (*workflow.WorkflowExecution, error) {
+	execution := s.executions[id]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	if execution.Status != fromStatus {
+		return nil, nil
+	}
+	return s.UpdateExecutionStatus(ctx, organizationID, id, status, completedAt)
 }
 
 func (s *workflowServiceMemoryStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req workflow.CreateNodeExecutionRequest) (*workflow.WorkflowNodeExecution, error) {

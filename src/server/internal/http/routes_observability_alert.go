@@ -12,6 +12,7 @@ func registerObservabilityAlertRoutes(mux *stdhttp.ServeMux, authMiddleware inte
 	mux.Handle("/api/v1/admin/observability/alert-providers", newObservabilityAlertRouter(authMiddleware, handler))
 	mux.Handle("/api/v1/admin/observability/alert-providers/", newObservabilityAlertRouter(authMiddleware, handler))
 	mux.Handle("/api/v1/admin/observability/recovery-actions", newObservabilityAlertRouter(authMiddleware, handler))
+	mux.Handle("/api/v1/admin/observability/latency-slo-proof", newObservabilityAlertRouter(authMiddleware, handler))
 	mux.Handle("/api/v1/admin/observability/alerts", newObservabilityAlertRouter(authMiddleware, handler))
 	mux.Handle("/api/v1/admin/observability/alerts/", newObservabilityAlertRouter(authMiddleware, handler))
 }
@@ -70,6 +71,15 @@ func newObservabilityAlertRouter(authMiddleware interface {
 		if r.URL.Path == "/api/v1/admin/observability/recovery-actions" {
 			if r.Method == stdhttp.MethodGet {
 				handler.listRecoveryActions(w, r)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if r.URL.Path == "/api/v1/admin/observability/latency-slo-proof" {
+			if r.Method == stdhttp.MethodGet {
+				handler.getLatencySLOProof(w, r)
 			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}

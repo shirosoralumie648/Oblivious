@@ -319,6 +319,11 @@ func (s *scheduleWiringWorkflowStore) GetExecution(ctx context.Context, organiza
 	return nil, nil
 }
 
+func (s *scheduleWiringWorkflowStore) ListExecutionEvents(ctx context.Context, organizationID, executionID string) ([]workflow.WorkflowExecutionEvent, error) {
+	_ = ctx
+	return nil, nil
+}
+
 func (s *scheduleWiringWorkflowStore) ListActiveExecutionHealth(ctx context.Context, organizationID string, statuses []workflow.ExecutionStatus) ([]workflow.WorkflowExecutionHealthSummary, error) {
 	_ = ctx
 	return nil, nil
@@ -335,6 +340,11 @@ func (s *scheduleWiringWorkflowStore) CountRunningExecutionsForOrganization(ctx 
 }
 
 func (s *scheduleWiringWorkflowStore) UpdateExecutionStatus(ctx context.Context, organizationID, id string, status workflow.ExecutionStatus, completedAt *time.Time) (*workflow.WorkflowExecution, error) {
+	_ = ctx
+	return nil, nil
+}
+
+func (s *scheduleWiringWorkflowStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status workflow.ExecutionStatus, completedAt *time.Time) (*workflow.WorkflowExecution, error) {
 	_ = ctx
 	return nil, nil
 }

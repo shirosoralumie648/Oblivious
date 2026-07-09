@@ -301,6 +301,31 @@ func TestRegisterWorkflowRoutesDispatchesExecutionDebugSnapshot(t *testing.T) {
 				},
 			},
 			Outputs: map[string]map[string]any{"start": {"ticket": "INC-1"}},
+			Events: []workflow.WorkflowExecutionEvent{
+				{
+					ID:             "wevt_1",
+					ExecutionID:    "wexec_1",
+					OrganizationID: "org_1",
+					EventType:      "status_changed",
+					FromStatus:     workflow.ExecutionStatusRunning,
+					ToStatus:       workflow.ExecutionStatusSucceeded,
+					CreatedAt:      time.Date(2026, 7, 2, 9, 30, 0, 0, time.UTC),
+				},
+			},
+			StateReplay: workflow.WorkflowStateReplay{
+				InitialStatus: workflow.ExecutionStatusRunning,
+				FinalStatus:   workflow.ExecutionStatusSucceeded,
+				Valid:         true,
+				Transitions: []workflow.WorkflowStateReplayTransition{
+					{
+						Event:      workflow.StateEventComplete,
+						FromStatus: workflow.ExecutionStatusRunning,
+						ToStatus:   workflow.ExecutionStatusSucceeded,
+						CreatedAt:  time.Date(2026, 7, 2, 9, 30, 0, 0, time.UTC),
+						EventID:    "wevt_1",
+					},
+				},
+			},
 			Performance: workflow.ExecutionDebugPerformance{
 				TotalDurationMS:  12,
 				NodeDurationsMS:  map[string]int{"start": 12},
@@ -339,8 +364,131 @@ func TestRegisterWorkflowRoutesDispatchesExecutionDebugSnapshot(t *testing.T) {
 	if len(response.Data.Trace) != 1 || response.Data.Trace[0].NodeID != "start" || response.Data.Trace[0].DurationMS != 12 {
 		t.Fatalf("expected trace entry with duration, got %+v", response.Data.Trace)
 	}
+	if len(response.Data.Events) != 1 || response.Data.Events[0].EventType != "status_changed" || response.Data.Events[0].FromStatus != workflow.ExecutionStatusRunning || response.Data.Events[0].ToStatus != workflow.ExecutionStatusSucceeded {
+		t.Fatalf("expected status transition event in snapshot, got %+v", response.Data.Events)
+	}
+	if !response.Data.StateReplay.Valid || response.Data.StateReplay.InitialStatus != workflow.ExecutionStatusRunning || response.Data.StateReplay.FinalStatus != workflow.ExecutionStatusSucceeded {
+		t.Fatalf("expected valid state replay in snapshot, got %+v", response.Data.StateReplay)
+	}
+	if len(response.Data.StateReplay.Transitions) != 1 || response.Data.StateReplay.Transitions[0].Event != workflow.StateEventComplete {
+		t.Fatalf("expected state replay transition in snapshot, got %+v", response.Data.StateReplay.Transitions)
+	}
 	if response.Data.Outputs["start"]["ticket"] != "INC-1" || response.Data.Performance.BottleneckNodeID != "start" || len(response.Data.Logs) != 0 {
 		t.Fatalf("expected outputs/performance/logs in snapshot, got %+v", response.Data)
+	}
+}
+
+func TestRegisterWorkflowRoutesDispatchesExecutionStateReplay(t *testing.T) {
+	service := &workflowFakeService{
+		stateReplay: &workflow.WorkflowStateReplay{
+			InitialStatus: workflow.ExecutionStatusRunning,
+			FinalStatus:   workflow.ExecutionStatusCancelled,
+			Valid:         true,
+			Transitions: []workflow.WorkflowStateReplayTransition{
+				{
+					Event:      workflow.StateEventCancel,
+					FromStatus: workflow.ExecutionStatusRunning,
+					ToStatus:   workflow.ExecutionStatusCancelled,
+					CreatedAt:  time.Date(2026, 7, 4, 14, 30, 0, 0, time.UTC),
+					EventID:    "wevt_cancel",
+				},
+			},
+		},
+	}
+	handler := newWorkflowHandler(service)
+	mux := stdhttp.NewServeMux()
+	registerWorkflowRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := workflowTestRequest(stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1/state-replay", "")
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if service.organizationID != "org_1" || service.pausedExecutionID != "wexec_1" {
+		t.Fatalf("expected state replay for org_1/wexec_1, got org=%q execution=%q", service.organizationID, service.pausedExecutionID)
+	}
+	var response struct {
+		Data workflow.WorkflowStateReplay `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Data.Valid || response.Data.InitialStatus != workflow.ExecutionStatusRunning || response.Data.FinalStatus != workflow.ExecutionStatusCancelled {
+		t.Fatalf("unexpected state replay envelope: %+v", response.Data)
+	}
+	if len(response.Data.Transitions) != 1 || response.Data.Transitions[0].Event != workflow.StateEventCancel || response.Data.Transitions[0].EventID != "wevt_cancel" {
+		t.Fatalf("expected cancel replay transition, got %+v", response.Data.Transitions)
+	}
+}
+
+func TestRegisterWorkflowRoutesDispatchesDebugRetentionPrune(t *testing.T) {
+	cutoff := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	service := &workflowFakeService{
+		debugRetentionPruneResult: &workflow.ExecutionDebugRetentionPruneResult{
+			TraceEntriesDeleted:      3,
+			VariableSnapshotsDeleted: 2,
+		},
+	}
+	handler := newWorkflowHandler(service)
+	mux := stdhttp.NewServeMux()
+	registerWorkflowRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/debug-retention/prune", `{"before":"2026-07-02T10:00:00Z"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if service.organizationID != "org_1" {
+		t.Fatalf("expected prune to use org_1 session, got %q", service.organizationID)
+	}
+	if !service.debugRetentionPruneBefore.Equal(cutoff) {
+		t.Fatalf("expected cutoff %s, got %s", cutoff, service.debugRetentionPruneBefore)
+	}
+	var response struct {
+		Data workflow.ExecutionDebugRetentionPruneResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.TraceEntriesDeleted != 3 || response.Data.VariableSnapshotsDeleted != 2 {
+		t.Fatalf("unexpected prune result: %+v", response.Data)
+	}
+}
+
+func TestRegisterWorkflowRoutesRejectsInvalidDebugRetentionPruneCutoff(t *testing.T) {
+	service := &workflowFakeService{
+		debugRetentionPruneResult: &workflow.ExecutionDebugRetentionPruneResult{
+			TraceEntriesDeleted:      3,
+			VariableSnapshotsDeleted: 2,
+		},
+	}
+	handler := newWorkflowHandler(service)
+	mux := stdhttp.NewServeMux()
+	registerWorkflowRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/debug-retention/prune", `{"before":"not-a-time"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !service.debugRetentionPruneBefore.IsZero() {
+		t.Fatalf("invalid cutoff must not call prune service, got cutoff %s", service.debugRetentionPruneBefore)
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "invalid_request" {
+		t.Fatalf("expected invalid_request response, got %+v", response)
 	}
 }
 

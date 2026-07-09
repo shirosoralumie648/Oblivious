@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -37,7 +38,9 @@ type workflowService interface {
 	TestNode(ctx context.Context, session auth.Session, workflowID string, nodeID string, input map[string]any) (*workflow.TestNodeResult, error)
 	ListExecutions(ctx context.Context, session auth.Session, workflowID string) ([]*workflow.WorkflowExecution, error)
 	GetExecution(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowExecution, error)
+	BuildExecutionStateReplay(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowStateReplay, error)
 	BuildExecutionDebugSnapshot(ctx context.Context, session auth.Session, executionID string) (*workflow.ExecutionDebugSnapshot, error)
+	PruneExecutionDebugData(ctx context.Context, session auth.Session, before time.Time) (*workflow.ExecutionDebugRetentionPruneResult, error)
 	RunExecutionUntilBlocked(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowExecution, error)
 	CheckResourceLimits(ctx context.Context, session auth.Session, workflowID string, executionID string, usage workflow.WorkflowResourceUsage) (*workflow.WorkflowExecution, error)
 	ResolvePausedFailure(ctx context.Context, session auth.Session, executionID string, req workflow.ResolveFailureDecisionRequest) (*workflow.WorkflowExecution, error)
@@ -48,7 +51,7 @@ type workflowService interface {
 
 type workflowHandler struct {
 	service             workflowService
-	webhookReplayStore  *workflowWebhookReplayStore
+	webhookReplayStore  workflowWebhookReplayRecorder
 	webhookTimestampNow func() time.Time
 }
 
@@ -211,8 +214,16 @@ func (a workflowServiceAdapter) GetExecution(ctx context.Context, session auth.S
 	return a.service.GetExecution(ctx, session.OrganizationID, executionID)
 }
 
+func (a workflowServiceAdapter) BuildExecutionStateReplay(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowStateReplay, error) {
+	return a.service.BuildExecutionStateReplay(ctx, session.OrganizationID, executionID)
+}
+
 func (a workflowServiceAdapter) BuildExecutionDebugSnapshot(ctx context.Context, session auth.Session, executionID string) (*workflow.ExecutionDebugSnapshot, error) {
 	return a.service.BuildExecutionDebugSnapshot(ctx, session.OrganizationID, executionID)
+}
+
+func (a workflowServiceAdapter) PruneExecutionDebugData(ctx context.Context, session auth.Session, before time.Time) (*workflow.ExecutionDebugRetentionPruneResult, error) {
+	return a.service.PruneExecutionDebugData(ctx, session.OrganizationID, before)
 }
 
 func (a workflowServiceAdapter) RunExecutionUntilBlocked(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowExecution, error) {
@@ -240,7 +251,8 @@ func (a workflowServiceAdapter) CancelExecution(ctx context.Context, session aut
 }
 
 type workflowSemanticTriggerDispatcher struct {
-	service workflowService
+	service     workflowService
+	replayStore workflowWebhookReplayRecorder
 }
 
 func (d workflowSemanticTriggerDispatcher) TriggerSemanticWorkflows(ctx context.Context, req chat.SemanticWorkflowTriggerRequest) error {
@@ -272,9 +284,17 @@ func (d workflowSemanticTriggerDispatcher) TriggerSemanticWorkflows(ctx context.
 		triggerPayload := map[string]any{
 			"conversationId":    req.ConversationID,
 			"message":           message,
+			"messageId":         strings.TrimSpace(req.MessageID),
 			"userId":            req.UserID,
 			"workspaceId":       req.WorkspaceID,
 			"workflowTriggerId": match.TriggerID,
+		}
+		recorded, err := d.recordTriggerReplay(ctx, req, workflow.WorkflowTriggerConversation, match.WorkflowID, match.TriggerID, message)
+		if err != nil {
+			return err
+		}
+		if !recorded {
+			continue
 		}
 		if _, err := startTriggeredWorkflowUntilBlocked(ctx, d.service, session, workflow.StartExecutionRequest{
 			WorkflowID:     match.WorkflowID,
@@ -302,6 +322,7 @@ func (d workflowSemanticTriggerDispatcher) TriggerSemanticWorkflows(ctx context.
 		triggerPayload := map[string]any{
 			"conversationId":    req.ConversationID,
 			"message":           message,
+			"messageId":         strings.TrimSpace(req.MessageID),
 			"userId":            req.UserID,
 			"workspaceId":       req.WorkspaceID,
 			"workflowTriggerId": match.TriggerID,
@@ -313,6 +334,13 @@ func (d workflowSemanticTriggerDispatcher) TriggerSemanticWorkflows(ctx context.
 		if strings.TrimSpace(match.MatchMethod) != "" {
 			triggerPayload["matchMethod"] = match.MatchMethod
 		}
+		recorded, err := d.recordTriggerReplay(ctx, req, workflow.WorkflowTriggerSemantic, match.WorkflowID, match.TriggerID, message)
+		if err != nil {
+			return err
+		}
+		if !recorded {
+			continue
+		}
 		if _, err := startTriggeredWorkflowUntilBlocked(ctx, d.service, session, workflow.StartExecutionRequest{
 			WorkflowID:     match.WorkflowID,
 			TriggerType:    workflow.WorkflowTriggerSemantic,
@@ -323,6 +351,15 @@ func (d workflowSemanticTriggerDispatcher) TriggerSemanticWorkflows(ctx context.
 		}
 	}
 	return nil
+}
+
+func (d workflowSemanticTriggerDispatcher) recordTriggerReplay(ctx context.Context, req chat.SemanticWorkflowTriggerRequest, triggerType workflow.WorkflowTriggerType, workflowID string, triggerID string, message string) (bool, error) {
+	if d.replayStore == nil {
+		return true, nil
+	}
+	key := workflowMessageTriggerReplayKey(req, triggerType, workflowID, triggerID, message)
+	now := time.Now().UTC()
+	return d.replayStore.Record(ctx, key, now.Add(workflowMessageTriggerReplayTTL), now)
 }
 
 func startTriggeredWorkflowUntilBlocked(ctx context.Context, service workflowService, session auth.Session, req workflow.StartExecutionRequest) (*workflow.WorkflowExecution, error) {
@@ -431,7 +468,12 @@ func normalizeWorkflowFailureDecisionAction(action workflow.FailureAction) workf
 }
 
 const workflowWebhookTimestampTolerance = 5 * time.Minute
+const workflowMessageTriggerReplayTTL = 24 * time.Hour
 const workflowRedactedSecret = "********"
+
+type workflowWebhookReplayRecorder interface {
+	Record(ctx context.Context, key string, expiresAt time.Time, now time.Time) (bool, error)
+}
 
 type workflowWebhookReplayStore struct {
 	mu   sync.Mutex
@@ -442,9 +484,9 @@ func newWorkflowWebhookReplayStore() *workflowWebhookReplayStore {
 	return &workflowWebhookReplayStore{seen: make(map[string]time.Time)}
 }
 
-func (s *workflowWebhookReplayStore) Record(key string, expiresAt time.Time, now time.Time) bool {
+func (s *workflowWebhookReplayStore) Record(_ context.Context, key string, expiresAt time.Time, now time.Time) (bool, error) {
 	if s == nil || strings.TrimSpace(key) == "" {
-		return true
+		return true, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -455,10 +497,45 @@ func (s *workflowWebhookReplayStore) Record(key string, expiresAt time.Time, now
 		}
 	}
 	if expiry, ok := s.seen[key]; ok && expiry.After(now) {
-		return false
+		return false, nil
 	}
 	s.seen[key] = expiresAt
-	return true
+	return true, nil
+}
+
+type workflowWebhookReplaySQLStore struct {
+	database *sql.DB
+}
+
+func newWorkflowWebhookReplaySQLStore(database *sql.DB) *workflowWebhookReplaySQLStore {
+	return &workflowWebhookReplaySQLStore{database: database}
+}
+
+func (s *workflowWebhookReplaySQLStore) Record(ctx context.Context, key string, expiresAt time.Time, now time.Time) (bool, error) {
+	key = strings.TrimSpace(key)
+	if s == nil || s.database == nil || key == "" {
+		return true, nil
+	}
+	_, err := s.database.ExecContext(ctx, `
+		DELETE FROM workflow_webhook_replay_keys
+		WHERE expires_at <= $1
+	`, now)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.database.ExecContext(ctx, `
+		INSERT INTO workflow_webhook_replay_keys (replay_key, expires_at, created_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (replay_key) DO NOTHING
+	`, key, expiresAt, now)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 func (h workflowHandler) listWorkflows(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -865,9 +942,16 @@ func (h workflowHandler) triggerSignedWebhook(w stdhttp.ResponseWriter, r *stdht
 		return
 	}
 	replayKey := workflowWebhookReplayKey(session.OrganizationID, workflowID, timestamp, signature, rawBody)
-	if h.webhookReplayStore != nil && !h.webhookReplayStore.Record(replayKey, signedAt.Add(workflowWebhookTimestampTolerance), now) {
-		writeError(w, stdhttp.StatusConflict, "webhook_replay_detected", "webhook replay detected")
-		return
+	if h.webhookReplayStore != nil {
+		recorded, err := h.webhookReplayStore.Record(r.Context(), replayKey, signedAt.Add(workflowWebhookTimestampTolerance), now)
+		if err != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "webhook_replay_store_error", "webhook replay store failed")
+			return
+		}
+		if !recorded {
+			writeError(w, stdhttp.StatusConflict, "webhook_replay_detected", "webhook replay detected")
+			return
+		}
 	}
 
 	var payload map[string]any
@@ -1232,6 +1316,23 @@ func workflowWebhookReplayKey(organizationID string, workflowID string, timestam
 	}, ":")
 }
 
+func workflowMessageTriggerReplayKey(req chat.SemanticWorkflowTriggerRequest, triggerType workflow.WorkflowTriggerType, workflowID string, triggerID string, message string) string {
+	eventID := strings.TrimSpace(req.MessageID)
+	if eventID == "" {
+		digest := sha256.Sum256([]byte(strings.TrimSpace(message)))
+		eventID = hex.EncodeToString(digest[:])
+	}
+	return strings.Join([]string{
+		"message-trigger",
+		strings.TrimSpace(req.OrganizationID),
+		strings.TrimSpace(req.ConversationID),
+		strings.TrimSpace(eventID),
+		string(triggerType),
+		strings.TrimSpace(workflowID),
+		strings.TrimSpace(triggerID),
+	}, ":")
+}
+
 func (h workflowHandler) testNode(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {
@@ -1304,6 +1405,49 @@ func (h workflowHandler) getExecutionDebugSnapshot(w stdhttp.ResponseWriter, r *
 		return
 	}
 	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecutionDebugSnapshot(snapshot))
+}
+
+func (h workflowHandler) getExecutionStateReplay(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	replay, err := h.service.BuildExecutionStateReplay(r.Context(), session, executionID)
+	if err != nil {
+		writeWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, replay)
+}
+
+func (h workflowHandler) pruneExecutionDebugData(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload struct {
+		Before string `json:"before"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid JSON payload")
+		return
+	}
+	before, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.Before))
+	if err != nil || before.IsZero() {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "before must be an RFC3339 timestamp")
+		return
+	}
+
+	result, err := h.service.PruneExecutionDebugData(r.Context(), session, before.UTC())
+	if err != nil {
+		writeWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, result)
 }
 
 func (h workflowHandler) checkResourceLimits(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, executionID string) {

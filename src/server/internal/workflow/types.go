@@ -149,6 +149,16 @@ type WorkflowExecutionHealthSummary struct {
 	OldestStartedAt time.Time       `json:"oldestStartedAt,omitempty"`
 }
 
+type WorkflowExecutionEvent struct {
+	ID             string          `json:"id"`
+	ExecutionID    string          `json:"executionId"`
+	OrganizationID string          `json:"organizationId"`
+	EventType      string          `json:"eventType"`
+	FromStatus     ExecutionStatus `json:"fromStatus,omitempty"`
+	ToStatus       ExecutionStatus `json:"toStatus"`
+	CreatedAt      time.Time       `json:"createdAt"`
+}
+
 type WorkflowNodeExecution struct {
 	ID             string         `json:"id"`
 	ExecutionID    string         `json:"executionId"`
@@ -172,6 +182,7 @@ type ExecutionVariableSnapshot struct {
 	Input       map[string]any            `json:"input"`
 	Context     map[string]any            `json:"context"`
 	NodeOutputs map[string]map[string]any `json:"nodeOutputs"`
+	CreatedAt   time.Time                 `json:"createdAt,omitempty"`
 }
 
 type ExecutionDebugTraceEntry struct {
@@ -186,6 +197,7 @@ type ExecutionDebugTraceEntry struct {
 	StartedAt   time.Time      `json:"startedAt"`
 	CompletedAt *time.Time     `json:"completedAt,omitempty"`
 	DurationMS  int            `json:"durationMs,omitempty"`
+	CreatedAt   time.Time      `json:"createdAt"`
 }
 
 type ExecutionDebugPerformance struct {
@@ -206,10 +218,33 @@ type ExecutionDebugSnapshot struct {
 	WorkflowID       string                     `json:"workflowId"`
 	Status           ExecutionStatus            `json:"status"`
 	VariableSnapshot ExecutionVariableSnapshot  `json:"variableSnapshot"`
+	Events           []WorkflowExecutionEvent   `json:"events"`
+	StateReplay      WorkflowStateReplay        `json:"stateReplay"`
 	Trace            []ExecutionDebugTraceEntry `json:"trace"`
 	Outputs          map[string]map[string]any  `json:"outputs"`
 	Performance      ExecutionDebugPerformance  `json:"performance"`
 	Logs             []ExecutionDebugLogEntry   `json:"logs"`
+}
+
+type ExecutionDebugRetentionPruneResult struct {
+	TraceEntriesDeleted      int `json:"traceEntriesDeleted"`
+	VariableSnapshotsDeleted int `json:"variableSnapshotsDeleted"`
+}
+
+type WorkflowStateReplay struct {
+	InitialStatus ExecutionStatus                 `json:"initialStatus"`
+	FinalStatus   ExecutionStatus                 `json:"finalStatus"`
+	Valid         bool                            `json:"valid"`
+	InvalidReason string                          `json:"invalidReason,omitempty"`
+	Transitions   []WorkflowStateReplayTransition `json:"transitions"`
+}
+
+type WorkflowStateReplayTransition struct {
+	Event      WorkflowStateMachineEvent `json:"event"`
+	FromStatus ExecutionStatus           `json:"fromStatus"`
+	ToStatus   ExecutionStatus           `json:"toStatus"`
+	CreatedAt  time.Time                 `json:"createdAt"`
+	EventID    string                    `json:"eventId,omitempty"`
 }
 
 type NodeFailure struct {
@@ -240,13 +275,15 @@ type DAGAnalysis struct {
 type WorkflowStateMachineEvent string
 
 const (
-	StateEventStart    WorkflowStateMachineEvent = "start"
-	StateEventPause    WorkflowStateMachineEvent = "pause"
-	StateEventResume   WorkflowStateMachineEvent = "resume"
-	StateEventComplete WorkflowStateMachineEvent = "complete"
-	StateEventFail     WorkflowStateMachineEvent = "fail"
-	StateEventTimeout  WorkflowStateMachineEvent = "timeout"
-	StateEventCancel   WorkflowStateMachineEvent = "cancel"
+	StateEventStart          WorkflowStateMachineEvent = "start"
+	StateEventPause          WorkflowStateMachineEvent = "pause"
+	StateEventResume         WorkflowStateMachineEvent = "resume"
+	StateEventComplete       WorkflowStateMachineEvent = "complete"
+	StateEventPartialSuccess WorkflowStateMachineEvent = "partial_success"
+	StateEventFail           WorkflowStateMachineEvent = "fail"
+	StateEventTimeout        WorkflowStateMachineEvent = "timeout"
+	StateEventMaxIterations  WorkflowStateMachineEvent = "max_iterations"
+	StateEventCancel         WorkflowStateMachineEvent = "cancel"
 )
 
 // WorkflowStateMachineTransition defines a valid state transition.

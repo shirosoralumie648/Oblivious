@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,6 +20,7 @@ type StateMachine struct {
 	currentStatus string
 	transitions   map[stateEventPair]string
 	history       []TransitionRecord
+	sink          TransitionSink
 	locked        bool
 }
 
@@ -36,6 +38,12 @@ type TransitionRecord struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// TransitionSink receives state-machine transitions before they are committed
+// to memory, allowing callers to back the history with a durable event store.
+type TransitionSink interface {
+	RecordTransition(ctx context.Context, record TransitionRecord) error
+}
+
 // NewStateMachine creates a state machine initialized to "draft" with standard transitions.
 func NewStateMachine() *StateMachine {
 	sm := &StateMachine{
@@ -46,9 +54,25 @@ func NewStateMachine() *StateMachine {
 	return sm
 }
 
+// NewStateMachineWithTransitionSink creates a state machine that records each
+// transition to an external sink before updating in-memory state.
+func NewStateMachineWithTransitionSink(sink TransitionSink) *StateMachine {
+	sm := NewStateMachine()
+	sm.sink = sink
+	return sm
+}
+
 // NewStateMachineWithStatus creates a state machine initialized to the given status.
 func NewStateMachineWithStatus(status string) *StateMachine {
 	sm := NewStateMachine()
+	sm.currentStatus = normalizeStatus(status)
+	return sm
+}
+
+// NewStateMachineWithStatusAndTransitionSink creates a state machine with a
+// custom initial status and an external transition sink.
+func NewStateMachineWithStatusAndTransitionSink(status string, sink TransitionSink) *StateMachine {
+	sm := NewStateMachineWithTransitionSink(sink)
 	sm.currentStatus = normalizeStatus(status)
 	return sm
 }
@@ -94,6 +118,12 @@ func (sm *StateMachine) CanTransition(event string) bool {
 
 // Transition applies an event and returns the new status, or an error if invalid.
 func (sm *StateMachine) Transition(event string) (string, error) {
+	return sm.TransitionWithContext(context.Background(), event)
+}
+
+// TransitionWithContext applies an event and records it through the configured
+// sink before committing the transition to in-memory state.
+func (sm *StateMachine) TransitionWithContext(ctx context.Context, event string) (string, error) {
 	if sm == nil {
 		return "", fmt.Errorf("%w: state machine is nil", ErrInvalidStateTransition)
 	}
@@ -119,6 +149,14 @@ func (sm *StateMachine) Transition(event string) (string, error) {
 		To:        newStatus,
 		Event:     normalizedEvent,
 		Timestamp: time.Now().UTC(),
+	}
+	if sm.sink != nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := sm.sink.RecordTransition(ctx, record); err != nil {
+			return sm.currentStatus, err
+		}
 	}
 	sm.history = append(sm.history, record)
 	sm.currentStatus = newStatus
@@ -187,14 +225,23 @@ func defaultTransitions() map[stateEventPair]string {
 		// running -> failed
 		{From: "running", Event: "fail"}: "failed",
 
+		// running -> partial_success
+		{From: "running", Event: "partial_success"}: "partial_success",
+
 		// running -> timeout
 		{From: "running", Event: "timeout"}: "timeout",
+
+		// running -> max_iterations
+		{From: "running", Event: "max_iterations"}: "max_iterations",
 
 		// running -> cancelled
 		{From: "running", Event: "cancel"}: "cancelled",
 
 		// paused -> running (resume)
 		{From: "paused", Event: "resume"}: "running",
+
+		// paused -> failed
+		{From: "paused", Event: "fail"}: "failed",
 
 		// paused -> cancelled
 		{From: "paused", Event: "cancel"}: "cancelled",
@@ -208,8 +255,14 @@ func defaultTransitions() map[stateEventPair]string {
 		// partial_success -> running (re-run remaining)
 		{From: "partial_success", Event: "start"}: "running",
 
+		// partial_success -> partial_success
+		{From: "partial_success", Event: "partial_success"}: "partial_success",
+
 		// partial_success -> completed
 		{From: "partial_success", Event: "complete"}: "succeeded",
+
+		// partial_success -> max_iterations
+		{From: "partial_success", Event: "max_iterations"}: "max_iterations",
 
 		// partial_success -> cancelled
 		{From: "partial_success", Event: "cancel"}: "cancelled",

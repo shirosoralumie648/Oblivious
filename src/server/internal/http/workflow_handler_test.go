@@ -9,6 +9,7 @@ import (
 	"errors"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,9 @@ type workflowFakeService struct {
 	executions                  []*workflow.WorkflowExecution
 	executionDetail             *workflow.WorkflowExecution
 	debugSnapshot               *workflow.ExecutionDebugSnapshot
+	stateReplay                 *workflow.WorkflowStateReplay
+	debugRetentionPruneResult   *workflow.ExecutionDebugRetentionPruneResult
+	debugRetentionPruneBefore   time.Time
 	executionInput              map[string]any
 	executionContext            map[string]any
 	executionTriggerPayload     map[string]any
@@ -75,6 +79,7 @@ type workflowFakeService struct {
 	semanticMatchErr  error
 	getExecutionErr   error
 	debugSnapshotErr  error
+	debugRetentionErr error
 	startErr          error
 	pauseErr          error
 	resourceCheckErr  error
@@ -212,6 +217,18 @@ func (s *workflowFakeService) BuildExecutionDebugSnapshot(ctx context.Context, s
 	s.organizationID = session.OrganizationID
 	s.pausedExecutionID = executionID
 	return s.debugSnapshot, s.debugSnapshotErr
+}
+
+func (s *workflowFakeService) BuildExecutionStateReplay(ctx context.Context, session auth.Session, executionID string) (*workflow.WorkflowStateReplay, error) {
+	s.organizationID = session.OrganizationID
+	s.pausedExecutionID = executionID
+	return s.stateReplay, s.debugSnapshotErr
+}
+
+func (s *workflowFakeService) PruneExecutionDebugData(ctx context.Context, session auth.Session, before time.Time) (*workflow.ExecutionDebugRetentionPruneResult, error) {
+	s.organizationID = session.OrganizationID
+	s.debugRetentionPruneBefore = before
+	return s.debugRetentionPruneResult, s.debugRetentionErr
 }
 
 func (s *workflowFakeService) CheckResourceLimits(ctx context.Context, session auth.Session, workflowID string, executionID string, usage workflow.WorkflowResourceUsage) (*workflow.WorkflowExecution, error) {
@@ -733,7 +750,7 @@ func TestWorkflowSemanticTriggerDispatcherStartsMatchedWorkflows(t *testing.T) {
 		started:               &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusRunning},
 		runUntilBlockedResult: &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusSucceeded},
 	}
-	dispatcher := workflowSemanticTriggerDispatcher{service: service}
+	dispatcher := workflowSemanticTriggerDispatcher{service: service, replayStore: newWorkflowWebhookReplayStore()}
 
 	err := dispatcher.TriggerSemanticWorkflows(context.Background(), chat.SemanticWorkflowTriggerRequest{
 		ConversationID: "conversation_1",
@@ -778,6 +795,105 @@ func TestWorkflowSemanticTriggerDispatcherStartsMatchedWorkflows(t *testing.T) {
 		service.startRequests[1].TriggerPayload["score"] != 0.91 ||
 		service.startRequests[1].TriggerPayload["matchMethod"] != "embedding" {
 		t.Fatalf("unexpected semantic trigger payload: %+v", service.startRequests[1].TriggerPayload)
+	}
+}
+
+func TestWorkflowSemanticTriggerDispatcherRejectsDuplicateConversationEvent(t *testing.T) {
+	service := &workflowFakeService{
+		conversationMatches: []workflow.ConversationTriggerMatch{
+			{
+				WorkflowID:     "workflow_conversation",
+				TriggerID:      "conversation_trigger",
+				ConversationID: "conversation_1",
+			},
+		},
+		semanticMatches: []workflow.SemanticTriggerMatch{
+			{
+				WorkflowID:  "workflow_semantic",
+				TriggerID:   "semantic_trigger",
+				Keyword:     "urgent",
+				MatchMethod: "keyword",
+			},
+		},
+		started:               &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusRunning},
+		runUntilBlockedResult: &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusSucceeded},
+	}
+	dispatcher := workflowSemanticTriggerDispatcher{service: service, replayStore: newWorkflowWebhookReplayStore()}
+	event := chat.SemanticWorkflowTriggerRequest{
+		ConversationID: "conversation_1",
+		Message:        "urgent production incident",
+		MessageID:      "message_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		WorkspaceID:    "workspace_1",
+	}
+
+	if err := dispatcher.TriggerSemanticWorkflows(context.Background(), event); err != nil {
+		t.Fatalf("first trigger semantic workflows: %v", err)
+	}
+	if err := dispatcher.TriggerSemanticWorkflows(context.Background(), event); err != nil {
+		t.Fatalf("duplicate trigger semantic workflows: %v", err)
+	}
+
+	if service.startCalls != 2 {
+		t.Fatalf("expected duplicate event to be ignored after first conversation and semantic starts, got %d starts", service.startCalls)
+	}
+	if len(service.runUntilBlockedExecutionIDs) != 2 {
+		t.Fatalf("expected duplicate event not to run additional executions, got %+v", service.runUntilBlockedExecutionIDs)
+	}
+}
+
+func TestWorkflowSemanticTriggerDispatcherRejectsDuplicateConversationEventAcrossDispatcherRestart(t *testing.T) {
+	service := &workflowFakeService{
+		conversationMatches: []workflow.ConversationTriggerMatch{
+			{
+				WorkflowID:     "workflow_conversation",
+				TriggerID:      "conversation_trigger",
+				ConversationID: "conversation_1",
+			},
+		},
+		semanticMatches: []workflow.SemanticTriggerMatch{
+			{
+				WorkflowID:  "workflow_semantic",
+				TriggerID:   "semantic_trigger",
+				Keyword:     "urgent",
+				MatchMethod: "keyword",
+			},
+		},
+		started:               &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusRunning},
+		runUntilBlockedResult: &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusSucceeded},
+	}
+	database := testDatabase(t)
+	migration, err := os.ReadFile("../../migrations/0098_workflow_webhook_replay_keys.sql")
+	if err != nil {
+		t.Fatalf("read workflow trigger replay migration: %v", err)
+	}
+	if _, err := database.Exec(string(migration)); err != nil {
+		t.Fatalf("apply workflow trigger replay migration: %v", err)
+	}
+	firstDispatcher := workflowSemanticTriggerDispatcher{service: service, replayStore: newWorkflowWebhookReplaySQLStore(database)}
+	secondDispatcher := workflowSemanticTriggerDispatcher{service: service, replayStore: newWorkflowWebhookReplaySQLStore(database)}
+	event := chat.SemanticWorkflowTriggerRequest{
+		ConversationID: "conversation_1",
+		Message:        "urgent production incident",
+		MessageID:      "message_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		WorkspaceID:    "workspace_1",
+	}
+
+	if err := firstDispatcher.TriggerSemanticWorkflows(context.Background(), event); err != nil {
+		t.Fatalf("first trigger semantic workflows: %v", err)
+	}
+	if err := secondDispatcher.TriggerSemanticWorkflows(context.Background(), event); err != nil {
+		t.Fatalf("duplicate trigger semantic workflows after dispatcher restart: %v", err)
+	}
+
+	if service.startCalls != 2 {
+		t.Fatalf("expected persistent duplicate event guard after first conversation and semantic starts, got %d starts", service.startCalls)
+	}
+	if len(service.runUntilBlockedExecutionIDs) != 2 {
+		t.Fatalf("expected persistent duplicate event guard not to run additional executions, got %+v", service.runUntilBlockedExecutionIDs)
 	}
 }
 
@@ -1152,6 +1268,56 @@ func TestWorkflowHandlerSignedWebhookRejectsReplay(t *testing.T) {
 	}
 	if service.startCalls != 1 {
 		t.Fatalf("expected replay not to start a second execution, got %d starts", service.startCalls)
+	}
+}
+
+func TestWorkflowHandlerSignedWebhookRejectsReplayAcrossHandlerRestart(t *testing.T) {
+	service := &workflowFakeService{
+		workflowDetail: &workflow.WorkflowDefinition{
+			ID:             "workflow_1",
+			OrganizationID: "org_1",
+			Definition:     map[string]any{"webhook_secret": "top-secret"},
+		},
+		started: &workflow.WorkflowExecution{ID: "wexec_webhook", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusRunning},
+	}
+	database := testDatabase(t)
+	migration, err := os.ReadFile("../../migrations/0098_workflow_webhook_replay_keys.sql")
+	if err != nil {
+		t.Fatalf("read workflow webhook replay migration: %v", err)
+	}
+	if _, err := database.Exec(string(migration)); err != nil {
+		t.Fatalf("apply workflow webhook replay migration: %v", err)
+	}
+	firstHandler := newWorkflowHandler(service)
+	secondHandler := newWorkflowHandler(service)
+	firstHandler.webhookReplayStore = newWorkflowWebhookReplaySQLStore(database)
+	secondHandler.webhookReplayStore = newWorkflowWebhookReplaySQLStore(database)
+	body := `{"event":"issue.created"}`
+	timestamp := workflowWebhookTimestamp(time.Now())
+	signature := workflowWebhookSignature("top-secret", timestamp, body)
+
+	firstRecorder := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/webhooks/org_1/workflow_1", strings.NewReader(body))
+	firstRequest.Header.Set("Content-Type", "application/json")
+	firstRequest.Header.Set("X-Oblivious-Timestamp", timestamp)
+	firstRequest.Header.Set("X-Oblivious-Signature", signature)
+	firstHandler.triggerSignedWebhook(firstRecorder, firstRequest, "org_1", "workflow_1")
+	if firstRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("first request expected 201, got %d with body %s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+
+	secondRecorder := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/webhooks/org_1/workflow_1", strings.NewReader(body))
+	secondRequest.Header.Set("Content-Type", "application/json")
+	secondRequest.Header.Set("X-Oblivious-Timestamp", timestamp)
+	secondRequest.Header.Set("X-Oblivious-Signature", signature)
+	secondHandler.triggerSignedWebhook(secondRecorder, secondRequest, "org_1", "workflow_1")
+
+	if secondRecorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("second request expected 409 after handler restart, got %d with body %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	if service.startCalls != 1 {
+		t.Fatalf("expected persistent replay rejection not to start a second execution, got %d starts", service.startCalls)
 	}
 }
 

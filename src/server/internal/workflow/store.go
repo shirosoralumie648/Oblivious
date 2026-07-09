@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/auth"
@@ -23,10 +25,12 @@ type Store interface {
 	CreateExecution(ctx context.Context, req CreateExecutionRequest) (*WorkflowExecution, error)
 	ListExecutions(ctx context.Context, organizationID, workflowID string) ([]*WorkflowExecution, error)
 	GetExecution(ctx context.Context, organizationID, id string) (*WorkflowExecution, error)
+	ListExecutionEvents(ctx context.Context, organizationID, executionID string) ([]WorkflowExecutionEvent, error)
 	ListActiveExecutionHealth(ctx context.Context, organizationID string, statuses []ExecutionStatus) ([]WorkflowExecutionHealthSummary, error)
 	CountRunningExecutions(ctx context.Context, organizationID, workflowID string) (int, error)
 	CountRunningExecutionsForOrganization(ctx context.Context, organizationID string) (int, error)
 	UpdateExecutionStatus(ctx context.Context, organizationID, id string, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error)
+	UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error)
 	CreateNodeExecution(ctx context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error)
 }
 
@@ -86,6 +90,47 @@ type CreateNodeExecutionRequest struct {
 	StartedAt   time.Time
 	CompletedAt *time.Time
 	DurationMS  int
+}
+
+type AppendExecutionDebugTraceEntryRequest struct {
+	OrganizationID string
+	ExecutionID    string
+	Entry          ExecutionDebugTraceEntry
+	CreatedAt      time.Time
+}
+
+type AppendExecutionVariableSnapshotRequest struct {
+	OrganizationID string
+	ExecutionID    string
+	Snapshot       ExecutionVariableSnapshot
+	CreatedAt      time.Time
+}
+
+type AppendExecutionEventRequest struct {
+	OrganizationID string
+	ExecutionID    string
+	EventType      string
+	FromStatus     ExecutionStatus
+	ToStatus       ExecutionStatus
+	CreatedAt      time.Time
+}
+
+type executionDebugTraceStore interface {
+	AppendExecutionDebugTraceEntry(ctx context.Context, req AppendExecutionDebugTraceEntryRequest) error
+	ListExecutionDebugTraceEntries(ctx context.Context, organizationID, executionID string) ([]ExecutionDebugTraceEntry, error)
+}
+
+type executionVariableSnapshotStore interface {
+	AppendExecutionVariableSnapshot(ctx context.Context, req AppendExecutionVariableSnapshotRequest) error
+	LatestExecutionVariableSnapshot(ctx context.Context, organizationID, executionID string) (*ExecutionVariableSnapshot, error)
+}
+
+type executionDebugRetentionStore interface {
+	PruneExecutionDebugData(ctx context.Context, organizationID string, before time.Time) (ExecutionDebugRetentionPruneResult, error)
+}
+
+type executionEventAppender interface {
+	AppendExecutionEvent(ctx context.Context, req AppendExecutionEventRequest) error
 }
 
 func (s *SQLStore) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (*WorkflowDefinition, error) {
@@ -335,6 +380,10 @@ func (s *SQLStore) CreateExecution(ctx context.Context, req CreateExecutionReque
 	`, id, req.WorkflowID, req.OrganizationID, workflowVersion, string(status), inputJSON, outputJSON, errorJSON, contextJSON,
 		workflowSnapshotJSON, startedAt, req.CompletedAt, req.DurationMS, now)
 	if err != nil {
+		if scheduledTaskRunID := scheduledTaskRunIDFromExecutionContext(req.Context); scheduledTaskRunID != "" && isWorkflowScheduleRunUniqueConflict(err) {
+			_ = tx.Rollback()
+			return s.FindExecutionByScheduleRunID(ctx, req.OrganizationID, req.WorkflowID, scheduledTaskRunID)
+		}
 		return nil, fmt.Errorf("insert workflow execution: %w", err)
 	}
 	rowsAffected, err := result.RowsAffected()
@@ -343,6 +392,10 @@ func (s *SQLStore) CreateExecution(ctx context.Context, req CreateExecutionReque
 	}
 	if rowsAffected == 0 {
 		return nil, sql.ErrNoRows
+	}
+
+	if err := insertWorkflowExecutionEvent(ctx, tx, req.OrganizationID, id, "created", "", status, now); err != nil {
+		return nil, err
 	}
 
 	for _, node := range req.NodeExecutions {
@@ -376,12 +429,295 @@ func (s *SQLStore) GetExecution(ctx context.Context, organizationID, id string) 
 	return execution, nil
 }
 
-func (s *SQLStore) UpdateExecutionStatus(ctx context.Context, organizationID, id string, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+func (s *SQLStore) FindExecutionByScheduleRunID(ctx context.Context, organizationID, workflowID, scheduledTaskRunID string) (*WorkflowExecution, error) {
+	execution, err := scanExecution(s.db.QueryRowContext(ctx, executionSelectSQL+`
+		WHERE organization_id = $1
+		  AND workflow_id = $2
+		  AND context->'trigger'->>'type' = $3
+		  AND context->'trigger'->>'scheduledTaskRunId' = $4
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+	`, organizationID, workflowID, string(WorkflowTriggerSchedule), scheduledTaskRunID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find workflow execution by schedule run ID: %w", err)
+	}
+	nodes, err := s.listNodeExecutions(ctx, organizationID, execution.ID)
+	if err != nil {
+		return nil, err
+	}
+	execution.NodeExecutions = nodes
+	return execution, nil
+}
+
+func scheduledTaskRunIDFromExecutionContext(contextValue map[string]any) string {
+	triggerValue, ok := contextValue["trigger"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	triggerType, ok := triggerValue["type"].(string)
+	if !ok || triggerType != string(WorkflowTriggerSchedule) {
+		return ""
+	}
+	scheduledTaskRunID, ok := triggerValue["scheduledTaskRunId"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(scheduledTaskRunID)
+}
+
+func isWorkflowScheduleRunUniqueConflict(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505" && pqErr.Constraint == "idx_workflow_executions_schedule_run_idempotency"
+}
+
+func (s *SQLStore) ListExecutionEvents(ctx context.Context, organizationID, executionID string) ([]WorkflowExecutionEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, execution_id, organization_id, event_type, from_status, to_status, created_at
+		FROM workflow_execution_events
+		WHERE organization_id = $1 AND execution_id = $2
+		ORDER BY created_at ASC, id ASC
+	`, organizationID, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow execution events: %w", err)
+	}
+	defer rows.Close()
+
+	events := []WorkflowExecutionEvent{}
+	for rows.Next() {
+		event, err := scanWorkflowExecutionEvent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan workflow execution event: %w", err)
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (s *SQLStore) AppendExecutionDebugTraceEntry(ctx context.Context, req AppendExecutionDebugTraceEntryRequest) error {
+	id, err := auth.NewID("wdte")
+	if err != nil {
+		return err
+	}
+	createdAt := req.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	inputJSON, err := marshalJSONObject(req.Entry.Input)
+	if err != nil {
+		return fmt.Errorf("marshal workflow debug trace input: %w", err)
+	}
+	outputJSON, err := marshalJSONObject(req.Entry.Output)
+	if err != nil {
+		return fmt.Errorf("marshal workflow debug trace output: %w", err)
+	}
+	errorJSON, err := marshalJSONObject(req.Entry.Error)
+	if err != nil {
+		return fmt.Errorf("marshal workflow debug trace error: %w", err)
+	}
+	contextJSON, err := marshalJSONObject(req.Entry.Context)
+	if err != nil {
+		return fmt.Errorf("marshal workflow debug trace context: %w", err)
+	}
 	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO workflow_debug_trace_entries (
+			id,
+			organization_id,
+			execution_id,
+			node_id,
+			node_type,
+			status,
+			attempt,
+			input,
+			output,
+			error,
+			context,
+			started_at,
+			completed_at,
+			duration_ms,
+			created_at
+		)
+		SELECT $1, e.organization_id, e.id, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15
+		FROM workflow_executions e
+		WHERE e.organization_id = $2 AND e.id = $3
+	`, id, req.OrganizationID, req.ExecutionID, req.Entry.NodeID, req.Entry.NodeType, string(req.Entry.Status), req.Entry.Attempt, inputJSON, outputJSON, errorJSON, contextJSON, nullableWorkflowTime(req.Entry.StartedAt), req.Entry.CompletedAt, req.Entry.DurationMS, createdAt)
+	if err != nil {
+		return fmt.Errorf("append workflow debug trace entry: %w", err)
+	}
+	return ensureWorkflowRowsAffected(result, "append workflow debug trace entry")
+}
+
+func (s *SQLStore) ListExecutionDebugTraceEntries(ctx context.Context, organizationID, executionID string) ([]ExecutionDebugTraceEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT node_id, node_type, status, attempt, input, output, error, context, started_at, completed_at, duration_ms, created_at
+		FROM workflow_debug_trace_entries
+		WHERE organization_id = $1 AND execution_id = $2
+		ORDER BY COALESCE(started_at, created_at) ASC, created_at ASC, id ASC
+	`, organizationID, executionID)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow debug trace entries: %w", err)
+	}
+	defer rows.Close()
+	trace := []ExecutionDebugTraceEntry{}
+	for rows.Next() {
+		entry, err := scanExecutionDebugTraceEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		trace = append(trace, entry)
+	}
+	return trace, rows.Err()
+}
+
+func (s *SQLStore) AppendExecutionVariableSnapshot(ctx context.Context, req AppendExecutionVariableSnapshotRequest) error {
+	id, err := auth.NewID("wdvs")
+	if err != nil {
+		return err
+	}
+	createdAt := req.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	inputJSON, err := marshalJSONObject(req.Snapshot.Input)
+	if err != nil {
+		return fmt.Errorf("marshal workflow variable snapshot input: %w", err)
+	}
+	contextJSON, err := marshalJSONObject(req.Snapshot.Context)
+	if err != nil {
+		return fmt.Errorf("marshal workflow variable snapshot context: %w", err)
+	}
+	nodeOutputsJSON, err := json.Marshal(req.Snapshot.NodeOutputs)
+	if err != nil {
+		return fmt.Errorf("marshal workflow variable snapshot node outputs: %w", err)
+	}
+	if len(nodeOutputsJSON) == 0 || string(nodeOutputsJSON) == "null" {
+		nodeOutputsJSON = []byte("{}")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO workflow_debug_variable_snapshots (
+			id,
+			organization_id,
+			execution_id,
+			input,
+			context,
+			node_outputs,
+			created_at
+		)
+		SELECT $1, e.organization_id, e.id, $4::jsonb, $5::jsonb, $6::jsonb, $7
+		FROM workflow_executions e
+		WHERE e.organization_id = $2 AND e.id = $3
+	`, id, req.OrganizationID, req.ExecutionID, inputJSON, contextJSON, nodeOutputsJSON, createdAt)
+	if err != nil {
+		return fmt.Errorf("append workflow variable snapshot: %w", err)
+	}
+	return ensureWorkflowRowsAffected(result, "append workflow variable snapshot")
+}
+
+func (s *SQLStore) LatestExecutionVariableSnapshot(ctx context.Context, organizationID, executionID string) (*ExecutionVariableSnapshot, error) {
+	snapshot, err := scanExecutionVariableSnapshot(s.db.QueryRowContext(ctx, `
+		SELECT input, context, node_outputs, created_at
+		FROM workflow_debug_variable_snapshots
+		WHERE organization_id = $1 AND execution_id = $2
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, organizationID, executionID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest workflow variable snapshot: %w", err)
+	}
+	return snapshot, nil
+}
+
+func (s *SQLStore) PruneExecutionDebugData(ctx context.Context, organizationID string, before time.Time) (ExecutionDebugRetentionPruneResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ExecutionDebugRetentionPruneResult{}, err
+	}
+	defer tx.Rollback()
+
+	traceResult, err := tx.ExecContext(ctx, `
+		DELETE FROM workflow_debug_trace_entries
+		WHERE organization_id = $1 AND created_at < $2
+	`, organizationID, before)
+	if err != nil {
+		return ExecutionDebugRetentionPruneResult{}, fmt.Errorf("prune workflow debug trace entries: %w", err)
+	}
+	snapshotResult, err := tx.ExecContext(ctx, `
+		DELETE FROM workflow_debug_variable_snapshots
+		WHERE organization_id = $1 AND created_at < $2
+	`, organizationID, before)
+	if err != nil {
+		return ExecutionDebugRetentionPruneResult{}, fmt.Errorf("prune workflow debug variable snapshots: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ExecutionDebugRetentionPruneResult{}, err
+	}
+
+	traceDeleted, _ := traceResult.RowsAffected()
+	snapshotDeleted, _ := snapshotResult.RowsAffected()
+	return ExecutionDebugRetentionPruneResult{
+		TraceEntriesDeleted:      int(traceDeleted),
+		VariableSnapshotsDeleted: int(snapshotDeleted),
+	}, nil
+}
+
+func (s *SQLStore) AppendExecutionEvent(ctx context.Context, req AppendExecutionEventRequest) error {
+	id, err := auth.NewID("wevt")
+	if err != nil {
+		return err
+	}
+	createdAt := req.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO workflow_execution_events (
+			id, execution_id, organization_id, event_type, from_status, to_status, created_at
+		)
+		SELECT $1, e.id, e.organization_id, $4, $5, $6, $7
+		FROM workflow_executions e
+		WHERE e.organization_id = $2 AND e.id = $3
+	`, id, req.OrganizationID, req.ExecutionID, req.EventType, string(req.FromStatus), string(req.ToStatus), createdAt)
+	if err != nil {
+		return fmt.Errorf("append workflow execution event: %w", err)
+	}
+	return ensureWorkflowRowsAffected(result, "append workflow execution event")
+}
+
+func (s *SQLStore) UpdateExecutionStatus(ctx context.Context, organizationID, id string, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var fromStatus ExecutionStatus
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status
+		FROM workflow_executions
+		WHERE id = $1 AND organization_id = $2
+		FOR UPDATE
+	`, id, organizationID).Scan(&fromStatus); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("lock workflow execution status: %w", err)
+	}
+
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE workflow_executions
 		SET status = $1, completed_at = $2, updated_at = $3
 		WHERE id = $4 AND organization_id = $5
-	`, string(status), completedAt, time.Now().UTC(), id, organizationID)
+	`, string(status), completedAt, now, id, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("update workflow execution status: %w", err)
 	}
@@ -392,6 +728,70 @@ func (s *SQLStore) UpdateExecutionStatus(ctx context.Context, organizationID, id
 	if rowsAffected == 0 {
 		return nil, nil
 	}
+	if fromStatus != status {
+		if err := insertWorkflowExecutionEvent(ctx, tx, organizationID, id, "status_changed", fromStatus, status, now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
+	return s.GetExecution(ctx, organizationID, id)
+}
+
+func (s *SQLStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var currentStatus ExecutionStatus
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status
+		FROM workflow_executions
+		WHERE id = $1 AND organization_id = $2
+		FOR UPDATE
+	`, id, organizationID).Scan(&currentStatus); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("lock workflow execution status: %w", err)
+	}
+	if currentStatus != fromStatus {
+		return nil, fmt.Errorf("%w: execution %s moved from %s to %s before %s", ErrInvalidTransition, id, fromStatus, currentStatus, status)
+	}
+
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE workflow_executions
+		SET status = $1, completed_at = $2, updated_at = $3
+		WHERE id = $4 AND organization_id = $5
+	`, string(status), completedAt, now, id, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("update workflow execution status: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("update workflow execution status rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, nil
+	}
+	if currentStatus != status {
+		if err := insertWorkflowExecutionEvent(ctx, tx, organizationID, id, "status_changed", currentStatus, status, now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
 	return s.GetExecution(ctx, organizationID, id)
 }
 
@@ -518,6 +918,144 @@ func insertNodeExecution(ctx context.Context, tx *sql.Tx, organizationID, execut
 	`, id, executionID, organizationID, req.NodeID, req.NodeType, string(status), req.Attempt,
 		inputJSON, outputJSON, errorJSON, contextJSON, startedAt, req.CompletedAt, req.DurationMS, now); err != nil {
 		return fmt.Errorf("insert workflow node execution: %w", err)
+	}
+	if err := insertWorkflowDebugTraceEntry(ctx, tx, organizationID, executionID, req, status, startedAt, inputJSON, outputJSON, errorJSON, contextJSON, now); err != nil {
+		return err
+	}
+	snapshotCreatedAt := startedAt
+	if snapshotCreatedAt.IsZero() {
+		snapshotCreatedAt = now
+	}
+	if err := insertWorkflowVariableSnapshot(ctx, tx, organizationID, executionID, snapshotCreatedAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func insertWorkflowDebugTraceEntry(ctx context.Context, tx *sql.Tx, organizationID, executionID string, req CreateNodeExecutionRequest, status NodeStatus, startedAt time.Time, inputJSON, outputJSON, errorJSON, contextJSON []byte, createdAt time.Time) error {
+	id, err := auth.NewID("wdte")
+	if err != nil {
+		return err
+	}
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO workflow_debug_trace_entries (
+			id,
+			organization_id,
+			execution_id,
+			node_id,
+			node_type,
+			status,
+			attempt,
+			input,
+			output,
+			error,
+			context,
+			started_at,
+			completed_at,
+			duration_ms,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15)
+	`, id, organizationID, executionID, req.NodeID, req.NodeType, string(status), req.Attempt, inputJSON, outputJSON, errorJSON, contextJSON, nullableWorkflowTime(startedAt), req.CompletedAt, req.DurationMS, createdAt); err != nil {
+		return fmt.Errorf("insert workflow debug trace entry: %w", err)
+	}
+	return nil
+}
+
+func insertWorkflowVariableSnapshot(ctx context.Context, tx *sql.Tx, organizationID, executionID string, createdAt time.Time) error {
+	id, err := auth.NewID("wdvs")
+	if err != nil {
+		return err
+	}
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	var inputJSON, contextJSON []byte
+	if err := tx.QueryRowContext(ctx, `
+		SELECT input, context
+		FROM workflow_executions
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, executionID).Scan(&inputJSON, &contextJSON); err != nil {
+		return fmt.Errorf("load workflow execution variables for snapshot: %w", err)
+	}
+	nodeOutputs, err := latestSuccessfulWorkflowNodeOutputJSON(ctx, tx, organizationID, executionID)
+	if err != nil {
+		return err
+	}
+	nodeOutputsJSON, err := json.Marshal(nodeOutputs)
+	if err != nil {
+		return fmt.Errorf("marshal workflow variable snapshot node outputs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO workflow_debug_variable_snapshots (
+			id,
+			organization_id,
+			execution_id,
+			input,
+			context,
+			node_outputs,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)
+	`, id, organizationID, executionID, inputJSON, contextJSON, nodeOutputsJSON, createdAt); err != nil {
+		return fmt.Errorf("insert workflow variable snapshot: %w", err)
+	}
+	return nil
+}
+
+func latestSuccessfulWorkflowNodeOutputJSON(ctx context.Context, tx *sql.Tx, organizationID, executionID string) (map[string]map[string]any, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT node_id, output
+		FROM (
+			SELECT DISTINCT ON (node_id) node_id, output, created_at, id
+			FROM workflow_node_executions
+			WHERE organization_id = $1 AND execution_id = $2 AND status = ANY($3)
+			ORDER BY node_id, created_at DESC, id DESC
+		) latest
+		ORDER BY node_id ASC
+	`, organizationID, executionID, pq.Array([]string{string(NodeStatusSucceeded), string(NodeStatusCompleted)}))
+	if err != nil {
+		return nil, fmt.Errorf("list workflow node outputs for variable snapshot: %w", err)
+	}
+	defer rows.Close()
+
+	outputs := map[string]map[string]any{}
+	for rows.Next() {
+		var nodeID string
+		var outputJSON []byte
+		if err := rows.Scan(&nodeID, &outputJSON); err != nil {
+			return nil, fmt.Errorf("scan workflow node output for variable snapshot: %w", err)
+		}
+		var output map[string]any
+		if err := unmarshalJSONObject(outputJSON, &output); err != nil {
+			return nil, fmt.Errorf("unmarshal workflow node output for variable snapshot: %w", err)
+		}
+		outputs[nodeID] = output
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return outputs, nil
+}
+
+func insertWorkflowExecutionEvent(ctx context.Context, tx *sql.Tx, organizationID, executionID, eventType string, fromStatus, toStatus ExecutionStatus, createdAt time.Time) error {
+	id, err := auth.NewID("wevt")
+	if err != nil {
+		return err
+	}
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO workflow_execution_events (
+			id, execution_id, organization_id, event_type, from_status, to_status, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, id, executionID, organizationID, eventType, string(fromStatus), string(toStatus), createdAt); err != nil {
+		return fmt.Errorf("insert workflow execution event: %w", err)
 	}
 	return nil
 }
@@ -761,6 +1299,145 @@ func scanNodeExecution(row scanner) (*WorkflowNodeExecution, error) {
 	}
 	node.Context = openedContext
 	return &node, nil
+}
+
+func scanWorkflowExecutionEvent(row scanner) (WorkflowExecutionEvent, error) {
+	var event WorkflowExecutionEvent
+	var fromStatus string
+	var toStatus string
+	if err := row.Scan(
+		&event.ID,
+		&event.ExecutionID,
+		&event.OrganizationID,
+		&event.EventType,
+		&fromStatus,
+		&toStatus,
+		&event.CreatedAt,
+	); err != nil {
+		return WorkflowExecutionEvent{}, err
+	}
+	event.FromStatus = ExecutionStatus(fromStatus)
+	event.ToStatus = ExecutionStatus(toStatus)
+	return event, nil
+}
+
+func scanExecutionDebugTraceEntry(row scanner) (ExecutionDebugTraceEntry, error) {
+	var entry ExecutionDebugTraceEntry
+	var status string
+	var inputJSON, outputJSON, errorJSON, contextJSON []byte
+	var startedAt sql.NullTime
+	if err := row.Scan(
+		&entry.NodeID,
+		&entry.NodeType,
+		&status,
+		&entry.Attempt,
+		&inputJSON,
+		&outputJSON,
+		&errorJSON,
+		&contextJSON,
+		&startedAt,
+		&entry.CompletedAt,
+		&entry.DurationMS,
+		&entry.CreatedAt,
+	); err != nil {
+		return ExecutionDebugTraceEntry{}, err
+	}
+	entry.Status = NodeStatus(status)
+	if startedAt.Valid {
+		entry.StartedAt = startedAt.Time
+	}
+	if err := unmarshalJSONObject(inputJSON, &entry.Input); err != nil {
+		return ExecutionDebugTraceEntry{}, err
+	}
+	if err := unmarshalJSONObject(outputJSON, &entry.Output); err != nil {
+		return ExecutionDebugTraceEntry{}, err
+	}
+	if err := unmarshalJSONObject(errorJSON, &entry.Error); err != nil {
+		return ExecutionDebugTraceEntry{}, err
+	}
+	if err := unmarshalJSONObject(contextJSON, &entry.Context); err != nil {
+		return ExecutionDebugTraceEntry{}, err
+	}
+	openedInput, err := openWorkflowDefinitionSecrets(entry.Input)
+	if err != nil {
+		return ExecutionDebugTraceEntry{}, fmt.Errorf("open workflow debug trace input %s: %w", entry.NodeID, err)
+	}
+	entry.Input = openedInput
+	openedOutput, err := openWorkflowDefinitionSecrets(entry.Output)
+	if err != nil {
+		return ExecutionDebugTraceEntry{}, fmt.Errorf("open workflow debug trace output %s: %w", entry.NodeID, err)
+	}
+	entry.Output = openedOutput
+	openedError, err := openWorkflowDefinitionSecrets(entry.Error)
+	if err != nil {
+		return ExecutionDebugTraceEntry{}, fmt.Errorf("open workflow debug trace error %s: %w", entry.NodeID, err)
+	}
+	entry.Error = openedError
+	openedContext, err := openWorkflowDefinitionSecrets(entry.Context)
+	if err != nil {
+		return ExecutionDebugTraceEntry{}, fmt.Errorf("open workflow debug trace context %s: %w", entry.NodeID, err)
+	}
+	entry.Context = openedContext
+	return entry, nil
+}
+
+func scanExecutionVariableSnapshot(row scanner) (*ExecutionVariableSnapshot, error) {
+	var snapshot ExecutionVariableSnapshot
+	var inputJSON, contextJSON, nodeOutputsJSON []byte
+	if err := row.Scan(&inputJSON, &contextJSON, &nodeOutputsJSON, &snapshot.CreatedAt); err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSONObject(inputJSON, &snapshot.Input); err != nil {
+		return nil, err
+	}
+	if err := unmarshalJSONObject(contextJSON, &snapshot.Context); err != nil {
+		return nil, err
+	}
+	if len(nodeOutputsJSON) == 0 {
+		nodeOutputsJSON = []byte("{}")
+	}
+	if err := json.Unmarshal(nodeOutputsJSON, &snapshot.NodeOutputs); err != nil {
+		return nil, err
+	}
+	if snapshot.NodeOutputs == nil {
+		snapshot.NodeOutputs = map[string]map[string]any{}
+	}
+	openedInput, err := openWorkflowDefinitionSecrets(snapshot.Input)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow variable snapshot input: %w", err)
+	}
+	snapshot.Input = openedInput
+	openedContext, err := openWorkflowDefinitionSecrets(snapshot.Context)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow variable snapshot context: %w", err)
+	}
+	snapshot.Context = openedContext
+	for nodeID, output := range snapshot.NodeOutputs {
+		openedOutput, err := openWorkflowDefinitionSecrets(output)
+		if err != nil {
+			return nil, fmt.Errorf("open workflow variable snapshot node output %s: %w", nodeID, err)
+		}
+		snapshot.NodeOutputs[nodeID] = openedOutput
+	}
+	return &snapshot, nil
+}
+
+func nullableWorkflowTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
+}
+
+func ensureWorkflowRowsAffected(result sql.Result, operation string) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", operation, err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func marshalJSONObject(value map[string]any) ([]byte, error) {

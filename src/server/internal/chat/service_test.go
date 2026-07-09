@@ -85,6 +85,23 @@ func (f fakeGenerator) GenerateReply(ctx context.Context, messages []Message, co
 	return f.reply, nil
 }
 
+type usageReportingGenerator struct {
+	reply string
+	usage *CompletionUsage
+}
+
+func (g usageReportingGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	return g.reply, nil
+}
+
+func (g usageReportingGenerator) GenerateStructuredReply(ctx context.Context, messages []Message, config ConversationConfig, tools []map[string]any) (*CompletionResponse, error) {
+	return &CompletionResponse{
+		Content:      g.reply,
+		FinishReason: "stop",
+		Usage:        g.usage,
+	}, nil
+}
+
 type metadataRecordingGenerator struct {
 	metadata RelayRequestMetadata
 	ok       bool
@@ -335,6 +352,51 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 }
 
+func TestSendMessageRecordsGatewayUsageTokensWhenAvailable(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	recorder := &fakeUsageRecorder{}
+	service := NewService(store, usageReportingGenerator{
+		reply: "assistant reply",
+		usage: &CompletionUsage{
+			PromptTokens:     12,
+			CompletionTokens: 8,
+			TotalTokens:      20,
+		},
+	}, "demo-reply", recorder)
+
+	_, err := service.SendMessage(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User: auth.User{
+				ID: "user_1",
+			},
+		},
+		"conversation_1",
+		"track exact relay usage",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	if len(recorder.records) != 1 {
+		t.Fatalf("expected 1 usage record, got %d", len(recorder.records))
+	}
+	record := recorder.records[0]
+	if record.InputTokens != 12 || record.OutputTokens != 8 {
+		t.Fatalf("expected gateway usage tokens 12/8, got input=%d output=%d record=%+v", record.InputTokens, record.OutputTokens, record)
+	}
+}
+
 func TestSendMessageStreamEmitsAndPersistsAssistantReply(t *testing.T) {
 	store := &recordingStore{
 		config: ConversationConfig{
@@ -352,7 +414,7 @@ func TestSendMessageStreamEmitsAndPersistsAssistantReply(t *testing.T) {
 	var chunks []string
 
 	err := service.SendMessageStream(
-		context.Background(),
+		WithRelayRequestMetadata(context.Background(), RelayRequestMetadata{RequestID: "req_chat_stream_1"}),
 		auth.Session{
 			OrganizationID: "org_1",
 			WorkspaceID:    "workspace_1",
@@ -385,7 +447,11 @@ func TestSendMessageStreamEmitsAndPersistsAssistantReply(t *testing.T) {
 	if len(triggerer.requests) != 1 || triggerer.requests[0].Message != "stream this" {
 		t.Fatalf("expected semantic workflow trigger after streamed reply, got %+v", triggerer.requests)
 	}
-	if !generator.ok || generator.metadata.FeatureType != "chat" || generator.metadata.OrganizationID != "org_1" || generator.metadata.UserID != "user_1" {
+	if !generator.ok ||
+		generator.metadata.FeatureType != "chat" ||
+		generator.metadata.OrganizationID != "org_1" ||
+		generator.metadata.UserID != "user_1" ||
+		generator.metadata.RequestID != "req_chat_stream_1" {
 		t.Fatalf("expected relay metadata on stream generator context, got ok=%v metadata=%+v", generator.ok, generator.metadata)
 	}
 }
@@ -403,7 +469,7 @@ func TestSendMessagePassesRelayRequestMetadataToReplyGenerator(t *testing.T) {
 	service := NewService(store, generator, "demo-reply", nil)
 
 	_, err := service.SendMessage(
-		context.Background(),
+		WithRelayRequestMetadata(context.Background(), RelayRequestMetadata{RequestID: "req_chat_message_1"}),
 		auth.Session{
 			OrganizationID: "org_1",
 			WorkspaceID:    "workspace_1",
@@ -437,6 +503,9 @@ func TestSendMessagePassesRelayRequestMetadataToReplyGenerator(t *testing.T) {
 	}
 	if generator.metadata.FeatureType != "chat" {
 		t.Fatalf("expected chat feature metadata, got %q", generator.metadata.FeatureType)
+	}
+	if generator.metadata.RequestID != "req_chat_message_1" {
+		t.Fatalf("expected request metadata req_chat_message_1, got %q", generator.metadata.RequestID)
 	}
 }
 
@@ -479,6 +548,9 @@ func TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply(t *testing.T) {
 	}
 	if request.ConversationID != "conversation_1" || request.Message != "please triage this incident" {
 		t.Fatalf("unexpected trigger payload: %+v", request)
+	}
+	if request.MessageID != "user-message" {
+		t.Fatalf("expected semantic workflow trigger to include user message id, got %+v", request)
 	}
 }
 

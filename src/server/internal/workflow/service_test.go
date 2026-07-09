@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1577,6 +1579,16 @@ func TestServicePromotesOldestQueuedWorkflowExecutionAfterCompletion(t *testing.
 	if completed.Status != ExecutionStatusSucceeded {
 		t.Fatalf("first execution status=%s, want succeeded", completed.Status)
 	}
+	completedSnapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", first.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot first returned error: %v", err)
+	}
+	if !completedSnapshot.StateReplay.Valid || completedSnapshot.StateReplay.FinalStatus != ExecutionStatusSucceeded {
+		t.Fatalf("expected valid complete replay, got %+v", completedSnapshot.StateReplay)
+	}
+	if len(completedSnapshot.StateReplay.Transitions) != 1 || completedSnapshot.StateReplay.Transitions[0].Event != StateEventComplete {
+		t.Fatalf("expected complete replay event, got %+v", completedSnapshot.StateReplay.Transitions)
+	}
 
 	promoted, err := service.GetExecution(ctx, "org_1", second.ID)
 	if err != nil {
@@ -1641,6 +1653,37 @@ func TestServicePromoteQueuedExecutionsKeepsScheduleTriggersSerial(t *testing.T)
 	}
 	if stillQueued.Status != ExecutionStatusQueued {
 		t.Fatalf("queued schedule status=%s, want queued", stillQueued.Status)
+	}
+}
+
+func TestServicePromoteQueuedExecutionsRejectsStaleQueuedSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&queuePromotionRaceStore{memoryWorkflowStore: store})
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Queued Race Flow",
+		Definition:     workflowDefinitionWithNodes("start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	queued := store.addWorkflowExecution(ctx, workflow.ID, "org_1", workflow.Definition, ExecutionStatusQueued)
+
+	promoted, err := service.PromoteQueuedExecutions(ctx, "org_1")
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("PromoteQueuedExecutions err=%v, want ErrInvalidTransition", err)
+	}
+	if len(promoted) != 0 {
+		t.Fatalf("stale queued snapshot must not be promoted, got %+v", promoted)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", queued.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale queued snapshot must not revive cancelled execution, got %s", unchanged.Status)
 	}
 }
 
@@ -1770,6 +1813,9 @@ func TestServiceBuildExecutionDebugSnapshotDerivesTraceVariablesOutputsPerforman
 	if snapshot.ExecutionID != execution.ID || snapshot.WorkflowID != "workflow_1" || snapshot.Status != ExecutionStatusFailed {
 		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
 	}
+	if len(snapshot.Events) != 1 || snapshot.Events[0].EventType != "created" || snapshot.Events[0].ToStatus != ExecutionStatusFailed {
+		t.Fatalf("expected created execution event, got %+v", snapshot.Events)
+	}
 	if snapshot.VariableSnapshot.Input["ticket"] != "INC-9" || snapshot.VariableSnapshot.Context["trigger"] == nil {
 		t.Fatalf("expected input/context variable snapshot, got %+v", snapshot.VariableSnapshot)
 	}
@@ -1778,6 +1824,9 @@ func TestServiceBuildExecutionDebugSnapshotDerivesTraceVariablesOutputsPerforman
 	}
 	if len(snapshot.Trace) != 3 || snapshot.Trace[1].NodeID != "notify" || snapshot.Trace[1].Input["url"] != "https://tickets.example/INC-9" {
 		t.Fatalf("expected trace entries from node executions, got %+v", snapshot.Trace)
+	}
+	if !snapshot.Trace[1].CreatedAt.Equal(secondStartedAt) {
+		t.Fatalf("expected derived trace createdAt to use node start time, got %+v", snapshot.Trace[1])
 	}
 	if snapshot.Performance.TotalDurationMS != 90 || snapshot.Performance.NodeDurationsMS["notify"] != 30 || snapshot.Performance.BottleneckNodeID != "notify" {
 		t.Fatalf("unexpected performance snapshot: %+v", snapshot.Performance)
@@ -1790,6 +1839,336 @@ func TestServiceBuildExecutionDebugSnapshotDerivesTraceVariablesOutputsPerforman
 	}
 	if snapshot.Logs[2].Level != "error" || snapshot.Logs[2].NodeID != "archive" || snapshot.Logs[2].Message != "Node archive failed in 30ms: archive endpoint unavailable" || !snapshot.Logs[2].Timestamp.Equal(thirdCompletedAt) {
 		t.Fatalf("unexpected failed node log: %+v", snapshot.Logs[2])
+	}
+}
+
+func TestServiceBuildExecutionDebugSnapshotIncludesStatusTransitionEvents(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusRunning,
+		StartedAt:      time.Date(2026, time.July, 2, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	if _, err := service.PauseExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("PauseExecution returned error: %v", err)
+	}
+	if _, err := service.ResumeExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	if len(snapshot.Events) != 3 {
+		t.Fatalf("expected created, paused, and resumed events, got %+v", snapshot.Events)
+	}
+	if snapshot.Events[0].EventType != "created" || snapshot.Events[0].FromStatus != "" || snapshot.Events[0].ToStatus != ExecutionStatusRunning {
+		t.Fatalf("unexpected created event: %+v", snapshot.Events[0])
+	}
+	if snapshot.Events[1].EventType != "status_changed" || snapshot.Events[1].FromStatus != ExecutionStatusRunning || snapshot.Events[1].ToStatus != ExecutionStatusPaused {
+		t.Fatalf("unexpected pause event: %+v", snapshot.Events[1])
+	}
+	if snapshot.Events[2].EventType != "status_changed" || snapshot.Events[2].FromStatus != ExecutionStatusPaused || snapshot.Events[2].ToStatus != ExecutionStatusRunning {
+		t.Fatalf("unexpected resume event: %+v", snapshot.Events[2])
+	}
+}
+
+func TestServiceBuildExecutionDebugSnapshotReplaysDurableStateTransitions(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusRunning,
+		StartedAt:      time.Date(2026, time.July, 4, 9, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	if _, err := service.PauseExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("PauseExecution returned error: %v", err)
+	}
+	if _, err := service.ResumeExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if _, err := service.CancelExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("CancelExecution returned error: %v", err)
+	}
+
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	replay := snapshot.StateReplay
+	if replay.InitialStatus != ExecutionStatusRunning {
+		t.Fatalf("InitialStatus=%s, want running", replay.InitialStatus)
+	}
+	if replay.FinalStatus != ExecutionStatusCancelled {
+		t.Fatalf("FinalStatus=%s, want cancelled", replay.FinalStatus)
+	}
+	if !replay.Valid {
+		t.Fatalf("expected valid replay, got %+v", replay)
+	}
+	wantTransitions := []struct {
+		from  ExecutionStatus
+		to    ExecutionStatus
+		event WorkflowStateMachineEvent
+	}{
+		{ExecutionStatusRunning, ExecutionStatusPaused, StateEventPause},
+		{ExecutionStatusPaused, ExecutionStatusRunning, StateEventResume},
+		{ExecutionStatusRunning, ExecutionStatusCancelled, StateEventCancel},
+	}
+	if len(replay.Transitions) != len(wantTransitions) {
+		t.Fatalf("transitions=%+v, want %d replayed transitions", replay.Transitions, len(wantTransitions))
+	}
+	for i, want := range wantTransitions {
+		got := replay.Transitions[i]
+		if got.FromStatus != want.from || got.ToStatus != want.to || got.Event != want.event {
+			t.Fatalf("transition[%d]=+%v, want from=%s to=%s event=%s", i, got, want.from, want.to, want.event)
+		}
+	}
+}
+
+func TestServiceBuildExecutionStateReplayReturnsDurableTransitionsWithoutDebugSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusRunning,
+		StartedAt:      time.Date(2026, time.July, 4, 9, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	if _, err := service.PauseExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("PauseExecution returned error: %v", err)
+	}
+	if _, err := service.CancelExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("CancelExecution returned error: %v", err)
+	}
+
+	replay, err := service.BuildExecutionStateReplay(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionStateReplay returned error: %v", err)
+	}
+	if replay.InitialStatus != ExecutionStatusRunning || replay.FinalStatus != ExecutionStatusCancelled || !replay.Valid {
+		t.Fatalf("unexpected state replay: %+v", replay)
+	}
+	if len(replay.Transitions) != 2 {
+		t.Fatalf("transitions=%+v, want 2", replay.Transitions)
+	}
+	if replay.Transitions[0].Event != StateEventPause || replay.Transitions[1].Event != StateEventCancel {
+		t.Fatalf("unexpected replay events: %+v", replay.Transitions)
+	}
+
+	if _, err := service.BuildExecutionStateReplay(ctx, "org_2", execution.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-tenant BuildExecutionStateReplay err=%v, want ErrNotFound", err)
+	}
+}
+
+func TestServiceBuildExecutionStateReplayRejectsUnsupportedStatusTransition(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	createdAt := time.Date(2026, time.July, 4, 10, 0, 0, 0, time.UTC)
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusRunning,
+		StartedAt:      createdAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	store.events[execution.ID] = append(store.events[execution.ID], WorkflowExecutionEvent{
+		ID:             "wevt_invalid_transition",
+		ExecutionID:    execution.ID,
+		OrganizationID: "org_1",
+		EventType:      "status_changed",
+		FromStatus:     ExecutionStatusRunning,
+		ToStatus:       ExecutionStatusQueued,
+		CreatedAt:      createdAt.Add(time.Second),
+	})
+	store.executions[execution.ID].Status = ExecutionStatusQueued
+
+	replay, err := service.BuildExecutionStateReplay(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionStateReplay returned error: %v", err)
+	}
+	if replay.Valid {
+		t.Fatalf("expected unsupported running->queued transition to invalidate replay, got %+v", replay)
+	}
+	if !strings.Contains(replay.InvalidReason, "unsupported transition") {
+		t.Fatalf("InvalidReason=%q, want unsupported transition reason", replay.InvalidReason)
+	}
+}
+
+func TestServicePruneExecutionDebugDataRemovesOnlyExpiredTenantRows(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	oldCreatedAt := time.Date(2026, time.July, 1, 10, 0, 0, 0, time.UTC)
+	cutoff := oldCreatedAt.Add(24 * time.Hour)
+	newCreatedAt := cutoff.Add(time.Minute)
+
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusSucceeded,
+		StartedAt:      oldCreatedAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	otherExecution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_2",
+		WorkflowID:     "workflow_2",
+		Status:         ExecutionStatusSucceeded,
+		StartedAt:      oldCreatedAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution other tenant returned error: %v", err)
+	}
+	for _, req := range []AppendExecutionDebugTraceEntryRequest{
+		{OrganizationID: "org_1", ExecutionID: execution.ID, CreatedAt: oldCreatedAt, Entry: ExecutionDebugTraceEntry{NodeID: "old", Status: NodeStatusSucceeded}},
+		{OrganizationID: "org_1", ExecutionID: execution.ID, CreatedAt: newCreatedAt, Entry: ExecutionDebugTraceEntry{NodeID: "new", Status: NodeStatusSucceeded}},
+		{OrganizationID: "org_2", ExecutionID: otherExecution.ID, CreatedAt: oldCreatedAt, Entry: ExecutionDebugTraceEntry{NodeID: "other", Status: NodeStatusSucceeded}},
+	} {
+		if err := store.AppendExecutionDebugTraceEntry(ctx, req); err != nil {
+			t.Fatalf("AppendExecutionDebugTraceEntry returned error: %v", err)
+		}
+	}
+	for _, req := range []AppendExecutionVariableSnapshotRequest{
+		{OrganizationID: "org_1", ExecutionID: execution.ID, CreatedAt: oldCreatedAt, Snapshot: ExecutionVariableSnapshot{Input: map[string]any{"age": "old"}}},
+		{OrganizationID: "org_1", ExecutionID: execution.ID, CreatedAt: newCreatedAt, Snapshot: ExecutionVariableSnapshot{Input: map[string]any{"age": "new"}}},
+		{OrganizationID: "org_2", ExecutionID: otherExecution.ID, CreatedAt: oldCreatedAt, Snapshot: ExecutionVariableSnapshot{Input: map[string]any{"age": "other"}}},
+	} {
+		if err := store.AppendExecutionVariableSnapshot(ctx, req); err != nil {
+			t.Fatalf("AppendExecutionVariableSnapshot returned error: %v", err)
+		}
+	}
+
+	result, err := service.PruneExecutionDebugData(ctx, "org_1", cutoff)
+	if err != nil {
+		t.Fatalf("PruneExecutionDebugData returned error: %v", err)
+	}
+	if result.TraceEntriesDeleted != 1 || result.VariableSnapshotsDeleted != 1 {
+		t.Fatalf("unexpected prune result: %+v", result)
+	}
+
+	trace, err := store.ListExecutionDebugTraceEntries(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("ListExecutionDebugTraceEntries returned error: %v", err)
+	}
+	if len(trace) != 1 || trace[0].NodeID != "new" {
+		t.Fatalf("expected only new org_1 trace to remain, got %+v", trace)
+	}
+	snapshot, err := store.LatestExecutionVariableSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("LatestExecutionVariableSnapshot returned error: %v", err)
+	}
+	if snapshot == nil || snapshot.Input["age"] != "new" {
+		t.Fatalf("expected only new org_1 snapshot to remain, got %+v", snapshot)
+	}
+	otherTrace, err := store.ListExecutionDebugTraceEntries(ctx, "org_2", otherExecution.ID)
+	if err != nil {
+		t.Fatalf("ListExecutionDebugTraceEntries other tenant returned error: %v", err)
+	}
+	if len(otherTrace) != 1 || otherTrace[0].NodeID != "other" {
+		t.Fatalf("expected other tenant trace to be retained, got %+v", otherTrace)
+	}
+}
+
+func TestServiceBuildExecutionDebugSnapshotUsesDurableTraceAndVariableSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	startedAt := time.Date(2026, time.July, 2, 12, 30, 0, 0, time.UTC)
+	completedAt := startedAt.Add(45 * time.Millisecond)
+	execution, err := store.CreateExecution(ctx, CreateExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     "workflow_1",
+		Status:         ExecutionStatusRunning,
+		Input:          map[string]any{"ticket": "stale"},
+		Context:        map[string]any{"trigger": "stale"},
+		StartedAt:      startedAt,
+		NodeExecutions: []CreateNodeExecutionRequest{{
+			NodeID:     "derived_node",
+			NodeType:   "http",
+			Status:     NodeStatusSucceeded,
+			Output:     map[string]any{"statusCode": float64(200)},
+			StartedAt:  startedAt,
+			DurationMS: 10,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateExecution returned error: %v", err)
+	}
+	if err := store.AppendExecutionDebugTraceEntry(ctx, AppendExecutionDebugTraceEntryRequest{
+		OrganizationID: "org_1",
+		ExecutionID:    execution.ID,
+		CreatedAt:      startedAt,
+		Entry: ExecutionDebugTraceEntry{
+			NodeID:      "durable_notify",
+			NodeType:    "http",
+			Status:      NodeStatusSucceeded,
+			Attempt:     2,
+			Input:       map[string]any{"url": "https://durable.example"},
+			Output:      map[string]any{"statusCode": float64(204)},
+			Context:     map[string]any{"replay": true},
+			StartedAt:   startedAt,
+			CompletedAt: &completedAt,
+			DurationMS:  45,
+		},
+	}); err != nil {
+		t.Fatalf("AppendExecutionDebugTraceEntry returned error: %v", err)
+	}
+	if err := store.AppendExecutionVariableSnapshot(ctx, AppendExecutionVariableSnapshotRequest{
+		OrganizationID: "org_1",
+		ExecutionID:    execution.ID,
+		CreatedAt:      completedAt,
+		Snapshot: ExecutionVariableSnapshot{
+			Input:   map[string]any{"ticket": "INC-42"},
+			Context: map[string]any{"durable": true},
+			NodeOutputs: map[string]map[string]any{
+				"durable_notify": map[string]any{"statusCode": float64(204)},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("AppendExecutionVariableSnapshot returned error: %v", err)
+	}
+
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	if len(snapshot.Trace) != 1 || snapshot.Trace[0].NodeID != "durable_notify" || snapshot.Trace[0].Input["url"] != "https://durable.example" {
+		t.Fatalf("expected durable trace to replace derived node trace, got %+v", snapshot.Trace)
+	}
+	if _, ok := snapshot.Outputs["derived_node"]; ok {
+		t.Fatalf("expected durable outputs to replace derived outputs, got %+v", snapshot.Outputs)
+	}
+	if snapshot.VariableSnapshot.Input["ticket"] != "INC-42" || snapshot.VariableSnapshot.Context["durable"] != true {
+		t.Fatalf("expected durable variable snapshot, got %+v", snapshot.VariableSnapshot)
+	}
+	if snapshot.VariableSnapshot.NodeOutputs["durable_notify"]["statusCode"] != float64(204) || snapshot.Outputs["durable_notify"]["statusCode"] != float64(204) {
+		t.Fatalf("expected durable node outputs, got variables=%+v outputs=%+v", snapshot.VariableSnapshot.NodeOutputs, snapshot.Outputs)
+	}
+	if snapshot.Performance.NodeDurationsMS["durable_notify"] != 45 || snapshot.Performance.BottleneckNodeID != "durable_notify" {
+		t.Fatalf("expected performance from durable trace, got %+v", snapshot.Performance)
+	}
+	if len(snapshot.Logs) != 1 || snapshot.Logs[0].NodeID != "durable_notify" || snapshot.Logs[0].Message != "Node durable_notify succeeded in 45ms" || !snapshot.Logs[0].Timestamp.Equal(completedAt) {
+		t.Fatalf("expected log from durable trace, got %+v", snapshot.Logs)
 	}
 }
 
@@ -1904,6 +2283,56 @@ func TestServiceCheckResourceLimitsTimesOutLongRunningExecution(t *testing.T) {
 	if checked.Status != ExecutionStatusTimedOut || checked.CompletedAt == nil {
 		t.Fatalf("CheckResourceLimits timeout got %+v, want timeout with completion time", checked)
 	}
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	replay := snapshot.StateReplay
+	if !replay.Valid || replay.FinalStatus != ExecutionStatusTimedOut {
+		t.Fatalf("expected valid timeout replay, got %+v", replay)
+	}
+	if len(replay.Transitions) != 1 || replay.Transitions[0].Event != StateEventTimeout {
+		t.Fatalf("expected timeout replay event, got %+v", replay.Transitions)
+	}
+}
+
+func TestServiceCheckResourceLimitsRejectsStaleRunningTimeoutSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&resourceLimitRaceStore{memoryWorkflowStore: store})
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Timeout Race Flow",
+		Definition: workflowDefinitionWithLimits(map[string]any{
+			"max_execution_duration_seconds": float64(60),
+		}, "start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	startedAt := time.Date(2026, 6, 4, 8, 0, 0, 0, time.UTC)
+	store.executions[execution.ID].StartedAt = startedAt
+
+	checked, err := service.CheckResourceLimits(ctx, "org_1", execution.ID, WorkflowResourceUsage{
+		Now: startedAt.Add(61 * time.Second),
+	})
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("CheckResourceLimits stale timeout err=%v, want ErrInvalidTransition", err)
+	}
+	if checked != nil {
+		t.Fatalf("stale timeout guard must not return updated execution, got %+v", checked)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale timeout guard must not overwrite cancelled execution, got %s", unchanged.Status)
+	}
 }
 
 func TestServiceCheckResourceLimitsPausesWhenTokenBudgetIsExceeded(t *testing.T) {
@@ -1948,6 +2377,41 @@ func TestServiceCheckResourceLimitsPausesWhenTokenBudgetIsExceeded(t *testing.T)
 	}
 }
 
+func TestServiceCheckResourceLimitsRejectsStaleRunningTokenBudgetSnapshot(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&resourceLimitNodeRaceStore{memoryWorkflowStore: store})
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Token Budget Race Flow",
+		Definition: workflowDefinitionWithLimits(map[string]any{
+			"max_tokens_budget": float64(100),
+		}, "start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	checked, err := service.CheckResourceLimits(ctx, "org_1", execution.ID, WorkflowResourceUsage{TotalTokens: 101})
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("CheckResourceLimits stale token budget err=%v, want ErrInvalidTransition", err)
+	}
+	if checked != nil {
+		t.Fatalf("stale token budget guard must not return updated execution, got %+v", checked)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale token budget guard must not overwrite cancelled execution, got %s", unchanged.Status)
+	}
+}
+
 func TestServiceCheckResourceLimitsStopsWhenNodeExecutionLimitIsExceeded(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store)
@@ -1973,6 +2437,17 @@ func TestServiceCheckResourceLimitsStopsWhenNodeExecutionLimitIsExceeded(t *test
 	}
 	if checked.Status != ExecutionStatusMaxIterations || checked.CompletedAt == nil {
 		t.Fatalf("CheckResourceLimits node count got %+v, want max_iterations with completion time", checked)
+	}
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	replay := snapshot.StateReplay
+	if !replay.Valid || replay.FinalStatus != ExecutionStatusMaxIterations {
+		t.Fatalf("expected valid max_iterations replay, got %+v", replay)
+	}
+	if len(replay.Transitions) != 1 || replay.Transitions[0].Event != StateEventMaxIterations {
+		t.Fatalf("expected max_iterations replay event, got %+v", replay.Transitions)
 	}
 }
 
@@ -2032,6 +2507,46 @@ func TestServiceExecutionLifecycleTransitions(t *testing.T) {
 	}
 	if cancelled.Status != ExecutionStatusCancelled || cancelled.CompletedAt == nil {
 		t.Fatalf("CancelExecution got %+v, want cancelled with completion time", cancelled)
+	}
+}
+
+func TestServiceLifecycleTransitionsUseDurableStateMachineEvents(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+	execution := store.addExecution("org_1", "workflow_1", ExecutionStatusRunning)
+
+	if _, err := service.PauseExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("PauseExecution returned error: %v", err)
+	}
+	if _, err := service.ResumeExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if _, err := service.CancelExecution(ctx, "org_1", execution.ID); err != nil {
+		t.Fatalf("CancelExecution returned error: %v", err)
+	}
+
+	events, err := store.ListExecutionEvents(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("ListExecutionEvents returned error: %v", err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %+v, want created plus 3 state-machine transitions", events)
+	}
+	want := []struct {
+		eventType string
+		from      ExecutionStatus
+		to        ExecutionStatus
+	}{
+		{"created", "", ExecutionStatusRunning},
+		{"status_changed", ExecutionStatusRunning, ExecutionStatusPaused},
+		{"status_changed", ExecutionStatusPaused, ExecutionStatusRunning},
+		{"status_changed", ExecutionStatusRunning, ExecutionStatusCancelled},
+	}
+	for i, expected := range want {
+		if events[i].EventType != expected.eventType || events[i].FromStatus != expected.from || events[i].ToStatus != expected.to {
+			t.Fatalf("event[%d]=%+v, want type=%s from=%s to=%s", i, events[i], expected.eventType, expected.from, expected.to)
+		}
 	}
 }
 
@@ -2390,6 +2905,16 @@ func TestServiceRecordNodeStatusAppliesFailurePolicies(t *testing.T) {
 	if skipped.Status != ExecutionStatusPartialSuccess {
 		t.Fatalf("expected skip_on_failure to mark partial success, got %s", skipped.Status)
 	}
+	skippedSnapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot skipped returned error: %v", err)
+	}
+	if !skippedSnapshot.StateReplay.Valid || skippedSnapshot.StateReplay.FinalStatus != ExecutionStatusPartialSuccess {
+		t.Fatalf("expected valid partial_success replay, got %+v", skippedSnapshot.StateReplay)
+	}
+	if len(skippedSnapshot.StateReplay.Transitions) != 1 || skippedSnapshot.StateReplay.Transitions[0].Event != StateEventPartialSuccess {
+		t.Fatalf("expected partial_success replay event, got %+v", skippedSnapshot.StateReplay.Transitions)
+	}
 	if nodes := workflowNodeExecutionsByID(skipped.NodeExecutions, "optional_lookup"); len(nodes) == 0 || nodes[len(nodes)-1].Status != NodeStatusSkipped {
 		t.Fatalf("expected skipped node record, got %+v", nodes)
 	}
@@ -2411,6 +2936,142 @@ func TestServiceRecordNodeStatusAppliesFailurePolicies(t *testing.T) {
 	}
 	if nodes := workflowNodeExecutionsByID(branched.NodeExecutions, "notify_ops"); len(nodes) == 0 || nodes[len(nodes)-1].Status != NodeStatusPending {
 		t.Fatalf("expected failure branch node to be seeded, got %+v", nodes)
+	}
+}
+
+func TestServiceRecordNodeStatusDoesNotReviveTerminalExecutionWithAutoRetry(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Terminal Auto Retry Guard",
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{"id": "unstable_call", "type": "http", "failurePolicy": map[string]any{"strategy": "auto_retry", "maxRetries": float64(3)}},
+			},
+			nil,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution := store.addWorkflowExecution(ctx, workflow.ID, "org_1", workflow.Definition, ExecutionStatusCancelled)
+
+	_, err = service.RecordNodeStatus(ctx, "org_1", execution.ID, RecordNodeStatusRequest{
+		NodeID:  "unstable_call",
+		Status:  NodeStatusFailed,
+		Attempt: 1,
+		Error:   map[string]any{"message": "provider timeout"},
+	})
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("RecordNodeStatus terminal auto-retry err=%v, want ErrInvalidTransition", err)
+	}
+	unchanged, getErr := service.GetExecution(ctx, "org_1", execution.ID)
+	if getErr != nil {
+		t.Fatalf("GetExecution returned error: %v", getErr)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("terminal execution was revived to %s", unchanged.Status)
+	}
+	if nodes := workflowNodeExecutionsByID(unchanged.NodeExecutions, "unstable_call"); len(nodes) != 1 || nodes[len(nodes)-1].Status != NodeStatusPending {
+		t.Fatalf("expected terminal execution node history to stay unchanged, got %+v", nodes)
+	}
+}
+
+func TestServiceRecordNodeStatusRejectsStaleAutoRetryExhaustion(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(&autoRetryExhaustionRaceStore{memoryWorkflowStore: store})
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Auto Retry Exhaustion Race",
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{"id": "unstable_call", "type": "http", "failurePolicy": map[string]any{"strategy": "auto_retry", "maxRetries": float64(1)}},
+			},
+			nil,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution := store.addWorkflowExecution(ctx, workflow.ID, "org_1", workflow.Definition, ExecutionStatusRunning)
+
+	_, err = service.RecordNodeStatus(ctx, "org_1", execution.ID, RecordNodeStatusRequest{
+		NodeID:  "unstable_call",
+		Status:  NodeStatusFailed,
+		Attempt: 2,
+		Error:   map[string]any{"message": "provider timeout"},
+	})
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("RecordNodeStatus stale auto-retry exhaustion err=%v, want ErrInvalidTransition", err)
+	}
+	unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	if unchanged.Status != ExecutionStatusCancelled {
+		t.Fatalf("stale auto-retry exhaustion must not overwrite cancelled execution, got %s", unchanged.Status)
+	}
+}
+
+func TestServiceRecordNodeStatusPersistsRepeatedPartialSuccessTransitions(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Repeated Partial Success",
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{"id": "optional_lookup_a", "type": "knowledge", "failurePolicy": map[string]any{"strategy": "skip_on_failure"}},
+				{"id": "optional_lookup_b", "type": "knowledge", "failurePolicy": map[string]any{"strategy": "skip_on_failure"}},
+			},
+			nil,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	if _, err := service.RecordNodeStatus(ctx, "org_1", execution.ID, RecordNodeStatusRequest{
+		NodeID: "optional_lookup_a",
+		Status: NodeStatusFailed,
+		Error:  map[string]any{"message": "first optional source unavailable"},
+	}); err != nil {
+		t.Fatalf("RecordNodeStatus first skip returned error: %v", err)
+	}
+	if _, err := service.RecordNodeStatus(ctx, "org_1", execution.ID, RecordNodeStatusRequest{
+		NodeID: "optional_lookup_b",
+		Status: NodeStatusFailed,
+		Error:  map[string]any{"message": "second optional source unavailable"},
+	}); err != nil {
+		t.Fatalf("RecordNodeStatus second skip returned error: %v", err)
+	}
+
+	snapshot, err := service.BuildExecutionDebugSnapshot(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("BuildExecutionDebugSnapshot returned error: %v", err)
+	}
+	replay := snapshot.StateReplay
+	if !replay.Valid || replay.FinalStatus != ExecutionStatusPartialSuccess {
+		t.Fatalf("expected valid partial_success replay, got %+v", replay)
+	}
+	if len(replay.Transitions) != 2 {
+		t.Fatalf("expected two partial_success replay events, got %+v", replay.Transitions)
+	}
+	for i, transition := range replay.Transitions {
+		if transition.Event != StateEventPartialSuccess || transition.EventID == "" {
+			t.Fatalf("transition[%d]=%+v, want durable partial_success event", i, transition)
+		}
 	}
 }
 
@@ -2499,6 +3160,30 @@ func TestServiceResolvePausedFailureDecisionRetriesSkipsAndTerminates(t *testing
 		}
 		if nodes[len(nodes)-1].Input["priority"] != "urgent" {
 			t.Fatalf("expected edited retry input, got %+v", nodes[len(nodes)-1].Input)
+		}
+	})
+
+	t.Run("retry rejects stale paused snapshot", func(t *testing.T) {
+		store := newMemoryWorkflowStore()
+		service := NewService(&resolvePausedFailureRaceStore{memoryWorkflowStore: store})
+		_, execution := createPausedFailureExecution(t, ctx, service, store)
+
+		resolved, err := service.ResolvePausedFailure(ctx, "org_1", execution.ID, ResolveFailureDecisionRequest{
+			Action: FailureActionRetry,
+			NodeID: "must_review",
+		})
+		if !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("ResolvePausedFailure stale retry err=%v, want ErrInvalidTransition", err)
+		}
+		if resolved != nil {
+			t.Fatalf("stale retry guard must not return updated execution, got %+v", resolved)
+		}
+		unchanged, err := service.GetExecution(ctx, "org_1", execution.ID)
+		if err != nil {
+			t.Fatalf("GetExecution returned error: %v", err)
+		}
+		if unchanged.Status != ExecutionStatusCancelled {
+			t.Fatalf("stale retry guard must not overwrite cancelled execution, got %s", unchanged.Status)
 		}
 	})
 
@@ -2754,6 +3439,9 @@ type memoryWorkflowStore struct {
 	workflows  map[string]*WorkflowDefinition
 	versions   map[string][]*WorkflowDefinition
 	executions map[string]*WorkflowExecution
+	events     map[string][]WorkflowExecutionEvent
+	debugTrace map[string][]ExecutionDebugTraceEntry
+	variables  map[string][]ExecutionVariableSnapshot
 	nodes      map[string][]WorkflowNodeExecution
 	nextID     int
 }
@@ -2763,6 +3451,9 @@ func newMemoryWorkflowStore() *memoryWorkflowStore {
 		workflows:  map[string]*WorkflowDefinition{},
 		versions:   map[string][]*WorkflowDefinition{},
 		executions: map[string]*WorkflowExecution{},
+		events:     map[string][]WorkflowExecutionEvent{},
+		debugTrace: map[string][]ExecutionDebugTraceEntry{},
+		variables:  map[string][]ExecutionVariableSnapshot{},
 		nodes:      map[string][]WorkflowNodeExecution{},
 		nextID:     1,
 	}
@@ -2877,6 +3568,14 @@ func (s *memoryWorkflowStore) CreateExecution(_ context.Context, req CreateExecu
 		execution.StartedAt = now
 	}
 	s.executions[id] = cloneWorkflowExecution(execution)
+	s.events[id] = append(s.events[id], WorkflowExecutionEvent{
+		ID:             s.newID("wevt"),
+		ExecutionID:    id,
+		OrganizationID: req.OrganizationID,
+		EventType:      "created",
+		ToStatus:       execution.Status,
+		CreatedAt:      now,
+	})
 	for _, nodeReq := range req.NodeExecutions {
 		node, _ := s.CreateNodeExecution(context.Background(), req.OrganizationID, id, nodeReq)
 		if node != nil {
@@ -2904,6 +3603,124 @@ func (s *memoryWorkflowStore) GetExecution(_ context.Context, organizationID, id
 	cloned := cloneWorkflowExecution(execution)
 	cloned.NodeExecutions = append([]WorkflowNodeExecution(nil), s.nodes[id]...)
 	return cloned, nil
+}
+
+func (s *memoryWorkflowStore) ListExecutionEvents(_ context.Context, organizationID, executionID string) ([]WorkflowExecutionEvent, error) {
+	events := []WorkflowExecutionEvent{}
+	for _, event := range s.events[executionID] {
+		if event.OrganizationID == organizationID {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func (s *memoryWorkflowStore) AppendExecutionDebugTraceEntry(_ context.Context, req AppendExecutionDebugTraceEntryRequest) error {
+	execution := s.executions[req.ExecutionID]
+	if execution == nil || execution.OrganizationID != req.OrganizationID {
+		return nil
+	}
+	entry := cloneExecutionDebugTraceEntry(req.Entry)
+	if !req.CreatedAt.IsZero() {
+		entry.CreatedAt = req.CreatedAt
+	}
+	s.debugTrace[req.ExecutionID] = append(s.debugTrace[req.ExecutionID], entry)
+	return nil
+}
+
+func (s *memoryWorkflowStore) ListExecutionDebugTraceEntries(_ context.Context, organizationID, executionID string) ([]ExecutionDebugTraceEntry, error) {
+	execution := s.executions[executionID]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return []ExecutionDebugTraceEntry{}, nil
+	}
+	trace := make([]ExecutionDebugTraceEntry, 0, len(s.debugTrace[executionID]))
+	for _, entry := range s.debugTrace[executionID] {
+		trace = append(trace, cloneExecutionDebugTraceEntry(entry))
+	}
+	return trace, nil
+}
+
+func (s *memoryWorkflowStore) AppendExecutionVariableSnapshot(_ context.Context, req AppendExecutionVariableSnapshotRequest) error {
+	execution := s.executions[req.ExecutionID]
+	if execution == nil || execution.OrganizationID != req.OrganizationID {
+		return nil
+	}
+	snapshot := cloneExecutionVariableSnapshot(req.Snapshot)
+	snapshot.CreatedAt = req.CreatedAt
+	if snapshot.CreatedAt.IsZero() {
+		snapshot.CreatedAt = time.Now().UTC()
+	}
+	s.variables[req.ExecutionID] = append(s.variables[req.ExecutionID], snapshot)
+	return nil
+}
+
+func (s *memoryWorkflowStore) LatestExecutionVariableSnapshot(_ context.Context, organizationID, executionID string) (*ExecutionVariableSnapshot, error) {
+	execution := s.executions[executionID]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	snapshots := s.variables[executionID]
+	if len(snapshots) == 0 {
+		return nil, nil
+	}
+	snapshot := cloneExecutionVariableSnapshot(snapshots[len(snapshots)-1])
+	return &snapshot, nil
+}
+
+func (s *memoryWorkflowStore) PruneExecutionDebugData(_ context.Context, organizationID string, before time.Time) (ExecutionDebugRetentionPruneResult, error) {
+	result := ExecutionDebugRetentionPruneResult{}
+	for executionID, trace := range s.debugTrace {
+		execution := s.executions[executionID]
+		if execution == nil || execution.OrganizationID != organizationID {
+			continue
+		}
+		retained := trace[:0]
+		for _, entry := range trace {
+			if entry.CreatedAt.Before(before) {
+				result.TraceEntriesDeleted++
+				continue
+			}
+			retained = append(retained, entry)
+		}
+		s.debugTrace[executionID] = append([]ExecutionDebugTraceEntry(nil), retained...)
+	}
+	for executionID, snapshots := range s.variables {
+		execution := s.executions[executionID]
+		if execution == nil || execution.OrganizationID != organizationID {
+			continue
+		}
+		retained := snapshots[:0]
+		for _, snapshot := range snapshots {
+			if snapshot.CreatedAt.Before(before) {
+				result.VariableSnapshotsDeleted++
+				continue
+			}
+			retained = append(retained, snapshot)
+		}
+		s.variables[executionID] = append([]ExecutionVariableSnapshot(nil), retained...)
+	}
+	return result, nil
+}
+
+func (s *memoryWorkflowStore) AppendExecutionEvent(_ context.Context, req AppendExecutionEventRequest) error {
+	execution := s.executions[req.ExecutionID]
+	if execution == nil || execution.OrganizationID != req.OrganizationID {
+		return nil
+	}
+	createdAt := req.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	s.events[req.ExecutionID] = append(s.events[req.ExecutionID], WorkflowExecutionEvent{
+		ID:             s.newID("wevt"),
+		ExecutionID:    req.ExecutionID,
+		OrganizationID: req.OrganizationID,
+		EventType:      req.EventType,
+		FromStatus:     req.FromStatus,
+		ToStatus:       req.ToStatus,
+		CreatedAt:      createdAt,
+	})
+	return nil
 }
 
 func (s *memoryWorkflowStore) ListActiveExecutionHealth(_ context.Context, organizationID string, statuses []ExecutionStatus) ([]WorkflowExecutionHealthSummary, error) {
@@ -2959,10 +3776,34 @@ func (s *memoryWorkflowStore) UpdateExecutionStatus(_ context.Context, organizat
 	if execution == nil || execution.OrganizationID != organizationID {
 		return nil, nil
 	}
+	fromStatus := execution.Status
 	execution.Status = status
 	execution.CompletedAt = completedAt
-	execution.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	execution.UpdatedAt = now
+	if fromStatus != status {
+		s.events[id] = append(s.events[id], WorkflowExecutionEvent{
+			ID:             s.newID("wevt"),
+			ExecutionID:    id,
+			OrganizationID: organizationID,
+			EventType:      "status_changed",
+			FromStatus:     fromStatus,
+			ToStatus:       status,
+			CreatedAt:      now,
+		})
+	}
 	return cloneWorkflowExecution(execution), nil
+}
+
+func (s *memoryWorkflowStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	execution := s.executions[id]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	if execution.Status != fromStatus {
+		return nil, fmt.Errorf("%w: execution %s moved from %s to %s before %s", ErrInvalidTransition, id, fromStatus, execution.Status, status)
+	}
+	return s.UpdateExecutionStatus(ctx, organizationID, id, status, completedAt)
 }
 
 func (s *memoryWorkflowStore) CreateNodeExecution(_ context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error) {
@@ -3036,6 +3877,180 @@ func (s *memoryWorkflowStore) nextWorkflowVersion(workflowID string) int {
 	return nextVersion
 }
 
+type queuePromotionRaceStore struct {
+	*memoryWorkflowStore
+}
+
+func (s *queuePromotionRaceStore) ListExecutions(ctx context.Context, organizationID, workflowID string) ([]*WorkflowExecution, error) {
+	executions, err := s.memoryWorkflowStore.ListExecutions(ctx, organizationID, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	for _, execution := range executions {
+		if execution == nil || execution.Status != ExecutionStatusQueued {
+			continue
+		}
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+		break
+	}
+	return executions, nil
+}
+
+type resourceLimitRaceStore struct {
+	*memoryWorkflowStore
+	cancelled bool
+}
+
+func (s *resourceLimitRaceStore) GetExecution(ctx context.Context, organizationID, id string) (*WorkflowExecution, error) {
+	execution, err := s.memoryWorkflowStore.GetExecution(ctx, organizationID, id)
+	if err != nil || execution == nil || s.cancelled {
+		return execution, err
+	}
+	if execution.Status == ExecutionStatusRunning {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, id, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return execution, nil
+}
+
+type resourceLimitNodeRaceStore struct {
+	*memoryWorkflowStore
+	cancelled bool
+}
+
+func (s *resourceLimitNodeRaceStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error) {
+	node, err := s.memoryWorkflowStore.CreateNodeExecution(ctx, organizationID, executionID, req)
+	if err != nil || node == nil || s.cancelled {
+		return node, err
+	}
+	if node.NodeID == "workflow_resource_guard" {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, executionID, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return node, nil
+}
+
+type runLoopCompletionRaceStore struct {
+	*memoryWorkflowStore
+	cancelOnComplete bool
+	cancelled        bool
+}
+
+func (s *runLoopCompletionRaceStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error) {
+	node, err := s.memoryWorkflowStore.CreateNodeExecution(ctx, organizationID, executionID, req)
+	if err != nil || node == nil {
+		return node, err
+	}
+	if node.Status == NodeStatusSucceeded {
+		s.cancelOnComplete = true
+	}
+	return node, nil
+}
+
+func (s *runLoopCompletionRaceStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	if status == ExecutionStatusSucceeded && s.cancelOnComplete && !s.cancelled {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, id, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return s.memoryWorkflowStore.UpdateExecutionStatusIfCurrent(ctx, organizationID, id, fromStatus, status, completedAt)
+}
+
+type runLoopMaxIterationsRaceStore struct {
+	*memoryWorkflowStore
+	cancelOnMaxIterations bool
+	cancelled             bool
+}
+
+func (s *runLoopMaxIterationsRaceStore) GetExecution(ctx context.Context, organizationID, id string) (*WorkflowExecution, error) {
+	execution, err := s.memoryWorkflowStore.GetExecution(ctx, organizationID, id)
+	if err != nil || execution == nil || s.cancelled {
+		return execution, err
+	}
+	if execution.Status == ExecutionStatusRunning {
+		s.cancelOnMaxIterations = true
+	}
+	return execution, nil
+}
+
+func (s *runLoopMaxIterationsRaceStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	if status == ExecutionStatusMaxIterations && s.cancelOnMaxIterations && !s.cancelled {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, id, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return s.memoryWorkflowStore.UpdateExecutionStatusIfCurrent(ctx, organizationID, id, fromStatus, status, completedAt)
+}
+
+type resolvePausedFailureRaceStore struct {
+	*memoryWorkflowStore
+	cancelOnResume bool
+	cancelled      bool
+}
+
+func (s *resolvePausedFailureRaceStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error) {
+	node, err := s.memoryWorkflowStore.CreateNodeExecution(ctx, organizationID, executionID, req)
+	if err != nil || node == nil {
+		return node, err
+	}
+	if node.Context["failureDecision"] == "retry" || node.Context["failureDecision"] == "skip" {
+		s.cancelOnResume = true
+	}
+	return node, nil
+}
+
+func (s *resolvePausedFailureRaceStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	if status == ExecutionStatusRunning && s.cancelOnResume && !s.cancelled {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, id, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return s.memoryWorkflowStore.UpdateExecutionStatusIfCurrent(ctx, organizationID, id, fromStatus, status, completedAt)
+}
+
+type autoRetryExhaustionRaceStore struct {
+	*memoryWorkflowStore
+	cancelOnFail bool
+	cancelled    bool
+}
+
+func (s *autoRetryExhaustionRaceStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req CreateNodeExecutionRequest) (*WorkflowNodeExecution, error) {
+	node, err := s.memoryWorkflowStore.CreateNodeExecution(ctx, organizationID, executionID, req)
+	if err != nil || node == nil {
+		return node, err
+	}
+	if node.Status == NodeStatusFailed {
+		s.cancelOnFail = true
+	}
+	return node, nil
+}
+
+func (s *autoRetryExhaustionRaceStore) UpdateExecutionStatusIfCurrent(ctx context.Context, organizationID, id string, fromStatus, status ExecutionStatus, completedAt *time.Time) (*WorkflowExecution, error) {
+	if status == ExecutionStatusFailed && s.cancelOnFail && !s.cancelled {
+		s.cancelled = true
+		now := time.Now().UTC()
+		if _, err := s.memoryWorkflowStore.UpdateExecutionStatus(ctx, organizationID, id, ExecutionStatusCancelled, &now); err != nil {
+			return nil, err
+		}
+	}
+	return s.memoryWorkflowStore.UpdateExecutionStatusIfCurrent(ctx, organizationID, id, fromStatus, status, completedAt)
+}
+
 func cloneWorkflowDefinition(workflow *WorkflowDefinition) *WorkflowDefinition {
 	cloned := *workflow
 	return &cloned
@@ -3045,4 +4060,26 @@ func cloneWorkflowExecution(execution *WorkflowExecution) *WorkflowExecution {
 	cloned := *execution
 	cloned.NodeExecutions = append([]WorkflowNodeExecution(nil), execution.NodeExecutions...)
 	return &cloned
+}
+
+func cloneExecutionDebugTraceEntry(entry ExecutionDebugTraceEntry) ExecutionDebugTraceEntry {
+	cloned := entry
+	cloned.Input = mergeWorkflowMaps(entry.Input, nil)
+	cloned.Output = mergeWorkflowMaps(entry.Output, nil)
+	cloned.Error = mergeWorkflowMaps(entry.Error, nil)
+	cloned.Context = mergeWorkflowMaps(entry.Context, nil)
+	if entry.CompletedAt != nil {
+		completedAt := *entry.CompletedAt
+		cloned.CompletedAt = &completedAt
+	}
+	return cloned
+}
+
+func cloneExecutionVariableSnapshot(snapshot ExecutionVariableSnapshot) ExecutionVariableSnapshot {
+	return ExecutionVariableSnapshot{
+		Input:       mergeWorkflowMaps(snapshot.Input, nil),
+		Context:     mergeWorkflowMaps(snapshot.Context, nil),
+		NodeOutputs: mergeWorkflowNodeOutputMaps(snapshot.NodeOutputs),
+		CreatedAt:   snapshot.CreatedAt,
+	}
 }

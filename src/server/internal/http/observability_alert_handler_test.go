@@ -96,6 +96,97 @@ func TestObservabilityAlertAdminRouteUpdatesRoutingRules(t *testing.T) {
 	}
 }
 
+func TestObservabilityLatencySLOProofAggregatesRuntimeDeliveryAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	store := observability.NewInMemoryAlertStateStore()
+	alertKey := "http-slo:/api/v1/app/conversations/:id/messages:latency"
+	occurredAt := time.Date(2026, 6, 16, 0, 30, 0, 0, time.UTC)
+	event := observability.AlertEvent{
+		Key:        alertKey,
+		Severity:   observability.AlertSeverityWarning,
+		Title:      "HTTP latency SLO breached",
+		Component:  "http",
+		OccurredAt: occurredAt,
+	}
+	if _, err := store.RecordAlertOpen(ctx, event); err != nil {
+		t.Fatalf("seed alert state: %v", err)
+	}
+	if err := store.RecordDeliveryAttempts(ctx, event, []observability.AlertDeliveryResult{{
+		Channel:      observability.AlertDeliveryChannelEmail,
+		ProviderID:   "smtp-primary",
+		ProviderKind: observability.AlertProviderKindSMTP,
+		Delivered:    true,
+	}}); err != nil {
+		t.Fatalf("seed delivery attempt: %v", err)
+	}
+	if _, _, err := store.RecordRecoveryAction(ctx, observability.RecoveryAction{
+		ID:         "recovery_20260616_0001",
+		PolicyName: "http-latency-slo",
+		AlertKey:   alertKey,
+		Severity:   observability.AlertSeverityWarning,
+		Component:  "http",
+		Type:       observability.RecoveryActionScaleOut,
+		Status:     observability.RecoveryActionRecorded,
+		Reason:     "audit-only latency SLO recovery plan; no infrastructure mutation executed",
+		Attempt:    1,
+		CreatedAt:  occurredAt.Add(time.Minute),
+	}, 0); err != nil {
+		t.Fatalf("seed recovery action: %v", err)
+	}
+	router := newObservabilityAlertRouter(passAdminMiddleware{}, newObservabilityAlertHandler(store))
+	request := httptest.NewRequest(
+		stdhttp.MethodGet,
+		"/api/v1/admin/observability/latency-slo-proof?from=2026-06-16T00:00:00Z&to=2026-06-16T01:00:00Z&keyPrefix=http-slo:",
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected latency SLO proof route to return 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			LatencySLOTrigger        string `json:"latencySLOTrigger"`
+			LatencySLOAlertDelivery  string `json:"latencySLOAlertDelivery"`
+			LatencySLORecoveryAction string `json:"latencySLORecoveryAction"`
+			Window                   string `json:"window"`
+			TriggeredAlerts          int    `json:"triggeredAlerts"`
+			AlertDelivery            struct {
+				ConfiguredProviders int      `json:"configuredProviders"`
+				DeliveredAlerts     int      `json:"deliveredAlerts"`
+				FailedDeliveries    int      `json:"failedDeliveries"`
+				Channels            []string `json:"channels"`
+				LastDeliveryID      string   `json:"lastDeliveryId"`
+			} `json:"alertDelivery"`
+			RecoveryAudit struct {
+				AuditRecords  int    `json:"auditRecords"`
+				FailedActions int    `json:"failedActions"`
+				LastRecordID  string `json:"lastRecordId"`
+			} `json:"recoveryAudit"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.LatencySLOTrigger != "pass" || response.Data.LatencySLOAlertDelivery != "pass" || response.Data.LatencySLORecoveryAction != "pass" {
+		t.Fatalf("expected pass latency SLO proof, got %+v", response.Data)
+	}
+	if response.Data.Window != "2026-06-16T00:00:00Z/2026-06-16T01:00:00Z" || response.Data.TriggeredAlerts != 1 {
+		t.Fatalf("expected one alert in requested window, got %+v", response.Data)
+	}
+	if response.Data.AlertDelivery.ConfiguredProviders != 1 || response.Data.AlertDelivery.DeliveredAlerts != 1 || response.Data.AlertDelivery.FailedDeliveries != 0 {
+		t.Fatalf("expected successful delivery proof, got %+v", response.Data.AlertDelivery)
+	}
+	if len(response.Data.AlertDelivery.Channels) != 1 || response.Data.AlertDelivery.Channels[0] != string(observability.AlertDeliveryChannelEmail) || response.Data.AlertDelivery.LastDeliveryID == "" {
+		t.Fatalf("expected email delivery channel and id, got %+v", response.Data.AlertDelivery)
+	}
+	if response.Data.RecoveryAudit.AuditRecords != 1 || response.Data.RecoveryAudit.FailedActions != 0 || response.Data.RecoveryAudit.LastRecordID != "recovery_20260616_0001" {
+		t.Fatalf("expected recovery audit proof, got %+v", response.Data.RecoveryAudit)
+	}
+}
+
 func TestObservabilityAlertAdminRouteCreatesAndListsRedactedProviderConfig(t *testing.T) {
 	router := newObservabilityAlertRouter(passAdminMiddleware{}, newObservabilityAlertHandler(observability.NewInMemoryAlertStateStore()))
 	body := bytes.NewBufferString(`{

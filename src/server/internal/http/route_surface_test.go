@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,9 +44,11 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 		{"preferences", stdhttp.MethodGet, "/api/v1/app/me/preferences"},
 		{"knowledge bases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases"},
 		{"knowledge document upload", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"knowledge ingestion jobs", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/ingestion-jobs"},
 		{"tasks", stdhttp.MethodGet, "/api/v1/app/tasks"},
 		{"organizations", stdhttp.MethodGet, "/api/v1/app/organizations"},
 		{"organization members", stdhttp.MethodGet, "/api/v1/app/organizations/org_1/members"},
+		{"gateway proxy", stdhttp.MethodPost, "/api/v1/gateway/proxy/chat/completions"},
 		{"websocket", stdhttp.MethodGet, "/api/v1/ws"},
 	}
 
@@ -90,10 +93,7 @@ func TestRouteSurfaceWebSocketRejectsUnsupportedMethodsWithoutDatabase(t *testin
 }
 
 func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testing.T) {
-	source, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
+	source := routeSurfaceReadSourceFile(t, "router.go")
 
 	if !strings.Contains(string(source), "registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register canonical app knowledge routes through registerKnowledgeRoutes")
@@ -104,16 +104,47 @@ func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testin
 }
 
 func TestRouteSurfaceRegistersCanonicalChatRoutesThroughRegistrar(t *testing.T) {
-	source, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
+	source := routeSurfaceReadSourceFile(t, "router.go")
 
 	if !strings.Contains(string(source), "registerChatRoutes(mux, authMiddleware, chatHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRoutes")
 	}
 	if !strings.Contains(string(source), "registerConversationAliasRoutes(mux, authMiddleware, chatHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register Chat conversation alias routes through registerConversationAliasRoutes")
+	}
+}
+
+func TestRouteSurfaceStandaloneChatRouterRegistersChatOnlyRoutes(t *testing.T) {
+	router := NewChatRouter(testConfig(), nil)
+
+	chatRoutes := []routeSurfaceCase{
+		{"models", stdhttp.MethodGet, "/api/v1/app/models"},
+		{"list app conversations", stdhttp.MethodGet, "/api/v1/app/conversations"},
+		{"list alias conversations", stdhttp.MethodGet, "/api/v1/conversations"},
+	}
+	for _, tt := range chatRoutes {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected standalone chat route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	healthRecorder := httptest.NewRecorder()
+	router.ServeHTTP(healthRecorder, httptest.NewRequest(stdhttp.MethodGet, "/healthz", nil))
+	if healthRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected standalone chat health route to return 200, got %d with body %s", healthRecorder.Code, healthRecorder.Body.String())
+	}
+
+	adminRecorder := httptest.NewRecorder()
+	router.ServeHTTP(adminRecorder, httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/stats", nil))
+	if adminRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected standalone chat router not to expose admin routes, got %d with body %s", adminRecorder.Code, adminRecorder.Body.String())
 	}
 }
 
@@ -129,6 +160,7 @@ func TestRouteSurfaceKnowledgeRoutesRequireSessionWithoutDatabase(t *testing.T) 
 		{"list documents", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents"},
 		{"create document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents"},
 		{"upload document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"list ingestion jobs", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/ingestion-jobs"},
 		{"update document", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
 		{"delete document", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
 		{"list document versions", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/versions"},
@@ -137,6 +169,7 @@ func TestRouteSurfaceKnowledgeRoutesRequireSessionWithoutDatabase(t *testing.T) 
 		{"split chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
 		{"merge chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
 		{"retrieve", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve"},
+		{"retrieve debug", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve/debug"},
 		{"list retrieval test cases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"create retrieval test case", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"run retrieval test cases", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases/run"},
@@ -172,6 +205,7 @@ func TestRouteSurfaceKnowledgeRoutesDispatchWithCSRFWithoutDatabase(t *testing.T
 		{"list documents", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents"},
 		{"create document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents"},
 		{"upload document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"list ingestion jobs", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/ingestion-jobs"},
 		{"update document", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
 		{"delete document", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
 		{"list document versions", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/versions"},
@@ -180,6 +214,7 @@ func TestRouteSurfaceKnowledgeRoutesDispatchWithCSRFWithoutDatabase(t *testing.T
 		{"split chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
 		{"merge chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
 		{"retrieve", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve"},
+		{"retrieve debug", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve/debug"},
 		{"list retrieval test cases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"create retrieval test case", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"run retrieval test cases", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases/run"},
@@ -263,6 +298,7 @@ func routeSurfaceKnowledgeAliasCases() []routeSurfaceCase {
 		{"list alias documents", stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_1/documents"},
 		{"create alias document", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/documents"},
 		{"upload alias document", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/documents/upload"},
+		{"list alias ingestion jobs", stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_1/documents/ingestion-jobs"},
 		{"update alias document", stdhttp.MethodPut, "/api/v1/knowledge-bases/kb_1/documents/doc_1"},
 		{"delete alias document", stdhttp.MethodDelete, "/api/v1/knowledge-bases/kb_1/documents/doc_1"},
 		{"root delete alias document", stdhttp.MethodDelete, "/api/v1/documents/doc_1"},
@@ -272,6 +308,7 @@ func routeSurfaceKnowledgeAliasCases() []routeSurfaceCase {
 		{"split alias chunk", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
 		{"merge alias chunk", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
 		{"alias retrieve", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/retrieve"},
+		{"alias retrieve debug", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/retrieve/debug"},
 		{"list alias retrieval test cases", stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"create alias retrieval test case", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/retrieval-test-cases"},
 		{"run alias retrieval test cases", stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_1/retrieval-test-cases/run"},
@@ -289,14 +326,8 @@ func routeSurfaceKnowledgeAliasMutationCases() []routeSurfaceCase {
 }
 
 func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
-	routerSource, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
-	routesSource, err := os.ReadFile("routes_console.go")
-	if err != nil {
-		t.Fatalf("read routes_console.go: %v", err)
-	}
+	routerSource := routeSurfaceReadSourceFile(t, "router.go")
+	routesSource := routeSurfaceReadSourceFile(t, "routes_console.go")
 
 	if !strings.Contains(string(routerSource), "registerConsoleRoutes(mux, authMiddleware, consoleHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
@@ -307,14 +338,8 @@ func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
 }
 
 func TestRouteSurfaceRegistersConsoleAPITokenRoutes(t *testing.T) {
-	routerSource, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
-	routesSource, err := os.ReadFile("routes_console.go")
-	if err != nil {
-		t.Fatalf("read routes_console.go: %v", err)
-	}
+	routerSource := routeSurfaceReadSourceFile(t, "router.go")
+	routesSource := routeSurfaceReadSourceFile(t, "routes_console.go")
 	if !strings.Contains(string(routerSource), "registerConsoleRoutes(mux, authMiddleware, consoleHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
 	}
@@ -334,10 +359,7 @@ func TestRouteSurfaceRegistersConsoleAPITokenRoutes(t *testing.T) {
 }
 
 func TestRouteSurfaceRegistersAdminAPITokenRoutes(t *testing.T) {
-	source, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
+	source := routeSurfaceReadSourceFile(t, "router.go")
 	text := string(source)
 
 	for _, expected := range []string{
@@ -1130,10 +1152,7 @@ func TestRouteSurfaceAgentMemoryMutationsDispatchWithCSRFWithoutDatabase(t *test
 }
 
 func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
-	source, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
+	source := routeSurfaceReadSourceFile(t, "router.go")
 
 	text := string(source)
 	if !strings.Contains(text, `mux.Handle("/metrics", workflowMetricsHandler(workflowService))`) {
@@ -1145,18 +1164,9 @@ func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 }
 
 func TestRouteSurfaceWiresConfiguredWorkflowSystemLimits(t *testing.T) {
-	routerSource, err := os.ReadFile("router.go")
-	if err != nil {
-		t.Fatalf("read router.go: %v", err)
-	}
-	serverSource, err := os.ReadFile("server.go")
-	if err != nil {
-		t.Fatalf("read server.go: %v", err)
-	}
-	serviceSource, err := os.ReadFile("workflow_service.go")
-	if err != nil {
-		t.Fatalf("read workflow_service.go: %v", err)
-	}
+	routerSource := routeSurfaceReadSourceFile(t, "router.go")
+	serverSource := routeSurfaceReadSourceFile(t, "server.go")
+	serviceSource := routeSurfaceReadSourceFile(t, "workflow_service.go")
 
 	if !strings.Contains(string(routerSource), "workflowService = newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())") {
 		t.Fatal("expected default router workflow service to use configured workflow limits, failure notifications, and alert delivery sink")
@@ -1194,6 +1204,20 @@ func TestRouteSurfaceAdminRoutesRequireAdmin(t *testing.T) {
 		"/api/v1/admin/organizations",
 		"/api/v1/admin/audit-logs",
 		"/api/v1/admin/reviews",
+		"/api/v1/admin/usage-logs",
+		"/api/v1/admin/usage-analytics",
+		"/api/v1/admin/billing/reconciliation/relay-usage-prices",
+		"/api/v1/admin/billing/reconciliation/usage-request-logs",
+		"/api/v1/admin/release-evidence/rag-indexing",
+		"/api/v1/admin/release-evidence/relay-realtime",
+		"/api/v1/admin/release-evidence/relay-batch",
+		"/api/v1/admin/release-evidence/marketplace-payout",
+		"/api/v1/admin/release-evidence/marketplace-governance",
+		"/api/v1/admin/release-evidence/provider-runtime-config",
+		"/api/v1/admin/release-evidence/microservice-database",
+		"/api/v1/admin/pricing/relay-catalog/imports",
+		"/api/v1/admin/pricing/relay-catalog/sync",
+		"/api/v1/admin/pricing/relay-catalog/sync-runs",
 	}
 
 	for _, path := range adminRoutes {
@@ -1581,6 +1605,7 @@ func TestRouteSurfaceAdminMarketplaceGovernanceMutationsRejectAdminCookieWithout
 	tests := []routeSurfaceCase{
 		{"takedown agent", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/takedown"},
 		{"reinstate agent", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/reinstate"},
+		{"reject agent appeal", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/reject-appeal"},
 		{"resolve abuse report", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/resolve"},
 		{"dismiss abuse report", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/dismiss"},
 	}
@@ -1609,6 +1634,7 @@ func TestRouteSurfaceAdminMarketplaceReviewMutationsRejectAdminCookieWithoutCSRF
 	tests := []routeSurfaceCase{
 		{"enforce review sla", stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce"},
 		{"approve review", stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/approve"},
+		{"claim review", stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/claim"},
 		{"reject review", stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/reject"},
 		{"request review changes", stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/needs-changes"},
 	}
@@ -1926,6 +1952,7 @@ func TestRouteSurfaceWorkflowReadRoutesRequireSessionWithoutDatabase(t *testing.
 		{"list workflow executions", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions"},
 		{"get workflow execution", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1"},
 		{"get workflow execution debug snapshot", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1/debug-snapshot"},
+		{"get workflow execution state replay", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1/state-replay"},
 	}
 
 	for _, tt := range tests {
@@ -1980,6 +2007,7 @@ func TestRouteSurfaceWorkflowManagementMutationsRejectCookieWithoutCSRFWithoutDa
 		{"create workflow", stdhttp.MethodPost, "/api/v1/workflows"},
 		{"semantic matches", stdhttp.MethodPost, "/api/v1/workflows/semantic-matches"},
 		{"conversation matches", stdhttp.MethodPost, "/api/v1/workflows/conversation-matches"},
+		{"debug retention prune", stdhttp.MethodPost, "/api/v1/workflows/debug-retention/prune"},
 		{"update workflow", stdhttp.MethodPut, "/api/v1/workflows/workflow_1"},
 		{"delete workflow", stdhttp.MethodDelete, "/api/v1/workflows/workflow_1"},
 		{"execute workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute"},
@@ -2017,6 +2045,7 @@ func TestRouteSurfaceWorkflowManagementMutationsDispatchWithCSRFWithoutDatabase(
 		{"create workflow", stdhttp.MethodPost, "/api/v1/workflows"},
 		{"semantic matches", stdhttp.MethodPost, "/api/v1/workflows/semantic-matches"},
 		{"conversation matches", stdhttp.MethodPost, "/api/v1/workflows/conversation-matches"},
+		{"debug retention prune", stdhttp.MethodPost, "/api/v1/workflows/debug-retention/prune"},
 		{"update workflow", stdhttp.MethodPut, "/api/v1/workflows/workflow_1"},
 		{"delete workflow", stdhttp.MethodDelete, "/api/v1/workflows/workflow_1"},
 		{"execute workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute"},
@@ -2216,7 +2245,7 @@ type routeSurfaceManifestRoute struct {
 func loadRouteSurfaceManifest(t *testing.T) routeSurfaceManifest {
 	t.Helper()
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "api", "route-surface-manifest.json"))
+	content, err := os.ReadFile(filepath.Join(routeSurfaceRepoRoot(t), "docs", "api", "route-surface-manifest.json"))
 	if err != nil {
 		t.Fatalf("read route surface manifest: %v", err)
 	}
@@ -2229,6 +2258,38 @@ func loadRouteSurfaceManifest(t *testing.T) routeSurfaceManifest {
 		t.Fatal("expected route surface manifest to include routes")
 	}
 	return manifest
+}
+
+func routeSurfaceRepoRoot(t *testing.T) string {
+	t.Helper()
+	return filepath.Clean(filepath.Join(routeSurfaceHTTPSourceDir(t), "..", "..", "..", ".."))
+}
+
+func routeSurfaceHTTPSourceDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve route surface source directory")
+	}
+	return filepath.Dir(file)
+}
+
+func routeSurfaceSourceFile(t *testing.T, sourceFile string) string {
+	t.Helper()
+	if filepath.IsAbs(sourceFile) {
+		return sourceFile
+	}
+	return filepath.Join(routeSurfaceHTTPSourceDir(t), sourceFile)
+}
+
+func routeSurfaceReadSourceFile(t *testing.T, sourceFile string) []byte {
+	t.Helper()
+	resolved := routeSurfaceSourceFile(t, sourceFile)
+	content, err := os.ReadFile(resolved)
+	if err != nil {
+		t.Fatalf("read %s: %v", sourceFile, err)
+	}
+	return content
 }
 
 type routeSurfaceRuntimeRegistration struct {
@@ -2293,8 +2354,9 @@ func routeSurfaceRuntimeSourceFiles(t *testing.T) []string {
 	t.Helper()
 
 	calledRegistrars := routeSurfaceCalledRegistrars(t, "router.go")
-	files := []string{"router.go"}
-	registrarFiles, err := filepath.Glob("routes_*.go")
+	sourceDir := routeSurfaceHTTPSourceDir(t)
+	files := []string{filepath.Join(sourceDir, "router.go")}
+	registrarFiles, err := filepath.Glob(filepath.Join(sourceDir, "routes_*.go"))
 	if err != nil {
 		t.Fatalf("glob route files: %v", err)
 	}
@@ -2316,6 +2378,7 @@ func routeSurfaceRuntimeSourceFiles(t *testing.T) []string {
 func routeSurfaceCalledRegistrars(t *testing.T, sourceFile string) map[string]bool {
 	t.Helper()
 
+	sourceFile = routeSurfaceSourceFile(t, sourceFile)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, sourceFile, nil, 0)
 	if err != nil {
@@ -2342,6 +2405,7 @@ func routeSurfaceCalledRegistrars(t *testing.T, sourceFile string) map[string]bo
 func routeSurfaceDeclaredRegistrars(t *testing.T, sourceFile string) map[string]bool {
 	t.Helper()
 
+	sourceFile = routeSurfaceSourceFile(t, sourceFile)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, sourceFile, nil, 0)
 	if err != nil {
@@ -2630,14 +2694,32 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"billing refunds", stdhttp.MethodGet, "/api/v1/admin/billing/refunds"},
 		{"billing settlements", stdhttp.MethodGet, "/api/v1/admin/billing/settlements"},
 		{"billing payouts", stdhttp.MethodGet, "/api/v1/admin/billing/payouts"},
+		{"billing relay usage price reconciliation", stdhttp.MethodGet, "/api/v1/admin/billing/reconciliation/relay-usage-prices"},
+		{"billing usage request log coverage", stdhttp.MethodGet, "/api/v1/admin/billing/reconciliation/usage-request-logs"},
+		{"release evidence rag indexing", stdhttp.MethodGet, "/api/v1/admin/release-evidence/rag-indexing"},
+		{"release evidence relay realtime", stdhttp.MethodGet, "/api/v1/admin/release-evidence/relay-realtime"},
+		{"release evidence relay batch", stdhttp.MethodGet, "/api/v1/admin/release-evidence/relay-batch"},
+		{"release evidence marketplace payout", stdhttp.MethodGet, "/api/v1/admin/release-evidence/marketplace-payout"},
+		{"release evidence marketplace governance", stdhttp.MethodGet, "/api/v1/admin/release-evidence/marketplace-governance"},
+		{"release evidence provider runtime config", stdhttp.MethodGet, "/api/v1/admin/release-evidence/provider-runtime-config"},
+		{"release evidence microservice database", stdhttp.MethodGet, "/api/v1/admin/release-evidence/microservice-database"},
 		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
 		{"billing payout create due", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due"},
 		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
 		{"billing payout failed", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/failed"},
+		{"pricing relay catalog imports list", stdhttp.MethodGet, "/api/v1/admin/pricing/relay-catalog/imports"},
+		{"pricing relay catalog imports create", stdhttp.MethodPost, "/api/v1/admin/pricing/relay-catalog/imports"},
+		{"pricing relay catalog sync", stdhttp.MethodPost, "/api/v1/admin/pricing/relay-catalog/sync"},
+		{"pricing relay catalog sync runs list", stdhttp.MethodGet, "/api/v1/admin/pricing/relay-catalog/sync-runs"},
+		{"pricing relay catalog import approve", stdhttp.MethodPost, "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/approve"},
+		{"pricing relay catalog import reject", stdhttp.MethodPost, "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/reject"},
+		{"pricing relay catalog import rollback", stdhttp.MethodPost, "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/rollback"},
 		{"settings relay pricing get", stdhttp.MethodGet, "/api/v1/admin/settings/relay-pricing"},
 		{"settings relay pricing update", stdhttp.MethodPut, "/api/v1/admin/settings/relay-pricing"},
 		{"settings usage limits get", stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits"},
 		{"settings usage limits update", stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits"},
+		{"core usage logs", stdhttp.MethodGet, "/api/v1/admin/usage-logs"},
+		{"core usage analytics", stdhttp.MethodGet, "/api/v1/admin/usage-analytics"},
 		{"core stats", stdhttp.MethodGet, "/api/v1/admin/stats"},
 		{"core model inventory", stdhttp.MethodGet, "/api/v1/admin/models"},
 		{"core api tokens list", stdhttp.MethodGet, "/api/v1/admin/api-tokens"},
@@ -2686,6 +2768,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"observability recovery actions", stdhttp.MethodGet, "/api/v1/admin/observability/recovery-actions"},
 		{"marketplace takedown", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/takedown"},
 		{"marketplace reinstate", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/reinstate"},
+		{"marketplace reject appeal", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/reject-appeal"},
 		{"marketplace abuse reports", stdhttp.MethodGet, "/api/v1/admin/marketplace/abuse-reports"},
 		{"marketplace abuse resolve", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/resolve"},
 		{"marketplace abuse dismiss", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/dismiss"},

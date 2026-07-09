@@ -24,6 +24,7 @@ type MemoryContext struct {
 type SemanticWorkflowTriggerRequest struct {
 	ConversationID string `json:"conversationId"`
 	Message        string `json:"message"`
+	MessageID      string `json:"messageId,omitempty"`
 	OrganizationID string `json:"organizationId"`
 	UserID         string `json:"userId"`
 	WorkspaceID    string `json:"workspaceId"`

@@ -448,17 +448,18 @@ func draftTaskGoalFromMessages(messages []Message) string {
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {
-	scopeID, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
+	scopeID, userMessage, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
 	if err != nil {
 		return nil, err
 	}
 
-	reply, err := s.replyGenerator.GenerateReply(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig)
+	replyCtx := withRelayMetadata(ctx, session, "chat")
+	reply, usage, err := s.generateAssistantReply(replyCtx, messages, effectiveConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.persistAssistantReply(ctx, session, conversationID, content, reply, effectiveConfig); err != nil {
+	if err := s.persistAssistantReply(ctx, session, conversationID, userMessage.ID, content, reply, effectiveConfig, usage); err != nil {
 		return nil, err
 	}
 
@@ -466,7 +467,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 }
 
 func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides, onChunk func(string) error) error {
-	_, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
+	_, userMessage, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
 	if err != nil {
 		return err
 	}
@@ -496,23 +497,43 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 		}
 	}
 
-	return s.persistAssistantReply(ctx, session, conversationID, content, replyBuilder.String(), effectiveConfig)
+	return s.persistAssistantReply(ctx, session, conversationID, userMessage.ID, content, replyBuilder.String(), effectiveConfig, nil)
 }
 
-func (s *Service) prepareAssistantReply(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) (string, []Message, ConversationConfig, error) {
+func (s *Service) generateAssistantReply(ctx context.Context, messages []Message, config ConversationConfig) (string, *CompletionUsage, error) {
+	if generator, ok := s.replyGenerator.(StructuredReplyGenerator); ok {
+		reply, err := generator.GenerateStructuredReply(ctx, messages, config, nil)
+		if err != nil {
+			return "", nil, err
+		}
+		if reply == nil {
+			return "", nil, ErrModelGatewayUnavailable
+		}
+		return reply.Content, reply.Usage, nil
+	}
+
+	reply, err := s.replyGenerator.GenerateReply(ctx, messages, config)
+	if err != nil {
+		return "", nil, err
+	}
+	return reply, nil, nil
+}
+
+func (s *Service) prepareAssistantReply(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) (string, Message, []Message, ConversationConfig, error) {
 	scopeID := chatSessionScopeID(session)
-	if err := s.createScopedMessage(ctx, session, conversationID, "user", content); err != nil {
-		return "", nil, ConversationConfig{}, err
+	userMessage, err := s.createScopedMessage(ctx, session, conversationID, "user", content)
+	if err != nil {
+		return "", Message{}, nil, ConversationConfig{}, err
 	}
 
 	messages, err := s.store.ListMessages(ctx, conversationID, scopeID)
 	if err != nil {
-		return "", nil, ConversationConfig{}, err
+		return "", Message{}, nil, ConversationConfig{}, err
 	}
 
 	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, scopeID, s.defaultModelID)
 	if err != nil {
-		return "", nil, ConversationConfig{}, err
+		return "", Message{}, nil, ConversationConfig{}, err
 	}
 
 	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
@@ -528,21 +549,21 @@ func (s *Service) prepareAssistantReply(ctx context.Context, session auth.Sessio
 		}
 	}
 
-	return scopeID, messages, effectiveConfig, nil
+	return scopeID, userMessage, messages, effectiveConfig, nil
 }
 
-func (s *Service) persistAssistantReply(ctx context.Context, session auth.Session, conversationID, content, reply string, effectiveConfig ConversationConfig) error {
-	if err := s.createScopedMessage(ctx, session, conversationID, "assistant", reply); err != nil {
+func (s *Service) persistAssistantReply(ctx context.Context, session auth.Session, conversationID, userMessageID, content, reply string, effectiveConfig ConversationConfig, usage *CompletionUsage) error {
+	if _, err := s.createScopedMessage(ctx, session, conversationID, "assistant", reply); err != nil {
 		return err
 	}
 
 	if s.usageRecorder != nil {
 		if err := s.usageRecorder.RecordChatUsage(ctx, UsageRecord{
 			ConversationID: conversationID,
-			InputTokens:    estimateTokens(content),
+			InputTokens:    usageInputTokens(content, usage),
 			ModelID:        effectiveConfig.ModelID,
 			OrganizationID: session.OrganizationID,
-			OutputTokens:   estimateTokens(reply),
+			OutputTokens:   usageOutputTokens(reply, usage),
 			RequestCount:   1,
 			UserID:         session.User.ID,
 			WorkspaceID:    session.WorkspaceID,
@@ -555,6 +576,7 @@ func (s *Service) persistAssistantReply(ctx context.Context, session auth.Sessio
 		if err := s.semanticWorkflowTriggerer.TriggerSemanticWorkflows(ctx, SemanticWorkflowTriggerRequest{
 			ConversationID: conversationID,
 			Message:        content,
+			MessageID:      userMessageID,
 			OrganizationID: session.OrganizationID,
 			UserID:         session.User.ID,
 			WorkspaceID:    session.WorkspaceID,
@@ -566,13 +588,25 @@ func (s *Service) persistAssistantReply(ctx context.Context, session auth.Sessio
 	return nil
 }
 
-func (s *Service) createScopedMessage(ctx context.Context, session auth.Session, conversationID, role, content string) error {
-	if strings.TrimSpace(session.OrganizationID) != "" {
-		_, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, role, content)
-		return err
+func usageInputTokens(content string, usage *CompletionUsage) int {
+	if usage != nil && usage.PromptTokens > 0 {
+		return usage.PromptTokens
 	}
-	_, err := s.store.CreateMessage(ctx, conversationID, role, content)
-	return err
+	return estimateTokens(content)
+}
+
+func usageOutputTokens(reply string, usage *CompletionUsage) int {
+	if usage != nil && usage.CompletionTokens > 0 {
+		return usage.CompletionTokens
+	}
+	return estimateTokens(reply)
+}
+
+func (s *Service) createScopedMessage(ctx context.Context, session auth.Session, conversationID, role, content string) (Message, error) {
+	if strings.TrimSpace(session.OrganizationID) != "" {
+		return s.store.CreateMessage(ctx, conversationID, session.OrganizationID, role, content)
+	}
+	return s.store.CreateMessage(ctx, conversationID, role, content)
 }
 
 func chatSessionScopeID(session auth.Session) string {
@@ -583,13 +617,13 @@ func chatSessionScopeID(session auth.Session) string {
 }
 
 func withRelayMetadata(ctx context.Context, session auth.Session, featureType string) context.Context {
-	return WithRelayRequestMetadata(ctx, RelayRequestMetadata{
-		OrganizationID: strings.TrimSpace(session.OrganizationID),
-		UserID:         strings.TrimSpace(session.User.ID),
-		UserGroup:      strings.TrimSpace(session.User.Role),
-		WorkspaceID:    strings.TrimSpace(session.WorkspaceID),
-		FeatureType:    strings.TrimSpace(featureType),
-	})
+	metadata, _ := RelayRequestMetadataFromContext(ctx)
+	metadata.OrganizationID = strings.TrimSpace(session.OrganizationID)
+	metadata.UserID = strings.TrimSpace(session.User.ID)
+	metadata.UserGroup = strings.TrimSpace(session.User.Role)
+	metadata.WorkspaceID = strings.TrimSpace(session.WorkspaceID)
+	metadata.FeatureType = strings.TrimSpace(featureType)
+	return WithRelayRequestMetadata(ctx, metadata)
 }
 
 func buildPersonaSystemPrompt(persona Persona) string {

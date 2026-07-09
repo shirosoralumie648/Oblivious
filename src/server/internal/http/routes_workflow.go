@@ -55,6 +55,15 @@ func registerWorkflowRoutes(mux *stdhttp.ServeMux, authMiddleware sessionMiddlew
 		}
 	})))
 
+	mux.Handle("/api/v1/workflows/debug-retention/prune", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodPost:
+			workflowHandler.pruneExecutionDebugData(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+
 	mux.Handle("/api/v1/workflows/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/workflows/")
 		parts := strings.Split(trimmedPath, "/")
@@ -183,6 +192,12 @@ func registerWorkflowRoutes(mux *stdhttp.ServeMux, authMiddleware sessionMiddlew
 			case "debug-snapshot":
 				if r.Method == stdhttp.MethodGet {
 					workflowHandler.getExecutionDebugSnapshot(w, r, parts[2])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "state-replay":
+				if r.Method == stdhttp.MethodGet {
+					workflowHandler.getExecutionStateReplay(w, r, parts[2])
 				} else {
 					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 				}

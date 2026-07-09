@@ -209,6 +209,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	domesticPaymentLifecycle := stripeDomesticPaymentLifecycleAdapter{service: billingLifecycleService, settlementService: marketplaceSettlementService}
 	alipayWebhookHandler := newDomesticPaymentWebhookHandler("alipay", cfg.AlipayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
 	weChatPayWebhookHandler := newDomesticPaymentWebhookHandler("wechatpay", cfg.WeChatPayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
+	marketplacePayoutWebhookHandler := newMarketplacePayoutWebhookHandler("webhook", "", paymentWebhookLedger, marketplaceSettlementService)
 
 	adminOptions := []admin.ServiceOption{
 		admin.WithChannelRuntimeStatsProvider(options.ChannelRuntimeStatsProvider),
@@ -629,6 +630,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		weChatPayWebhookHandler.handle(w, r)
 	})
+	mux.HandleFunc("/api/v1/billing/marketplace-payout/webhook", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		marketplacePayoutWebhookHandler.handle(w, r)
+	})
 
 	// Notification routes
 	mux.Handle("/api/v1/app/notifications", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -776,6 +784,20 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		default:
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
+	})))
+	mux.Handle("/api/v1/admin/usage-logs", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listUsageLogs(w, r)
+	})))
+	mux.Handle("/api/v1/admin/usage-analytics", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.getUsageAnalytics(w, r)
 	})))
 	mux.Handle("/api/v1/admin/billing/summary", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
