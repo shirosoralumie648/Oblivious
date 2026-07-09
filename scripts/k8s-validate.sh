@@ -7,6 +7,21 @@ port="${OBLIVIOUS_K8S_PORT:-18080}"
 cleanup_namespace="${OBLIVIOUS_K8S_CLEANUP:-false}"
 secret_file="${OBLIVIOUS_K8S_SECRET_FILE:-}"
 port_forward_pid=""
+render_dir=""
+
+server_image="${OBLIVIOUS_K8S_SERVER_IMAGE:-}"
+server_pull_policy="${OBLIVIOUS_K8S_IMAGE_PULL_POLICY:-}"
+postgres_sslmode="${OBLIVIOUS_K8S_POSTGRES_SSLMODE:-disable}"
+if [[ -z "$server_image" ]]; then
+  if [[ -n "${OBLIVIOUS_IMAGE_TAG:-}" ]]; then
+    server_image="ghcr.io/oblivious/server:${OBLIVIOUS_IMAGE_TAG}"
+    server_pull_policy="${server_pull_policy:-Always}"
+  else
+    server_image="oblivious-server:local"
+    server_pull_policy="${server_pull_policy:-IfNotPresent}"
+  fi
+fi
+server_pull_policy="${server_pull_policy:-Always}"
 
 cd "$repo_root"
 
@@ -20,8 +35,47 @@ cleanup() {
     echo "[k8s-validate] OBLIVIOUS_K8S_CLEANUP=true; deleting namespace $namespace"
     kubectl delete namespace "$namespace" --ignore-not-found
   fi
+
+  if [[ -n "$render_dir" && "$render_dir" == /tmp/oblivious-k8s-validate.* ]]; then
+    rm -rf "$render_dir"
+  fi
 }
 trap cleanup EXIT
+
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
+}
+
+file_matches() {
+  local pattern="$1"
+  local path="$2"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q "$pattern" "$path"
+    return
+  fi
+
+  grep -Eq "$pattern" "$path"
+}
+
+render_manifest() {
+  local source="$1"
+  local target="$2"
+  local escaped_server_image
+  local escaped_pull_policy
+  local escaped_sslmode
+
+  escaped_server_image=$(escape_sed_replacement "$server_image")
+  escaped_pull_policy=$(escape_sed_replacement "$server_pull_policy")
+  escaped_sslmode=$(escape_sed_replacement "$postgres_sslmode")
+
+  sed \
+    -e "s|ghcr.io/oblivious/server:\${OBLIVIOUS_IMAGE_TAG}|$escaped_server_image|g" \
+    -e "s|imagePullPolicy: Always|imagePullPolicy: $escaped_pull_policy|g" \
+    -e "s|POSTGRES_SSLMODE: \"require\"|POSTGRES_SSLMODE: \"$escaped_sslmode\"|g" \
+    -e "s|sslmode=require|sslmode=$escaped_sslmode|g" \
+    "$source" >"$target"
+}
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "[k8s-validate] kubectl is required" >&2
@@ -52,10 +106,19 @@ if [[ "$secret_realpath" == "$example_realpath" ]]; then
   exit 2
 fi
 
-if rg -q "REPLACE_ME|CHANGE_ME|change-me-in-production" "$secret_file"; then
+if file_matches "REPLACE_ME|CHANGE_ME|change-me-in-production" "$secret_file"; then
   echo "[k8s-validate] secret file still contains placeholder values" >&2
   exit 2
 fi
+
+render_dir=$(mktemp -d /tmp/oblivious-k8s-validate.XXXXXX)
+render_manifest deploy/kubernetes/configmap.yaml "$render_dir/configmap.yaml"
+render_manifest "$secret_file" "$render_dir/secret.yaml"
+render_manifest deploy/kubernetes/app-deployment.yaml "$render_dir/app-deployment.yaml"
+
+echo "[k8s-validate] server image: $server_image"
+echo "[k8s-validate] image pull policy: $server_pull_policy"
+echo "[k8s-validate] postgres sslmode: $postgres_sslmode"
 
 echo "[k8s-validate] applying namespace"
 kubectl apply -f deploy/kubernetes/namespace.yaml
@@ -64,22 +127,27 @@ echo "[k8s-validate] applying network policy"
 kubectl apply -f deploy/kubernetes/network-policy.yaml
 
 echo "[k8s-validate] applying secret"
-kubectl apply -f "$secret_file"
+kubectl apply -f "$render_dir/secret.yaml"
 
 echo "[k8s-validate] applying config and data services"
-kubectl apply -f deploy/kubernetes/configmap.yaml
+kubectl apply -f "$render_dir/configmap.yaml"
 kubectl apply -f deploy/kubernetes/postgres.yaml
 kubectl apply -f deploy/kubernetes/redis.yaml
 kubectl apply -f deploy/kubernetes/qdrant.yaml
+kubectl apply -f deploy/kubernetes/clickhouse.yaml
+
+echo "[k8s-validate] waiting for data service rollouts"
+kubectl -n "$namespace" rollout status deployment/oblivious-qdrant
+kubectl -n "$namespace" rollout status deployment/oblivious-clickhouse
+kubectl -n "$namespace" wait --for=condition=complete job/oblivious-clickhouse-migrate --timeout="${OBLIVIOUS_K8S_CLICKHOUSE_MIGRATION_TIMEOUT:-300s}"
 
 echo "[k8s-validate] applying application workloads"
-kubectl apply -f deploy/kubernetes/app-deployment.yaml
+kubectl apply -f "$render_dir/app-deployment.yaml"
 kubectl apply -f deploy/kubernetes/app-service.yaml
 kubectl apply -f deploy/kubernetes/hpa.yaml
 kubectl apply -f deploy/kubernetes/ingress.yaml
 
 echo "[k8s-validate] waiting for rollouts"
-kubectl -n "$namespace" rollout status deployment/oblivious-qdrant
 kubectl -n "$namespace" rollout status deployment/oblivious-server
 
 echo "[k8s-validate] port-forwarding oblivious-server on localhost:$port"

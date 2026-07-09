@@ -34,9 +34,35 @@ data:
   # CORS
   CORS_ALLOWED_ORIGINS: "https://app.oblivious.ai"
 
+  # Observability
+  OBSERVABILITY_REQUEST_LOG_BACKEND: "clickhouse"
+  CLICKHOUSE_DSN: "tcp://oblivious-clickhouse.oblivious.svc.cluster.local:9000?database=oblivious"
+  CLICKHOUSE_DRIVER: "clickhouse"
+  OBSERVABILITY_HTTP_LATENCY_SLO_THRESHOLD_MS: "5000"
+
   # LLM defaults (API key comes from Secret)
   RELAY_ENABLED: "true"
   RELAY_DEFAULT_MODEL: "gpt-4o-mini"
   LLM_TIMEOUT_MS: "30000"
   MODEL_DEFAULT_NAME: "demo-reply"
   RELAY_SEMANTIC_CACHE_BACKEND: "memory"
+  RELAY_BATCH_COMMERCIAL_LIFECYCLE_ENABLED: "false"
+  RELAY_BATCH_POLLING_WORKER_ENABLED: "false"
+  RELAY_BATCH_POLLING_WORKER_INTERVAL_MS: "60000"
+  RELAY_BATCH_POLLING_WORKER_CLAIM_LIMIT: "10"
+  RELAY_REALTIME_COMMERCIAL_LIFECYCLE_ENABLED: "false"
+
+  # Payment redirects (provider secrets come from Secret)
+  STRIPE_SUCCESS_URL: "https://app.oblivious.ai/billing/success"
+  STRIPE_CANCEL_URL: "https://app.oblivious.ai/billing/cancel"
+  ALIPAY_CHECKOUT_BASE_URL: "https://payments.oblivious.ai/alipay"
+  WECHATPAY_CHECKOUT_BASE_URL: "https://payments.oblivious.ai/wechatpay"
+
+  # Marketplace payouts (secret comes from Secret)
+  MARKETPLACE_PAYOUT_PROVIDER: "webhook"
+  MARKETPLACE_PAYOUT_WEBHOOK_URL: "https://payments.oblivious.ai/marketplace/payouts"
+
+  # RAG indexing worker
+  RAG_INDEX_WORKER_ENABLED: "true"
+  RAG_INDEX_WORKER_INTERVAL_MS: "60000"
+  RAG_INDEX_WORKER_CLAIM_LIMIT: "10"
