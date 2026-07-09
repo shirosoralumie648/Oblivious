@@ -33,6 +33,8 @@ var httpAlertSink observability.AlertSink
 var httpAlertSinkMu sync.RWMutex
 var httpRecoveryController *observability.RecoveryController
 var httpRecoveryControllerMu sync.RWMutex
+var httpAlertLatencySLOThreshold = 5 * time.Second
+var httpAlertLatencySLOThresholdMu sync.RWMutex
 
 type statusRecorder struct {
 	stdhttp.ResponseWriter
@@ -143,6 +145,7 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 			routeRequestLogSinkAlert(ctx, r.Method, route, startedAt.UTC(), requestID, err)
 		}
 		routeHTTPAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
+		routeHTTPLatencySLOAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
 	})
 }
 
@@ -255,6 +258,29 @@ func currentHTTPRecoveryController() *observability.RecoveryController {
 	return httpRecoveryController
 }
 
+func setHTTPAlertLatencySLOThresholdForTest(threshold time.Duration) func() {
+	return setHTTPAlertLatencySLOThreshold(threshold)
+}
+
+func setHTTPAlertLatencySLOThreshold(threshold time.Duration) func() {
+	httpAlertLatencySLOThresholdMu.Lock()
+	previous := httpAlertLatencySLOThreshold
+	httpAlertLatencySLOThreshold = threshold
+	httpAlertLatencySLOThresholdMu.Unlock()
+
+	return func() {
+		httpAlertLatencySLOThresholdMu.Lock()
+		httpAlertLatencySLOThreshold = previous
+		httpAlertLatencySLOThresholdMu.Unlock()
+	}
+}
+
+func currentHTTPAlertLatencySLOThreshold() time.Duration {
+	httpAlertLatencySLOThresholdMu.RLock()
+	defer httpAlertLatencySLOThresholdMu.RUnlock()
+	return httpAlertLatencySLOThreshold
+}
+
 func routeHTTPAlert(ctx context.Context, method, route string, status int, latency time.Duration, occurredAt time.Time, requestID string) {
 	if status < stdhttp.StatusInternalServerError {
 		return
@@ -270,6 +296,46 @@ func routeHTTPAlert(ctx context.Context, method, route string, status int, laten
 	}
 	if recoveryController != nil {
 		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func routeHTTPLatencySLOAlert(ctx context.Context, method, route string, status int, latency time.Duration, occurredAt time.Time, requestID string) {
+	threshold := currentHTTPAlertLatencySLOThreshold()
+	if threshold <= 0 || latency <= threshold || route == "/healthz" || route == "/metrics" {
+		return
+	}
+	alertSink := currentHTTPAlertSink()
+	recoveryController := currentHTTPRecoveryController()
+	if alertSink == nil && recoveryController == nil {
+		return
+	}
+	event := httpLatencySLOAlertEvent(method, route, status, latency, threshold, occurredAt, requestID)
+	if alertSink != nil {
+		_ = alertSink.Notify(ctx, event)
+	}
+	if recoveryController != nil {
+		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func httpLatencySLOAlertEvent(method, route string, status int, latency time.Duration, threshold time.Duration, occurredAt time.Time, requestID string) observability.AlertEvent {
+	return observability.AlertEvent{
+		Key:        fmt.Sprintf("http-slo:%s:latency", route),
+		Severity:   observability.AlertSeverityWarning,
+		Title:      fmt.Sprintf("HTTP latency SLO exceeded on %s", route),
+		Message:    fmt.Sprintf("%s %s returned %d in %dms over %dms SLO", method, route, status, latency.Milliseconds(), threshold.Milliseconds()),
+		Component:  observability.ComponentHTTP,
+		OccurredAt: occurredAt,
+		Fields: map[string]any{
+			"method":       method,
+			"route":        route,
+			"status":       status,
+			"latency_ms":   latency.Milliseconds(),
+			"threshold_ms": threshold.Milliseconds(),
+			"request_id":   requestID,
+			"source":       "http.slo",
+			"slo":          "latency",
+		},
 	}
 }
 

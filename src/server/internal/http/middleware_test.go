@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -462,6 +463,80 @@ func TestWithLoggingRoutesRequestLogSinkFailureToAlertAndRecovery(t *testing.T) 
 	}
 	if len(actions) != 1 || actions[0].PolicyName != "record-request-log-sink-failure" || actions[0].Status != observability.RecoveryActionRecorded {
 		t.Fatalf("expected recorded request log sink recovery action, got %+v", actions)
+	}
+}
+
+func TestWithLoggingRoutesLatencySLOToAlertDeliveryAndRecovery(t *testing.T) {
+	restoreThreshold := setHTTPAlertLatencySLOThresholdForTest(time.Nanosecond)
+	defer restoreThreshold()
+
+	store := observability.NewInMemoryAlertStateStore()
+	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityWarning: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{inApp},
+		HistoryStore: store,
+	})
+	router := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: store,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:         "record-http-latency-slo",
+				Severity:     observability.AlertSeverityWarning,
+				Component:    observability.ComponentHTTP,
+				FieldMatches: map[string]string{"slo": "latency"},
+				ActionType:   observability.RecoveryActionScaleOut,
+			},
+		},
+	})
+	restoreAlertRouter := setHTTPAlertRouterForTest(router)
+	defer restoreAlertRouter()
+	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		time.Sleep(time.Millisecond)
+		w.WriteHeader(stdhttp.StatusAccepted)
+	})))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/run", nil))
+
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected original response to survive SLO alert handling, got %d", recorder.Code)
+	}
+	const alertKey = "http-slo:/api/v1/workflows/run:latency"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get latency SLO alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityWarning || state.Component != observability.ComponentHTTP {
+		t.Fatalf("expected open HTTP latency SLO warning state, found=%v state=%+v", found, state)
+	}
+	if len(inApp.events) != 1 {
+		t.Fatalf("expected one latency SLO alert delivery, got %+v", inApp.events)
+	}
+	fields := inApp.events[0].Fields
+	if fields["source"] != "http.slo" || fields["slo"] != "latency" || fields["route"] != "/api/v1/workflows/run" {
+		t.Fatalf("expected latency SLO evidence fields, got %+v", fields)
+	}
+	if _, ok := fields["latency_ms"]; !ok {
+		t.Fatalf("expected latency_ms evidence field, got %+v", fields)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list latency SLO recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-http-latency-slo" || actions[0].Status != observability.RecoveryActionRecorded {
+		t.Fatalf("expected recorded latency SLO recovery action, got %+v", actions)
 	}
 }
 
