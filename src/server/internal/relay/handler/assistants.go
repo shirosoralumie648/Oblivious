@@ -1,17 +1,14 @@
 package handler
 
 import (
-	"bytes"
-	"io"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
 )
 
-// AssistantsHandler Assistants / Threads / Runs 处理（全透传）
+// AssistantsHandler keeps Assistants / Threads / Runs fail-closed until their
+// commercial lifecycle, billing, and governance contracts are implemented.
 type AssistantsHandler struct {
 	adapter *channel.OpenAIAdapter
 }
@@ -26,25 +23,25 @@ func (h *AssistantsHandler) Handle(c *gin.Context) error {
 	id := c.Param("id")
 
 	switch {
-	case path == "/v1/assistants" && method == "POST":
+	case path == "/v1/assistants" && method == http.MethodPost:
 		h.HandleCreate(c)
-	case path == "/v1/assistants" && method == "GET":
+	case path == "/v1/assistants" && method == http.MethodGet:
 		h.HandleList(c)
-	case path == "/v1/assistants/"+id && method == "GET":
+	case path == "/v1/assistants/"+id && method == http.MethodGet:
 		h.HandleGet(c)
-	case path == "/v1/assistants/"+id && method == "POST":
+	case path == "/v1/assistants/"+id && method == http.MethodPost:
 		h.HandleModify(c)
-	case path == "/v1/assistants/"+id && method == "DELETE":
+	case path == "/v1/assistants/"+id && method == http.MethodDelete:
 		h.HandleDelete(c)
-	case path == "/v1/threads" && method == "POST":
+	case path == "/v1/threads" && method == http.MethodPost:
 		h.HandleCreateThread(c)
-	case path == "/v1/threads/"+id && method == "GET":
+	case path == "/v1/threads/"+id && method == http.MethodGet:
 		h.HandleGetThread(c)
-	case path == "/v1/threads/"+id+"/runs" && method == "POST":
+	case path == "/v1/threads/"+id+"/runs" && method == http.MethodPost:
 		h.HandleCreateRun(c)
-	case path == "/v1/threads/"+id+"/runs/"+c.Param("rid") && method == "GET":
+	case path == "/v1/threads/"+id+"/runs/"+c.Param("rid") && method == http.MethodGet:
 		h.HandleGetRun(c)
-	case path == "/v1/threads/"+id+"/runs/"+c.Param("rid")+"/submit" && method == "POST":
+	case path == "/v1/threads/"+id+"/runs/"+c.Param("rid")+"/submit" && method == http.MethodPost:
 		h.HandleSubmitRun(c)
 	default:
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "not_found", "message": "unknown assistants path"}})
@@ -56,42 +53,20 @@ func (h *AssistantsHandler) HandleStream(c *gin.Context) error {
 	return h.Handle(c)
 }
 
-func (h *AssistantsHandler) HandleCreate(c *gin.Context)   { h.passthrough(c, "POST", "/v1/assistants") }
-func (h *AssistantsHandler) HandleList(c *gin.Context)   { h.passthrough(c, "GET", "/v1/assistants") }
-func (h *AssistantsHandler) HandleGet(c *gin.Context)     { h.passthrough(c, "GET", "/v1/assistants/"+c.Param("id")) }
-func (h *AssistantsHandler) HandleModify(c *gin.Context)  { h.passthrough(c, "POST", "/v1/assistants/"+c.Param("id")) }
-func (h *AssistantsHandler) HandleDelete(c *gin.Context)  { h.passthrough(c, "DELETE", "/v1/assistants/"+c.Param("id")) }
-func (h *AssistantsHandler) HandleCreateThread(c *gin.Context) { h.passthrough(c, "POST", "/v1/threads") }
-func (h *AssistantsHandler) HandleGetThread(c *gin.Context) { h.passthrough(c, "GET", "/v1/threads/"+c.Param("id")) }
-func (h *AssistantsHandler) HandleCreateRun(c *gin.Context) { h.passthrough(c, "POST", "/v1/threads/"+c.Param("id")+"/runs") }
-func (h *AssistantsHandler) HandleGetRun(c *gin.Context) {
-	h.passthrough(c, "GET", "/v1/threads/"+c.Param("id")+"/runs/"+c.Param("rid"))
-}
-func (h *AssistantsHandler) HandleSubmitRun(c *gin.Context) {
-	h.passthrough(c, "POST", "/v1/threads/"+c.Param("id")+"/runs/"+c.Param("rid")+"/submit")
-}
+func (h *AssistantsHandler) HandleCreate(c *gin.Context)       { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleList(c *gin.Context)         { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleGet(c *gin.Context)          { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleModify(c *gin.Context)       { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleDelete(c *gin.Context)       { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleCreateThread(c *gin.Context) { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleGetThread(c *gin.Context)    { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleCreateRun(c *gin.Context)    { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleGetRun(c *gin.Context)       { h.writeDisabled(c) }
+func (h *AssistantsHandler) HandleSubmitRun(c *gin.Context)    { h.writeDisabled(c) }
 
-func (h *AssistantsHandler) passthrough(c *gin.Context, method, path string) {
-	upstreamURL, _ := h.adapter.BuildURL("", types.APITypeAssistants)
-	upstreamURL = upstreamURL + path
-	body, _ := io.ReadAll(c.Request.Body)
-	req, err := http.NewRequest(method, upstreamURL, bytes.NewReader(body))
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
-		return
-	}
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), "", types.APITypeAssistants)
-	req.Header = headers
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
-		return
-	}
-	defer resp.Body.Close()
-
-	bodyOut, _ := io.ReadAll(resp.Body)
-	c.Data(resp.StatusCode, "application/json", bodyOut)
+func (h *AssistantsHandler) writeDisabled(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{
+		"code":    "unsupported_api",
+		"message": "assistants, threads, and runs are disabled until lifecycle billing and governance are implemented",
+	}})
 }
