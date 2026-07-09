@@ -32,7 +32,7 @@ func init() {
 		"string_last_index_of": true,
 		"string_count":         true,
 		"slug_generate":        true,
-		"lorem_ipsum":          true,
+		"lorem_ipsum":          false,
 		"string_deduplicate":   true,
 		"string_sort_lines":    true,
 		"string_unique_chars":  true,

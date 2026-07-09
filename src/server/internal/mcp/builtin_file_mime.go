@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"mime"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 )
@@ -86,7 +86,7 @@ func (t *MimeTypeFromExtensionTool) InputSchema() any {
 func (t *MimeTypeFromExtensionTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	_ = ctx
 	filename := fileMimeString(args, "filename", "file.txt")
-	ext := strings.ToLower(filepath.Ext(filename))
+	ext := strings.ToLower(path.Ext(filename))
 	if ext == "" && strings.HasPrefix(filename, ".") {
 		ext = strings.ToLower(filename)
 	}
@@ -157,7 +157,7 @@ func (t *FileExtensionGetTool) InputSchema() any {
 func (t *FileExtensionGetTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	_ = ctx
 	filename := fileMimeString(args, "filename", "file.txt")
-	ext := filepath.Ext(filename)
+	ext := path.Ext(filename)
 	if ext == "" {
 		return &ToolResult{Content: "(no extension)"}, nil
 	}
@@ -179,7 +179,7 @@ func (t *FileBasenameTool) InputSchema() any {
 }
 func (t *FileBasenameTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	_ = ctx
-	return &ToolResult{Content: filepath.Base(fileMimeString(args, "path", "."))}, nil
+	return &ToolResult{Content: path.Base(fileMimeString(args, "path", "."))}, nil
 }
 
 // FileDirnameTool returns the directory portion of a path.
@@ -197,7 +197,7 @@ func (t *FileDirnameTool) InputSchema() any {
 }
 func (t *FileDirnameTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	_ = ctx
-	return &ToolResult{Content: filepath.Dir(fileMimeString(args, "path", "."))}, nil
+	return &ToolResult{Content: path.Dir(fileMimeString(args, "path", "."))}, nil
 }
 
 // FilePathJoinTool joins path components.
@@ -235,7 +235,7 @@ func (t *FilePathJoinTool) Execute(ctx context.Context, args map[string]any) (*T
 			}
 		}
 	}
-	return &ToolResult{Content: filepath.Join(parts...)}, nil
+	return &ToolResult{Content: path.Join(parts...)}, nil
 }
 
 // FilePathCleanTool normalizes a path.
@@ -253,7 +253,7 @@ func (t *FilePathCleanTool) InputSchema() any {
 }
 func (t *FilePathCleanTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	_ = ctx
-	return &ToolResult{Content: filepath.Clean(fileMimeString(args, "path", "."))}, nil
+	return &ToolResult{Content: path.Clean(fileMimeString(args, "path", "."))}, nil
 }
 
 // FileSizeFormatTool renders a byte count as a human-readable size.

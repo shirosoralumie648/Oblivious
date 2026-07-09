@@ -27,7 +27,7 @@ func TestBuiltinToolsCommercialDefaults(t *testing.T) {
 			t.Fatalf("expected %s to be default commercial enabled, got names=%v", name, names)
 		}
 	}
-	for _, name := range []string{"web_search", "http_request"} {
+	for _, name := range []string{"web_search", "http_request", "lorem_ipsum"} {
 		if names[name] {
 			t.Fatalf("expected %s to be disabled by default commercial policy, got names=%v", name, names)
 		}
