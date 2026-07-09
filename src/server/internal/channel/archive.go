@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -382,7 +383,15 @@ func (w *ArchiveWorker) runOnce(ctx context.Context) {
 
 func messageLogArchiveObjectKey(now time.Time) string {
 	timestamp := now.UTC().Format("20060102T150405Z")
-	return "channel-message-logs/" + timestamp + "-" + generateID("batch") + ".json"
+	return "channel-message-logs/" + timestamp + "-batch_" + messageLogArchiveObjectKeySuffix() + ".json"
+}
+
+func messageLogArchiveObjectKeySuffix() string {
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err == nil {
+		return hex.EncodeToString(suffix[:])
+	}
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 func cloneChannelMessageLogs(logs []*ChannelMessageLog) []*ChannelMessageLog {

@@ -2356,7 +2356,7 @@ assert_file_contains "$dependency_security_file" 'run_with_retries "src/web npm 
 assert_file_contains "$dependency_security_file" "has_auditable_npm_dependencies"
 assert_file_contains "$dependency_security_file" "https://registry.npmjs.org"
 assert_file_contains "$dependency_security_file" "govulncheck"
-assert_file_contains "$dependency_security_file" "go1.26.4"
+assert_file_contains "$dependency_security_file" "go1.26.5"
 assert_file_contains "$dependency_security_file" "OBLIVIOUS_SECURITY_GOVULNCHECK_VERSION"
 assert_file_contains "$dependency_security_file" "v1.3.0"
 assert_file_contains "$package_file" '"check:security": "bash scripts/check.sh security"'

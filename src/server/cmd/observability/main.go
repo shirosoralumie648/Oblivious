@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"oblivious/server/internal/config"
 	"oblivious/server/internal/observability"
+	"oblivious/server/pkg/config"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,10 +15,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("config load failed: %v", err)
-	}
+	cfg := config.LoadObservabilityConfig()
 
 	reporter := observability.NewMemoryReporter()
 	consumer := observability.NewChannelConsumer(reporter)
@@ -43,12 +40,7 @@ func main() {
 	router := gin.Default()
 	registerRoutes(router, cfg, reporter)
 
-	port := os.Getenv("OBSERVABILITY_PORT")
-	if port == "" {
-		port = "8090"
-	}
-
-	srv := &http.Server{Addr: ":" + port, Handler: router}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: router}
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -56,7 +48,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("Observability service listening on :%s", port)
+	log.Printf("Observability service listening on :%s db_mode=%s", cfg.Port, cfg.DBMode)
 	log.Println("Consumer ready to receive channel and workflow events")
 	_ = consumer
 
@@ -70,9 +62,9 @@ func main() {
 	srv.Shutdown(context.Background())
 }
 
-func registerRoutes(router *gin.Engine, cfg config.Config, reporter *observability.MemoryReporter) {
+func registerRoutes(router *gin.Engine, cfg *config.ObservabilityConfig, reporter *observability.MemoryReporter) {
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		c.JSON(200, gin.H{"status": "ok", "service": "observability", "db_mode": cfg.DBMode})
 	})
 
 	router.GET("/metrics", func(c *gin.Context) {

@@ -13,6 +13,7 @@ import (
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/db"
 	serverhttp "oblivious/server/internal/http"
+	"oblivious/server/internal/migrations"
 )
 
 func main() {
@@ -26,6 +27,14 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer database.Close()
+
+	migrationCtx, cancelMigrations := context.WithTimeout(context.Background(), 10*time.Minute)
+	migrationResult, err := migrations.Apply(migrationCtx, database, "migrations")
+	cancelMigrations()
+	if err != nil {
+		log.Fatalf("apply migrations: %v", err)
+	}
+	log.Printf("migrations ready: applied=%d skipped=%d", migrationResult.Applied, migrationResult.Skipped)
 
 	server := serverhttp.NewServer(cfg, database)
 	serverErrors := make(chan error, 1)

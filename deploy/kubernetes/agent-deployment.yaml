@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: agent
-        image: oblivious/agent:latest
+        image: oblivious/agent:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -52,6 +52,11 @@ spec:
             secretKeyRef:
               name: oblivious-secrets
               key: DATABASE_URL
+        - name: DB_URL_AGENT
+          valueFrom:
+            secretKeyRef:
+              name: oblivious-secrets
+              key: DB_URL_AGENT
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:

@@ -5,13 +5,24 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 postgres_dir="$repo_root/src/server/migrations"
 clickhouse_dir="$repo_root/src/server/migrations/clickhouse"
 
+schema_matches() {
+  local pattern="$1"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -q -- "$pattern" "$postgres_dir" "$clickhouse_dir"
+    return
+  fi
+
+  grep -REq -- "$pattern" "$postgres_dir" "$clickhouse_dir"
+}
+
 assert_schema_evidence() {
   local family="$1"
   shift
 
   local missing=()
   for pattern in "$@"; do
-    if ! rg -q -- "$pattern" "$postgres_dir" "$clickhouse_dir"; then
+    if ! schema_matches "$pattern"; then
       missing+=("$pattern")
     fi
   done

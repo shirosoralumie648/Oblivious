@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: billing
-        image: oblivious/billing:latest
+        image: oblivious/billing:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

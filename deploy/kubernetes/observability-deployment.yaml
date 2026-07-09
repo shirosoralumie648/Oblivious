@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: observability
-        image: oblivious/observability:latest
+        image: oblivious/observability:${OBLIVIOUS_IMAGE_TAG}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
