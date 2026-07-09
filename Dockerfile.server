@@ -10,7 +10,8 @@ ENV GOSUMDB=${GOSUMDB}
 
 WORKDIR /workspace/src/server
 
-# Build active mainline entrypoints from src/server/cmd/server and src/server/cmd/migrate.
+# Build active mainline entrypoints from src/server/cmd/server and src/server/cmd/migrate,
+# plus the release gRPC smoke utility from src/server/cmd/grpc-smoke.
 COPY src/server/go.mod src/server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
@@ -21,6 +22,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-migrate ./cmd/migrate
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-grpc-smoke ./cmd/grpc-smoke
 
 FROM ${ALPINE_IMAGE} AS runtime
 
@@ -29,6 +33,7 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=builder /out/oblivious-server /usr/local/bin/oblivious-server
 COPY --from=builder /out/oblivious-migrate /usr/local/bin/oblivious-migrate
+COPY --from=builder /out/oblivious-grpc-smoke /usr/local/bin/oblivious-grpc-smoke
 COPY src/server/migrations ./migrations
 
 EXPOSE 8080
