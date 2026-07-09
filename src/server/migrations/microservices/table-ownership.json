@@ -15,7 +15,12 @@
     "relay_semantic_cache",
     "relay_metrics",
     "relay_pricing_settings",
+    "relay_pricing_entries",
+    "relay_pricing_catalog_imports",
+    "relay_pricing_catalog_events",
+    "relay_pricing_sync_runs",
     "relay_file_mappings",
+    "relay_batch_polling_jobs",
     "relay_conversation_affinity",
     "relay_channel_affinity"
   ],
@@ -32,6 +37,10 @@
     "workflows",
     "workflow_versions",
     "workflow_executions",
+    "workflow_execution_events",
+    "workflow_webhook_replay_keys",
+    "workflow_debug_trace_entries",
+    "workflow_debug_variable_snapshots",
     "workflow_node_executions"
   ],
   "rag": [
@@ -39,6 +48,8 @@
     "knowledge_documents",
     "knowledge_document_chunks",
     "knowledge_document_versions",
+    "knowledge_ingestion_jobs",
+    "knowledge_index_jobs",
     "knowledge_retrieval_test_cases",
     "documents",
     "document_chunks",

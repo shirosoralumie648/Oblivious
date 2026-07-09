@@ -58,6 +58,38 @@ components:
           type: string
           example: "invalid json body"
 
+    ReleaseEvidenceScope:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+
+    ReleaseEvidenceProof:
+      type: object
+      description: Admin-only target release proof payload. Fields are proof-specific pass/fail markers and summary counts; secrets and raw target URLs are intentionally omitted.
+      properties:
+        scope:
+          $ref: "#/components/schemas/ReleaseEvidenceScope"
+        status:
+          type: string
+          enum: [not_ready]
+        notReadyReason:
+          type: string
+      additionalProperties: true
+
+    ReleaseEvidenceProofEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ReleaseEvidenceProof"
+
     CredentialsRequest:
       type: object
       required: [email, password]
@@ -673,6 +705,14 @@ components:
           type: string
         documentVersion:
           type: string
+        indexError:
+          type: string
+        indexStatus:
+          type: string
+          enum: [pending, indexing, ready, failed]
+        indexedAt:
+          type: string
+          format: date-time
         updateStrategy:
           type: string
           enum: [full_replace, incremental, versioned]
@@ -849,6 +889,38 @@ components:
           type: string
         source:
           type: object
+
+    KnowledgeRetrievalCitationCoverage:
+      type: object
+      properties:
+        totalResults:
+          type: integer
+        resultsWithSource:
+          type: integer
+        resultsWithPage:
+          type: integer
+        resultsWithHighlights:
+          type: integer
+        resultsWithOriginalText:
+          type: integer
+
+    KnowledgeRetrievalDebugReport:
+      type: object
+      properties:
+        knowledgeBaseId:
+          type: string
+        query:
+          type: string
+        options:
+          $ref: "#/components/schemas/RetrieveKnowledgeRequest"
+        resultCount:
+          type: integer
+        citationCoverage:
+          $ref: "#/components/schemas/KnowledgeRetrievalCitationCoverage"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRetrievalResult"
 
     CreateKnowledgeRetrievalTestCaseRequest:
       type: object
@@ -2564,9 +2636,63 @@ components:
         nodeId:
           type: string
 
+    WorkflowExecutionEvent:
+      type: object
+      required: [id, executionId, organizationId, eventType, toStatus, createdAt]
+      properties:
+        id:
+          type: string
+        executionId:
+          type: string
+        organizationId:
+          type: string
+        eventType:
+          type: string
+          enum: [created, status_changed]
+        fromStatus:
+          type: string
+        toStatus:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    WorkflowStateReplayTransition:
+      type: object
+      required: [event, fromStatus, toStatus, createdAt]
+      properties:
+        event:
+          type: string
+        fromStatus:
+          type: string
+        toStatus:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        eventId:
+          type: string
+
+    WorkflowStateReplay:
+      type: object
+      required: [initialStatus, finalStatus, valid, transitions]
+      properties:
+        initialStatus:
+          type: string
+        finalStatus:
+          type: string
+        valid:
+          type: boolean
+        invalidReason:
+          type: string
+        transitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStateReplayTransition"
+
     WorkflowExecutionDebugSnapshot:
       type: object
-      required: [executionId, workflowId, status, variableSnapshot, trace, outputs, performance, logs]
+      required: [executionId, workflowId, status, variableSnapshot, events, stateReplay, trace, outputs, performance, logs]
       properties:
         executionId:
           type: string
@@ -2576,6 +2702,12 @@ components:
           type: string
         variableSnapshot:
           $ref: "#/components/schemas/WorkflowDebugVariableSnapshot"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowExecutionEvent"
+        stateReplay:
+          $ref: "#/components/schemas/WorkflowStateReplay"
         trace:
           type: array
           items:
@@ -2599,6 +2731,41 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/WorkflowExecutionDebugSnapshot"
+
+    WorkflowExecutionStateReplayEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowStateReplay"
+
+    WorkflowExecutionDebugRetentionPruneRequest:
+      type: object
+      required: [before]
+      properties:
+        before:
+          type: string
+          format: date-time
+
+    WorkflowExecutionDebugRetentionPruneResult:
+      type: object
+      required: [traceEntriesDeleted, variableSnapshotsDeleted]
+      properties:
+        traceEntriesDeleted:
+          type: integer
+          minimum: 0
+        variableSnapshotsDeleted:
+          type: integer
+          minimum: 0
+
+    WorkflowExecutionDebugRetentionPruneResultEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowExecutionDebugRetentionPruneResult"
 
     WorkflowSemanticMatchRequest:
       type: object
@@ -2802,7 +2969,7 @@ components:
           enum: [public, private, unlisted]
         status:
           type: string
-          enum: [draft, pending_review, approved, rejected, needs_changes, takedown]
+          enum: [draft, pending_review, appeal_pending, approved, rejected, needs_changes, takedown]
         reviewReason:
           type: string
         pricingType:
@@ -2829,6 +2996,8 @@ components:
           type: string
           format: date-time
         publisherReviewTier:
+          type: string
+        reviewerUserId:
           type: string
         reviewSLA:
           $ref: "#/components/schemas/MarketplaceReviewSLA"
@@ -3337,7 +3506,7 @@ components:
       properties:
         status:
           type: string
-          enum: [deleted, uninstalled, appealed, takedown, approved]
+          enum: [deleted, uninstalled, appeal_pending, takedown, approved]
 
     MarketplaceGovernanceActionRequest:
       type: object
@@ -3373,7 +3542,7 @@ components:
       properties:
         status:
           type: string
-          enum: [approved, rejected, needs_changes]
+          enum: [approved, claimed, rejected, needs_changes]
 
     MarketplaceReviewSLAEnforcementResult:
       type: object
@@ -3935,6 +4104,7 @@ components:
 
     AdminMarketplaceSettlementInspection:
       type: object
+      required: [id, orderId, publisherOrganizationId, publisherUserId, agentId, grossAmount, platformFeeAmount, publisherNetAmount, refundedAmount, status, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4072,6 +4242,7 @@ components:
 
     AdminMarketplaceSettlementsResponse:
       type: object
+      required: [settlements, total]
       properties:
         settlements:
           type: array
@@ -4165,6 +4336,57 @@ components:
           type: string
         cancel_at_period_end:
           type: boolean
+
+    MarketplacePayoutWebhookEvent:
+      type: object
+      required: [id, type]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [payout.paid, payout.failed]
+        payout_id:
+          type: string
+        provider_payout_id:
+          type: string
+        status:
+          type: string
+          enum: [paid, paid_out, failed]
+        reason:
+          type: string
+
+    MarketplacePayoutDispatchWebhookRequest:
+      type: object
+      required: [payoutID, publisherOrganizationID, publisherUserID, amount, currency, settlementIDs]
+      properties:
+        payoutID:
+          type: string
+        publisherOrganizationID:
+          type: string
+        publisherUserID:
+          type: string
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+        currency:
+          type: string
+        settlementIDs:
+          type: array
+          items:
+            type: string
+
+    MarketplacePayoutDispatchWebhookResponse:
+      type: object
+      properties:
+        providerPayoutID:
+          type: string
+        provider_payout_id:
+          type: string
+      oneOf:
+        - required: [providerPayoutID]
+        - required: [provider_payout_id]
 
     WebhookReceivedResponse:
       type: object
@@ -4843,7 +5065,7 @@ components:
 
     AdminChannelProvider:
       type: object
-      required: [id, displayName, kind, status, defaultBaseURL]
+      required: [id, displayName, kind, status, defaultBaseURL, configurable]
       properties:
         id:
           type: string
@@ -4855,6 +5077,8 @@ components:
           type: string
         defaultBaseURL:
           type: string
+        configurable:
+          type: boolean
 
     AdminChannelProviderListResponse:
       type: object
@@ -5308,6 +5532,251 @@ components:
             format: double
             minimum: 0
 
+    AdminRelayPricingCatalogEntry:
+      type: object
+      required: [apiType, model, dimension, unitCost]
+      properties:
+        id:
+          type: string
+        apiType:
+          type: string
+        model:
+          type: string
+        dimension:
+          type: string
+          enum: [prompt_tokens, completion_tokens, total_tokens, image_count, video_count, audio_seconds, storage_bytes, training_tokens]
+        unitCost:
+          type: number
+          format: double
+          minimum: 0
+        markup:
+          type: number
+          format: double
+          minimum: 0
+        currency:
+          type: string
+        source:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date-time
+        active:
+          type: boolean
+
+    AdminRelayPricingCatalogImportRequest:
+      type: object
+      required: [provider, source, entries]
+      properties:
+        provider:
+          type: string
+        source:
+          type: string
+        sourceHash:
+          type: string
+        notes:
+          type: string
+        deactivateMissing:
+          type: boolean
+        effectiveFrom:
+          type: string
+          format: date-time
+        entries:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AdminRelayPricingCatalogEntry"
+
+    AdminRelayPricingCatalogSyncRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+        source:
+          type: string
+          default: litellm
+        sourceUrl:
+          type: string
+          format: uri
+          description: HTTPS LiteLLM model price JSON source. Mutually exclusive with sourceJson.
+        sourceJson:
+          type: object
+          additionalProperties: true
+          description: Inline LiteLLM model price JSON for offline or operator-uploaded imports.
+        notes:
+          type: string
+        deactivateMissing:
+          type: boolean
+          default: false
+        effectiveFrom:
+          type: string
+          format: date-time
+        requiredModels:
+          type: array
+          items:
+            type: string
+        maxBytes:
+          type: integer
+          format: int64
+          minimum: 1
+
+    AdminRelayPricingCatalogRejectRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    AdminRelayPricingCatalogRollbackRequest:
+      type: object
+      properties:
+        notes:
+          type: string
+
+    AdminRelayPricingCatalogDiffEntry:
+      type: object
+      required: [action, key]
+      properties:
+        action:
+          type: string
+          enum: [add, update, unchanged, deactivate]
+        key:
+          type: string
+        before:
+          $ref: "#/components/schemas/AdminRelayPricingCatalogEntry"
+        after:
+          $ref: "#/components/schemas/AdminRelayPricingCatalogEntry"
+        reason:
+          type: string
+        applied:
+          type: boolean
+        appliedId:
+          type: string
+
+    AdminRelayPricingCatalogDiff:
+      type: object
+      required: [added, updated, unchanged, deactivated, entries]
+      properties:
+        added:
+          type: integer
+        updated:
+          type: integer
+        unchanged:
+          type: integer
+        deactivated:
+          type: integer
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRelayPricingCatalogDiffEntry"
+
+    AdminRelayPricingCatalogImport:
+      type: object
+      required: [id, provider, source, status, deactivateMissing, entries, diff, createdAt]
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        source:
+          type: string
+        sourceHash:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        notes:
+          type: string
+        deactivateMissing:
+          type: boolean
+        importedBy:
+          type: string
+        importedByEmail:
+          type: string
+        approvedBy:
+          type: string
+        approvedByEmail:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRelayPricingCatalogEntry"
+        diff:
+          $ref: "#/components/schemas/AdminRelayPricingCatalogDiff"
+        createdAt:
+          type: string
+          format: date-time
+        approvedAt:
+          type: string
+          format: date-time
+
+    AdminRelayPricingCatalogImportListResponse:
+      type: object
+      required: [imports, total]
+      properties:
+        imports:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        total:
+          type: integer
+
+    AdminRelayPricingCatalogSyncRun:
+      type: object
+      required: [id, job, status, entryCount, skippedCount, checkedRecords, issueCount, startedAt, finishedAt]
+      properties:
+        id:
+          type: string
+        job:
+          type: string
+          enum: [freshness, reconciliation]
+        provider:
+          type: string
+        source:
+          type: string
+        sourceRef:
+          type: string
+        sourceHash:
+          type: string
+        status:
+          type: string
+          enum: [pending_import, unchanged, succeeded, issues_found, failed]
+        importId:
+          type: string
+        entryCount:
+          type: integer
+          minimum: 0
+        skippedCount:
+          type: integer
+          minimum: 0
+        checkedRecords:
+          type: integer
+          minimum: 0
+        issueCount:
+          type: integer
+          minimum: 0
+        error:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+
+    AdminRelayPricingCatalogSyncRunListResponse:
+      type: object
+      required: [runs, total]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRelayPricingCatalogSyncRun"
+        total:
+          type: integer
+
     AdminUsageLimitSettings:
       type: object
       required: [organizationId, quotaMode, maxConcurrentRequests, windowSeconds, maxTokensPerWindow, maxTokensPerRequest]
@@ -5344,6 +5813,379 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminUsageLimitSettings"
+
+    AdminUsageLogEntry:
+      type: object
+      required: [id, userId, model, cost, channelCost, promptTokens, completionTokens, totalTokens, createdAt]
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        apiTokenId:
+          type: string
+        requestId:
+          type: string
+        apiType:
+          type: string
+        featureType:
+          type: string
+        quotaMode:
+          type: string
+        model:
+          type: string
+        channelId:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+        statusCode:
+          type: integer
+        errorCode:
+          type: string
+        latencyMs:
+          type: integer
+        cost:
+          type: number
+          format: double
+        channelCost:
+          type: number
+          format: double
+        priceSnapshot:
+          type: object
+          additionalProperties: true
+        priceCurrency:
+          type: string
+        priceSource:
+          type: string
+        priceEffectiveFrom:
+          type: string
+          format: date-time
+        promptTokens:
+          type: integer
+        completionTokens:
+          type: integer
+        totalTokens:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        requestLogEvidence:
+          $ref: "#/components/schemas/AdminRequestLogEvidence"
+
+    AdminRequestLogEvidence:
+      type: object
+      required:
+        - requestId
+        - requestLogId
+        - timestamp
+        - service
+        - endpoint
+        - method
+        - statusCode
+        - durationMs
+        - requestTokens
+        - responseTokens
+        - model
+        - costUsd
+      properties:
+        requestId:
+          type: string
+        requestLogId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+        endpoint:
+          type: string
+        method:
+          type: string
+        statusCode:
+          type: integer
+        durationMs:
+          type: integer
+        requestTokens:
+          type: integer
+        responseTokens:
+          type: integer
+        model:
+          type: string
+        costUsd:
+          type: number
+          format: double
+        error:
+          type: string
+        traceId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AdminUsageLogListResponse:
+      type: object
+      required: [usageLogs, total]
+      properties:
+        usageLogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageLogEntry"
+        total:
+          type: integer
+
+    AdminUsageAnalyticsBucket:
+      type: object
+      required: [dimension, key, requestCount, totalTokens, totalCost]
+      properties:
+        dimension:
+          type: string
+        key:
+          type: string
+        secondaryKey:
+          type: string
+        requestCount:
+          type: integer
+        totalTokens:
+          type: integer
+        totalCost:
+          type: number
+          format: double
+        channelCost:
+          type: number
+          format: double
+        startedAt:
+          type: string
+          format: date-time
+
+    AdminUsageAnalyticsResponse:
+      type: object
+      required: [byModel, byFeature, byUser, byTime, byChannel, byProvider, crossDimensions]
+      properties:
+        byModel:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        byFeature:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        byUser:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        byTime:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        byChannel:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        byProvider:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+        crossDimensions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageAnalyticsBucket"
+
+    AdminRelayUsagePriceReconciliationIssue:
+      type: object
+      required: [id, userId, model, cost, snapshotTotalCost, deltaCost, issue, createdAt]
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        apiTokenId:
+          type: string
+        requestId:
+          type: string
+        apiType:
+          type: string
+        featureType:
+          type: string
+        quotaMode:
+          type: string
+        model:
+          type: string
+        channelId:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+        cost:
+          type: number
+          format: double
+        snapshotTotalCost:
+          type: number
+          format: double
+        deltaCost:
+          type: number
+          format: double
+        priceCurrency:
+          type: string
+        priceSource:
+          type: string
+        issue:
+          type: string
+          enum: [missing_snapshot, cost_mismatch]
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminRelayUsagePriceReconciliationResponse:
+      type: object
+      required:
+        - checkedRecords
+        - matchedRecords
+        - missingSnapshotRecords
+        - mismatchedRecords
+        - ledgerTotalCost
+        - snapshotTotalCost
+        - deltaCost
+        - issues
+        - limit
+        - offset
+      properties:
+        checkedRecords:
+          type: integer
+        matchedRecords:
+          type: integer
+        missingSnapshotRecords:
+          type: integer
+        mismatchedRecords:
+          type: integer
+        ledgerTotalCost:
+          type: number
+          format: double
+        snapshotTotalCost:
+          type: number
+          format: double
+        deltaCost:
+          type: number
+          format: double
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRelayUsagePriceReconciliationIssue"
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    AdminUsageRequestLogCoverageIssue:
+      type: object
+      required: [id, issue]
+      properties:
+        id:
+          type: string
+        requestId:
+          type: string
+        model:
+          type: string
+        issue:
+          type: string
+          enum: [missing_request_id, missing_request_log]
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminUsageRequestLogCoverageResponse:
+      type: object
+      required:
+        - checkedRecords
+        - usageRowsWithRequestId
+        - usageRowsMissingRequestId
+        - matchedRequestLogRecords
+        - missingRequestLogRecords
+        - issues
+        - limit
+        - offset
+      properties:
+        checkedRecords:
+          type: integer
+        usageRowsWithRequestId:
+          type: integer
+        usageRowsMissingRequestId:
+          type: integer
+        matchedRequestLogRecords:
+          type: integer
+        missingRequestLogRecords:
+          type: integer
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageRequestLogCoverageIssue"
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    AdminObservabilityLatencySLOAlertDelivery:
+      type: object
+      required: [configuredProviders, deliveredAlerts, failedDeliveries, channels, lastDeliveryId]
+      properties:
+        configuredProviders:
+          type: integer
+          minimum: 0
+        deliveredAlerts:
+          type: integer
+          minimum: 0
+        failedDeliveries:
+          type: integer
+          minimum: 0
+        channels:
+          type: array
+          items:
+            type: string
+        lastDeliveryId:
+          type: string
+
+    AdminObservabilityLatencySLORecoveryAudit:
+      type: object
+      required: [auditRecords, failedActions, lastRecordId]
+      properties:
+        auditRecords:
+          type: integer
+          minimum: 0
+        failedActions:
+          type: integer
+          minimum: 0
+        lastRecordId:
+          type: string
+
+    AdminObservabilityLatencySLOProofResponse:
+      type: object
+      required: [window, triggeredAlerts, alertDelivery, recoveryAudit]
+      properties:
+        window:
+          type: string
+          description: ISO-8601 interval used for the proof window.
+        triggeredAlerts:
+          type: integer
+          minimum: 0
+        alertDelivery:
+          $ref: "#/components/schemas/AdminObservabilityLatencySLOAlertDelivery"
+        recoveryAudit:
+          $ref: "#/components/schemas/AdminObservabilityLatencySLORecoveryAudit"
+        latencySLOTrigger:
+          type: object
+          additionalProperties: true
+        latencySLOAlertDelivery:
+          type: object
+          additionalProperties: true
+        latencySLORecoveryAction:
+          type: object
+          additionalProperties: true
 
     AdminRouteChannel:
       type: object
@@ -6032,6 +6874,29 @@ components:
               code: internal_error
               message: "operation failed"
 
+x-oblivious-outbound-webhooks:
+  marketplacePayoutDispatch:
+    description: Outbound webhook called when MARKETPLACE_PAYOUT_PROVIDER=webhook creates a marketplace payout.
+    method: POST
+    urlEnv: MARKETPLACE_PAYOUT_WEBHOOK_URL
+    headers:
+      Content-Type: application/json
+      User-Agent: oblivious-marketplace-payout/1.0
+      X-Oblivious-Payout-ID: payoutID
+      X-Oblivious-Payout-Signature: HMAC-SHA256 body signature formatted as sha256=<hex>
+    requestBody:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/MarketplacePayoutDispatchWebhookRequest"
+    responses:
+      "2xx":
+        description: Provider payout accepted. Response must include providerPayoutID or provider_payout_id.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplacePayoutDispatchWebhookResponse"
+
 paths:
   # ---- 健康检查 ----
   /healthz:
@@ -6475,6 +7340,47 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/gateway/proxy/chat/completions:
+    post:
+      summary: Proxy chat completions through the authenticated workspace session
+      description: |
+        Forwards a browser session request to the Relay OpenAI-compatible `/v1/chat/completions` endpoint.
+        The server injects trusted internal user and organization headers, strips any browser-supplied
+        Authorization header, and returns the Relay response unchanged.
+      operationId: gatewayProxyCreateChatCompletion
+      tags: [Relay, Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible chat completion response. Streaming requests return provider SSE.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Relay proxy is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- Relay aliases (OpenAI-compatible) ----
   /api/v1/relay/chat/completions:
@@ -8429,6 +9335,43 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve/debug:
+    post:
+      summary: 知识库检索调试
+      operationId: retrieveKnowledgeDebug
+      tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetrieveKnowledgeRequest"
+      responses:
+        "200":
+          description: 检索调试报告
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeRetrievalDebugReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases:
     get:
       summary: 获取知识库检索测试用例
@@ -8558,6 +9501,8 @@ paths:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1merge"
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieve:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/retrieve/debug:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve~1debug"
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases"
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run:
@@ -11846,6 +12791,32 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/workflows/debug-retention/prune:
+    post:
+      summary: 清理工作流执行调试保留数据
+      operationId: pruneWorkflowExecutionDebugRetention
+      tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowExecutionDebugRetentionPruneRequest"
+      responses:
+        "200":
+          description: 已清理的调试 trace 和变量快照行数
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionDebugRetentionPruneResultEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/workflows/webhooks/{organizationId}/{workflowId}:
     post:
       summary: 接收公开签名工作流 webhook
@@ -12330,6 +13301,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkflowExecutionDebugSnapshotEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/state-replay:
+    get:
+      summary: 获取工作流执行状态回放
+      operationId: getWorkflowExecutionStateReplay
+      tags: [Workflow]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 执行状态回放
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionStateReplayEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -14116,6 +15117,296 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/admin/pricing/relay-catalog/imports:
+    get:
+      summary: 检索 Relay 价格目录导入批次
+      operationId: listAdminRelayPricingCatalogImports
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Relay pricing catalog import batches and total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImportListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: 创建 Relay 价格目录导入草案
+      operationId: createAdminRelayPricingCatalogImport
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRelayPricingCatalogImportRequest"
+      responses:
+        "201":
+          description: Pending Relay pricing catalog import with diff evidence
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/pricing/relay-catalog/sync:
+    post:
+      summary: 从 LiteLLM 价格源创建 Relay 价格目录导入草案
+      operationId: syncAdminRelayPricingCatalogImport
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRelayPricingCatalogSyncRequest"
+      responses:
+        "201":
+          description: Pending Relay pricing catalog import generated from a LiteLLM source; approval is still required before mutation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/pricing/relay-catalog/sync-runs:
+    get:
+      summary: 检索 Relay 价格源同步和对账运行记录
+      operationId: listAdminRelayPricingCatalogSyncRuns
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: job
+          in: query
+          schema:
+            type: string
+            enum: [freshness, reconciliation]
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending_import, unchanged, succeeded, issues_found, failed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Relay pricing provider-source freshness and reconciliation run ledger
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogSyncRunListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/pricing/relay-catalog/imports/{importId}/approve:
+    post:
+      summary: 审批并应用 Relay 价格目录导入
+      operationId: approveAdminRelayPricingCatalogImport
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: importId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approved Relay pricing catalog import after catalog mutation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Import is not pending
+
+  /api/v1/admin/pricing/relay-catalog/imports/{importId}/reject:
+    post:
+      summary: 拒绝 Relay 价格目录导入
+      operationId: rejectAdminRelayPricingCatalogImport
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: importId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRelayPricingCatalogRejectRequest"
+      responses:
+        "200":
+          description: Rejected Relay pricing catalog import
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Import is not pending
+
+  /api/v1/admin/pricing/relay-catalog/imports/{importId}/rollback:
+    post:
+      summary: 创建 Relay 价格目录回滚导入
+      operationId: rollbackAdminRelayPricingCatalogImport
+      tags: [Admin, Relay, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: importId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRelayPricingCatalogRollbackRequest"
+      responses:
+        "201":
+          description: Pending rollback import that must still be approved before mutation
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingCatalogImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Import is not approved or current catalog has changed
+
   /api/v1/admin/settings/usage-limits:
     get:
       summary: 获取当前组织 Usage Limit 设置
@@ -14170,6 +15461,529 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/usage-logs:
+    get:
+      summary: 检索 Relay usage logs
+      operationId: listAdminUsageLogs
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: apiTokenID
+          in: query
+          schema:
+            type: string
+        - name: requestID
+          in: query
+          schema:
+            type: string
+        - name: apiType
+          in: query
+          schema:
+            type: string
+        - name: featureType
+          in: query
+          schema:
+            type: string
+        - name: quotaMode
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: channelID
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Relay usage logs including pricing snapshots
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUsageLogListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/usage-analytics:
+    get:
+      summary: 检索 Relay usage analytics
+      operationId: getAdminUsageAnalytics
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: apiType
+          in: query
+          schema:
+            type: string
+        - name: featureType
+          in: query
+          schema:
+            type: string
+        - name: quotaMode
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: channelID
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: granularity
+          in: query
+          schema:
+            type: string
+            enum: [second, minute, hour, day, week, month]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Relay usage analytics
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUsageAnalyticsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/reconciliation/relay-usage-prices:
+    get:
+      summary: 对账 Relay usage ledger 与价格快照成本
+      operationId: getAdminRelayUsagePriceReconciliation
+      tags: [Admin, Billing, Relay]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: apiTokenID
+          in: query
+          schema:
+            type: string
+        - name: requestID
+          in: query
+          schema:
+            type: string
+        - name: apiType
+          in: query
+          schema:
+            type: string
+        - name: featureType
+          in: query
+          schema:
+            type: string
+        - name: quotaMode
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: channelID
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Relay usage price reconciliation summary and sampled issue rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayUsagePriceReconciliationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/reconciliation/usage-request-logs:
+    get:
+      summary: 检查 usage records 与 request logs 的 request_id 关联覆盖率
+      operationId: getAdminUsageRequestLogCoverage
+      tags: [Admin, Billing, Observability]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: apiTokenID
+          in: query
+          schema:
+            type: string
+        - name: requestID
+          in: query
+          schema:
+            type: string
+        - name: apiType
+          in: query
+          schema:
+            type: string
+        - name: featureType
+          in: query
+          schema:
+            type: string
+        - name: quotaMode
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: channelID
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Usage request-log join coverage summary and sampled issue rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUsageRequestLogCoverageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/release-evidence/rag-indexing:
+    get:
+      summary: Fetch target release evidence proof for durable RAG indexing
+      operationId: getAdminReleaseEvidenceRAGIndexingProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: &releaseEvidenceWindowParameters
+        - name: from
+          in: query
+          description: Optional RFC3339 evidence window start; must be provided together with to.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Optional RFC3339 evidence window end; must be provided together with from.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Durable RAG indexing release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/relay-realtime:
+    get:
+      summary: Fetch target release evidence proof for Relay realtime policy
+      operationId: getAdminReleaseEvidenceRelayRealtimeProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Relay realtime release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/relay-batch:
+    get:
+      summary: Fetch target release evidence proof for Relay batch policy
+      operationId: getAdminReleaseEvidenceRelayBatchProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Relay batch release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/marketplace-payout:
+    get:
+      summary: Fetch target release evidence proof for Marketplace payout lifecycle
+      operationId: getAdminReleaseEvidenceMarketplacePayoutProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Marketplace payout release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/marketplace-governance:
+    get:
+      summary: Fetch target release evidence proof for Marketplace governance lifecycle
+      operationId: getAdminReleaseEvidenceMarketplaceGovernanceProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Marketplace governance release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/provider-runtime-config:
+    get:
+      summary: Fetch target release evidence proof for provider runtime configuration
+      operationId: getAdminReleaseEvidenceProviderRuntimeConfigProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Provider runtime configuration release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/release-evidence/microservice-database:
+    get:
+      summary: Fetch target release evidence proof for microservice database configuration
+      operationId: getAdminReleaseEvidenceMicroserviceDatabaseProof
+      tags: [Admin, ReleaseEvidence]
+      security:
+        - cookieAuth: []
+      parameters: *releaseEvidenceWindowParameters
+      responses:
+        "200":
+          description: Microservice database release proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseEvidenceProofEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/admin/routes:
     get:
@@ -15483,6 +17297,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/Envelope"
 
+  /api/v1/admin/observability/latency-slo-proof:
+    get:
+      summary: Get latency SLO proof
+      operationId: getAdminObservabilityLatencySLOProof
+      tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: keyPrefix
+          in: query
+          schema:
+            type: string
+            default: "http-slo:"
+      responses:
+        "200":
+          description: Runtime latency SLO trigger, delivery, and recovery audit proof.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityLatencySLOProofResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Admin role required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
   /api/v1/admin/observability/recovery-actions:
     get:
       summary: 获取自动恢复动作记录
@@ -16679,6 +18541,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/Envelope"
 
+  /api/v1/admin/reviews/{agentId}/claim:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员领取 Marketplace Agent 审核
+      operationId: claimAdminMarketplaceReview
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Agent 审核已分配给当前管理员
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
   /api/v1/admin/reviews/{agentId}/reject:
     parameters:
       - name: agentId
@@ -16825,6 +18724,43 @@ paths:
       responses:
         "200":
           description: Agent 已恢复
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/marketplace/agents/{agentId}/reject-appeal:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员拒绝 Marketplace Agent 申诉
+      operationId: rejectMarketplaceAgentAppeal
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplaceGovernanceActionRequest"
+      responses:
+        "200":
+          description: Agent 申诉已拒绝并保持下架
           content:
             application/json:
               schema:
@@ -17080,6 +19016,55 @@ paths:
                 $ref: "#/components/schemas/Envelope"
         "501":
           description: 支付 provider webhook 未配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/billing/marketplace-payout/webhook:
+    post:
+      summary: Receive marketplace payout provider webhook
+      operationId: receiveMarketplacePayoutWebhook
+      tags: [Billing, Marketplace]
+      security: []
+      parameters:
+        - name: Oblivious-Payment-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Oblivious-Payment-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 over `timestamp + "." + raw_body`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplacePayoutWebhookEvent"
+      responses:
+        "200":
+          description: Webhook recorded, or duplicate event safely ignored.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WebhookReceivedResponse"
+        "400":
+          description: Invalid signature, payload, or non-payout event type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "501":
+          description: Marketplace payout webhook provider is not configured.
           content:
             application/json:
               schema:

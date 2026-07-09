@@ -1,0 +1,105 @@
+name: Release Evidence Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: GitHub Actions run id that uploaded the target release evidence artifacts
+        required: true
+      manifest_artifact_name:
+        description: Artifact name containing exactly one target-release-evidence JSON file
+        required: true
+        default: target-release-evidence
+      artifact_bodies_artifact_name:
+        description: Artifact name containing downloaded target artifact body JSON files
+        required: true
+        default: target-release-artifacts
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify-target-evidence-bundle:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_EVIDENCE_DIR: ${{ runner.temp }}/oblivious-release-evidence
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download target evidence manifest
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ${{ inputs.manifest_artifact_name }}
+          path: ${{ env.RELEASE_EVIDENCE_DIR }}/manifest
+
+      - name: Download target artifact bodies
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: ${{ inputs.artifact_bodies_artifact_name }}
+          path: ${{ env.RELEASE_EVIDENCE_DIR }}/artifacts
+
+      - name: Locate release evidence files
+        id: locate
+        run: |
+          set -euo pipefail
+          mapfile -t manifests < <(find "$RELEASE_EVIDENCE_DIR/manifest" -type f -name '*.json' | sort)
+          if [[ "${#manifests[@]}" -ne 1 ]]; then
+            printf '[release-evidence] expected exactly one manifest JSON, found %s\n' "${#manifests[@]}" >&2
+            printf '%s\n' "${manifests[@]}" >&2
+            exit 1
+          fi
+
+          artifact_dir="$RELEASE_EVIDENCE_DIR/artifacts"
+          if ! find "$artifact_dir" -maxdepth 1 -type f -name '*.json' | grep -q .; then
+            mapfile -t candidate_dirs < <(find "$artifact_dir" -mindepth 2 -maxdepth 2 -type f -name '*.json' -printf '%h\n' | sort -u)
+            if [[ "${#candidate_dirs[@]}" -eq 1 ]]; then
+              artifact_dir="${candidate_dirs[0]}"
+            fi
+          fi
+          if ! find "$artifact_dir" -maxdepth 1 -type f -name '*.json' | grep -q .; then
+            printf '[release-evidence] artifact body directory must contain <artifact-id>.json files: %s\n' "$artifact_dir" >&2
+            find "$RELEASE_EVIDENCE_DIR/artifacts" -maxdepth 3 -type f >&2
+            exit 1
+          fi
+
+          {
+            printf 'manifest=%s\n' "${manifests[0]}"
+            printf 'artifact_dir=%s\n' "$artifact_dir"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Refresh canonical release digests
+        env:
+          PYTHON: python3
+        run: |
+          set -euo pipefail
+          bash scripts/compute-target-release-digests.sh \
+            --manifest "${{ steps.locate.outputs.manifest }}" \
+            --artifact-dir "${{ steps.locate.outputs.artifact_dir }}" \
+            --output "$RELEASE_EVIDENCE_DIR/target-release-digests.json" \
+            --write
+
+      - name: Verify target evidence and artifact bodies
+        env:
+          COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE: "true"
+          COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS: "false"
+          OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH: "false"
+          OBLIVIOUS_TARGET_EVIDENCE_FILE: ${{ steps.locate.outputs.manifest }}
+          OBLIVIOUS_TARGET_ARTIFACT_DIR: ${{ steps.locate.outputs.artifact_dir }}
+          PYTHON: python3
+        run: node scripts/verify-commercial-preflight.mjs --target-evidence-only
+
+      - name: Upload normalized verified evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-target-release-evidence-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            ${{ env.RELEASE_EVIDENCE_DIR }}/manifest
+            ${{ env.RELEASE_EVIDENCE_DIR }}/artifacts
+            ${{ env.RELEASE_EVIDENCE_DIR }}/target-release-digests.json

@@ -147,7 +147,7 @@ Organizations are first-class tenants. Tenant-scoped domains carry organization 
 | `DELETE` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}` | Delete a document |
 | `POST` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve` | Retrieve source-cited RAG chunks |
 
-Knowledge document create and update paths index chunks with Relay embeddings. Retrieval embeds the query through Relay `/v1/embeddings`, searches `knowledge_document_chunks.embedding` with pgvector under organization scope, and returns `embedding_rag` results with source citations.
+Knowledge document create and update paths index chunks with Relay embeddings. Retrieval embeds the query through Relay `/v1/embeddings`, searches organization-scoped Knowledge chunks, and returns `embedding_rag` results with source citations. Durable `knowledge_ingestion_jobs` can hold parsed upload/content ingestion work; the ingestion worker claims pending, retryable failed, and lease-expired processing jobs with `FOR UPDATE SKIP LOCKED`, a worker owner token, retry cap, and 5 minute processing lease before creating the Knowledge document through the same chunk/embed/index path. When `QDRANT_URL` is configured, document vectors are mirrored to Qdrant and durable `knowledge_index_jobs` track `indexing`, `ready`, `failed`, and terminal `dead_letter` repair state. The index worker uses the same ownership/lease pattern before rebuilding or deleting document-scoped Qdrant vectors from SQL chunks. `RAG_INDEX_WORKER_ENABLED` replays failed Qdrant index jobs on server startup; production deployments with `QDRANT_URL` set cannot explicitly disable it. `RAG_INGESTION_WORKER_ENABLED` starts the durable ingestion worker on server startup when Relay is enabled. Without Qdrant, the SQL/pgvector path remains the local vector store.
 
 ### 5.6 SOLO Tasks And Agent Workflows
 
@@ -225,6 +225,13 @@ Admin API routes require an authenticated admin session.
 | `GET` | `/api/v1/admin/billing/refunds` | Refund state |
 | `GET` | `/api/v1/admin/billing/settlements` | Marketplace settlement state |
 | `GET` | `/api/v1/admin/billing/payouts` | Marketplace payout state |
+| `GET` | `/api/v1/admin/billing/reconciliation/relay-usage-prices` | Relay usage ledger versus price snapshot reconciliation |
+| `GET/POST` | `/api/v1/admin/pricing/relay-catalog/imports` | List or create Relay pricing catalog import drafts |
+| `POST` | `/api/v1/admin/pricing/relay-catalog/sync` | Create a pending Relay pricing catalog import from a LiteLLM price source |
+| `GET` | `/api/v1/admin/pricing/relay-catalog/sync-runs` | Inspect Relay pricing source freshness and reconciliation run history |
+| `POST` | `/api/v1/admin/pricing/relay-catalog/imports/{importId}/approve` | Approve a pending Relay pricing catalog import |
+| `POST` | `/api/v1/admin/pricing/relay-catalog/imports/{importId}/reject` | Reject a pending Relay pricing catalog import |
+| `POST` | `/api/v1/admin/pricing/relay-catalog/imports/{importId}/rollback` | Create a pending rollback import from an approved import |
 | `GET` | `/api/v1/admin/users` | List users |
 | `GET/PUT/PATCH/DELETE` | `/api/v1/admin/users/{userId}` | Read, update, adjust quota, or delete users |
 | `POST` | `/api/v1/admin/users/{userId}/disable` | Disable a user |
@@ -314,6 +321,7 @@ Relay also registers files, fine-tuning, assistants, threads, runs, batch, audio
 The billing system records:
 
 - Relay billing sessions.
+- Relay runtime price catalog entries in `relay_pricing_entries`; production Relay/server startup must load active prices from SQL and fail closed when a requested model/API/dimension price is missing. Admins can stage provider-source price rows as `relay_pricing_catalog_imports`, inspect add/update/unchanged/deactivate diffs, reject bad pending imports, approve pending imports, generate conflict-checked rollback drafts from approved imports, and retain per-entry mutation evidence in `relay_pricing_catalog_events`. Billable Relay `usage_records` persist the immutable `price_snapshot`, `price_currency`, `price_source`, and `price_effective_from` used for the request, and Admin can inspect ledger-vs-snapshot reconciliation through `/api/v1/admin/billing/reconciliation/relay-usage-prices`.
 - Quota preauthorization, settlement, and refund.
 - Payment intents.
 - Stripe webhook ledger events.
@@ -361,8 +369,9 @@ Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platfor
 | `APP_ENV` | No | `development` | Consumed |
 | `CORS_ALLOWED_ORIGINS` | No | empty | Consumed by HTTP middleware |
 | `DATABASE_URL` | Yes | none | Consumed |
+| `OBLIVIOUS_DB_MODE` | No | `monolith` | `monolith`, `dual_write`, or `microservices`; non-monolith service deployments may override `DATABASE_URL` through `DB_URL_RELAY`, `DB_URL_CHAT`, `DB_URL_WORKFLOW`, `DB_URL_RAG`, `DB_URL_AGENT`, `DB_URL_BILLING`, `DB_URL_MARKETPLACE`, `DB_URL_ADMIN`, `DB_URL_CHANNEL`, `DB_URL_TASK`, and `DB_URL_OBSERVABILITY` |
 | `SESSION_SECRET` | Yes | none | Consumed for HMAC session cookie signing |
-| `OBLIVIOUS_SECRET_ENCRYPTION_KEY` | No | `SESSION_SECRET` fallback | Consumed for repository-owned at-rest secret encryption; configure a distinct high-entropy key in production |
+| `OBLIVIOUS_SECRET_ENCRYPTION_KEY` | Production | `SESSION_SECRET` fallback outside production | Consumed for repository-owned at-rest secret encryption; production requires a distinct high-entropy key and rejects legacy unprotected stored secrets |
 | `SESSION_COOKIE_NAME` | No | `oblivious_session` | Consumed |
 | `SESSION_COOKIE_SECURE` | No | `false` | Consumed |
 | `LLM_BASE_URL` | No | empty | Consumed by non-commercial local reply configuration |
@@ -372,14 +381,26 @@ Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platfor
 | `WORKFLOW_SYSTEM_MAX_CONCURRENT` | No | empty | Optional global running workflow execution guard; invalid positive integers fail config load |
 | `WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE` | No | empty | Optional process-local one-minute workflow start guard; invalid positive integers fail config load |
 | `WORKFLOW_RELAY_BASE_URL` | No | empty | Optional Relay `/v1` base URL override for workflow semantic-threshold embeddings; defaults to the local server Relay endpoint |
-| `RELAY_ENABLED` | No | `true` | Controls Relay mounting |
+| `RELAY_ENABLED` | No | `true` | Controls Relay mounting; production cannot disable Relay because AI runtime must fail closed instead of using local demo fallbacks |
 | `RELAY_DEFAULT_MODEL` | No | `gpt-4o-mini` | Relay default model |
+| `QDRANT_URL` | No | empty | Enables Qdrant-backed Knowledge vector mirroring and retrieval |
+| `QDRANT_API_KEY` | No | empty | Optional Qdrant API key |
+| `QDRANT_VECTOR_SIZE` | No | `1536` | Qdrant collection vector size; invalid values fail startup config load |
+| `RAG_INDEX_WORKER_ENABLED` | No | auto | Replays durable Knowledge vector index jobs; defaults on outside test env when `QDRANT_URL` is set; production with `QDRANT_URL` cannot set it false |
+| `RAG_INDEX_WORKER_INTERVAL_MS` | No | `60000` | RAG index worker claim interval; invalid values fail startup config load |
+| `RAG_INDEX_WORKER_CLAIM_LIMIT` | No | `10` | RAG index worker claim batch size; invalid values fail startup config load |
+| `RAG_INGESTION_WORKER_ENABLED` | No | auto | Starts the durable Knowledge ingestion worker outside test env; server disables it at runtime if Relay is unavailable |
+| `RAG_INGESTION_WORKER_INTERVAL_MS` | No | `60000` | RAG ingestion worker claim interval; invalid values fail startup config load |
+| `RAG_INGESTION_WORKER_CLAIM_LIMIT` | No | `10` | RAG ingestion worker claim batch size; invalid values fail startup config load |
 | `RAG_RERANKER_BASE_URL` | No | empty | Enables Cohere-compatible `/rerank` calls for Knowledge `hybrid_rerank` |
 | `RAG_RERANKER_API_KEY` | No | empty | Bearer token for the RAG reranker service |
 | `RAG_RERANKER_MODEL` | No | `bge-reranker-large` | RAG reranker model name |
 | `RAG_RERANKER_TOP_K` | No | `5` | RAG reranker candidate count; invalid values fail startup config load |
 | `OPENAI_API_KEY` | No | empty | Development default channel key |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com` | Development default channel base URL |
+| `OBSERVABILITY_REQUEST_LOG_BACKEND` | No | `none` | `none` or `clickhouse`; production Relay deployments must not use `none` |
+| `CLICKHOUSE_DSN` | When request log backend is `clickhouse` | empty | ClickHouse request log sink DSN |
+| `CLICKHOUSE_DRIVER` | No | `clickhouse` | SQL driver name for ClickHouse request log sink |
 
 ### 9.3 Backend Test Runtime
 

@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS request_logs (
     id UUID,
+    request_id String,
     timestamp DateTime64(3),
     organization_id UUID,
     user_id UUID,

@@ -14,3 +14,5 @@ bin/
 .tmp/
 reference/
 *.log
+__pycache__/
+*.py[cod]

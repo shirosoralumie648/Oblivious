@@ -115,6 +115,32 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/billing/reconciliation/relay-usage-prices",
+      "samplePath": "/api/v1/admin/billing/reconciliation/relay-usage-prices",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminRelayUsagePriceReconciliation",
+      "tags": [
+        "Admin",
+        "Billing",
+        "Relay"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/billing/reconciliation/usage-request-logs",
+      "samplePath": "/api/v1/admin/billing/reconciliation/usage-request-logs",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminUsageRequestLogCoverage",
+      "tags": [
+        "Admin",
+        "Billing",
+        "Observability"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/billing/refunds",
       "samplePath": "/api/v1/admin/billing/refunds",
       "security": "cookie",
@@ -224,18 +250,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/admin/models",
-      "samplePath": "/api/v1/admin/models",
-      "security": "cookie",
-      "csrf": false,
-      "operationId": "listAdminModelInventory",
-      "tags": [
-        "Admin",
-        "Relay"
-      ]
-    },
-    {
-      "method": "GET",
       "path": "/api/v1/admin/channels",
       "samplePath": "/api/v1/admin/channels",
       "security": "cookie",
@@ -283,6 +297,18 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/admin/channels/{channelId}",
+      "samplePath": "/api/v1/admin/channels/channel_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteAdminChannel",
+      "tags": [
+        "Admin",
+        "Relay"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/admin/channels/{channelId}",
       "samplePath": "/api/v1/admin/channels/channel_1",
@@ -301,18 +327,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateAdminChannel",
-      "tags": [
-        "Admin",
-        "Relay"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/admin/channels/{channelId}",
-      "samplePath": "/api/v1/admin/channels/channel_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteAdminChannel",
       "tags": [
         "Admin",
         "Relay"
@@ -440,6 +454,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/admin/marketplace/agents/{agentId}/reject-appeal",
+      "samplePath": "/api/v1/admin/marketplace/agents/agent_1/reject-appeal",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "rejectMarketplaceAgentAppeal",
+      "tags": [
+        "Admin",
+        "Marketplace"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/admin/marketplace/agents/{agentId}/takedown",
       "samplePath": "/api/v1/admin/marketplace/agents/agent_1/takedown",
       "security": "cookie+csrf",
@@ -448,6 +474,18 @@
       "tags": [
         "Admin",
         "Marketplace"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/models",
+      "samplePath": "/api/v1/admin/models",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "listAdminModelInventory",
+      "tags": [
+        "Admin",
+        "Relay"
       ]
     },
     {
@@ -571,6 +609,22 @@
       ]
     },
     {
+      "method": "GET",
+      "path": "/api/v1/admin/observability/latency-slo-proof",
+      "samplePath": "/api/v1/admin/observability/latency-slo-proof",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminObservabilityLatencySLOProof",
+      "tags": [
+        "Admin",
+        "Observability"
+      ]
+    },
+    {
       "method": "POST",
       "path": "/api/v1/admin/observability/alerts/{alertKey}/resolve",
       "samplePath": "/api/v1/admin/observability/alerts/relay-backlog/resolve",
@@ -685,6 +739,18 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/admin/plans/{planId}",
+      "samplePath": "/api/v1/admin/plans/plan_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deactivateAdminPlan",
+      "tags": [
+        "Admin",
+        "Billing"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/admin/plans/{planId}",
       "samplePath": "/api/v1/admin/plans/plan_1",
@@ -709,15 +775,206 @@
       ]
     },
     {
-      "method": "DELETE",
-      "path": "/api/v1/admin/plans/{planId}",
-      "samplePath": "/api/v1/admin/plans/plan_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deactivateAdminPlan",
+      "method": "GET",
+      "path": "/api/v1/admin/pricing/relay-catalog/imports",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/imports",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "listAdminRelayPricingCatalogImports",
       "tags": [
         "Admin",
+        "Relay",
         "Billing"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/pricing/relay-catalog/imports",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/imports",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "createAdminRelayPricingCatalogImport",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/pricing/relay-catalog/imports/{importId}/approve",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/approve",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "approveAdminRelayPricingCatalogImport",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/pricing/relay-catalog/imports/{importId}/reject",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/reject",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "rejectAdminRelayPricingCatalogImport",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/pricing/relay-catalog/imports/{importId}/rollback",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/imports/rpci_1/rollback",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "rollbackAdminRelayPricingCatalogImport",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/pricing/relay-catalog/sync",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/sync",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "syncAdminRelayPricingCatalogImport",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/pricing/relay-catalog/sync-runs",
+      "samplePath": "/api/v1/admin/pricing/relay-catalog/sync-runs",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "listAdminRelayPricingCatalogSyncRuns",
+      "tags": [
+        "Admin",
+        "Relay",
+        "Billing"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/rag-indexing",
+      "samplePath": "/api/v1/admin/release-evidence/rag-indexing",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceRAGIndexingProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/relay-realtime",
+      "samplePath": "/api/v1/admin/release-evidence/relay-realtime",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceRelayRealtimeProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/relay-batch",
+      "samplePath": "/api/v1/admin/release-evidence/relay-batch",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceRelayBatchProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/marketplace-payout",
+      "samplePath": "/api/v1/admin/release-evidence/marketplace-payout",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceMarketplacePayoutProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/marketplace-governance",
+      "samplePath": "/api/v1/admin/release-evidence/marketplace-governance",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceMarketplaceGovernanceProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/provider-runtime-config",
+      "samplePath": "/api/v1/admin/release-evidence/provider-runtime-config",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceProviderRuntimeConfigProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/release-evidence/microservice-database",
+      "samplePath": "/api/v1/admin/release-evidence/microservice-database",
+      "sampleQuery": {
+        "from": "2026-06-16T00:00:00Z",
+        "to": "2026-06-16T01:00:00Z"
+      },
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReleaseEvidenceMicroserviceDatabaseProof",
+      "tags": [
+        "Admin",
+        "ReleaseEvidence"
       ]
     },
     {
@@ -751,6 +1008,18 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "approveAdminMarketplaceReview",
+      "tags": [
+        "Admin",
+        "Marketplace"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/reviews/{agentId}/claim",
+      "samplePath": "/api/v1/admin/reviews/agent_1/claim",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "claimAdminMarketplaceReview",
       "tags": [
         "Admin",
         "Marketplace"
@@ -805,6 +1074,18 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/admin/routes/{routeId}",
+      "samplePath": "/api/v1/admin/routes/route_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteAdminRoute",
+      "tags": [
+        "Admin",
+        "Relay"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/admin/routes/{routeId}",
       "samplePath": "/api/v1/admin/routes/route_1",
@@ -823,18 +1104,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateAdminRoute",
-      "tags": [
-        "Admin",
-        "Relay"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/admin/routes/{routeId}",
-      "samplePath": "/api/v1/admin/routes/route_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteAdminRoute",
       "tags": [
         "Admin",
         "Relay"
@@ -901,11 +1170,46 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/usage-analytics",
+      "samplePath": "/api/v1/admin/usage-analytics",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminUsageAnalytics",
+      "tags": [
+        "Admin",
+        "Billing"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/usage-logs",
+      "samplePath": "/api/v1/admin/usage-logs",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "listAdminUsageLogs",
+      "tags": [
+        "Admin",
+        "Billing"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/users",
       "samplePath": "/api/v1/admin/users",
       "security": "cookie",
       "csrf": false,
       "operationId": "listAdminUsers",
+      "tags": [
+        "Admin"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/{userId}",
+      "samplePath": "/api/v1/admin/users/user_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteAdminUser",
       "tags": [
         "Admin"
       ]
@@ -917,17 +1221,6 @@
       "security": "cookie",
       "csrf": false,
       "operationId": "getAdminUser",
-      "tags": [
-        "Admin"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/api/v1/admin/users/{userId}",
-      "samplePath": "/api/v1/admin/users/user_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateAdminUser",
       "tags": [
         "Admin"
       ]
@@ -945,12 +1238,12 @@
       ]
     },
     {
-      "method": "DELETE",
+      "method": "PUT",
       "path": "/api/v1/admin/users/{userId}",
       "samplePath": "/api/v1/admin/users/user_1",
       "security": "cookie+csrf",
       "csrf": true,
-      "operationId": "deleteAdminUser",
+      "operationId": "updateAdminUser",
       "tags": [
         "Admin"
       ]
@@ -1022,23 +1315,23 @@
       ]
     },
     {
-      "method": "PATCH",
-      "path": "/api/v1/agent/memories/{memoryId}",
-      "samplePath": "/api/v1/agent/memories/memory_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateAgentMemory",
-      "tags": [
-        "Agent"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/agent/memories/{memoryId}",
       "samplePath": "/api/v1/agent/memories/memory_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteAgentMemory",
+      "tags": [
+        "Agent"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agent/memories/{memoryId}",
+      "samplePath": "/api/v1/agent/memories/memory_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateAgentMemory",
       "tags": [
         "Agent"
       ]
@@ -1253,23 +1546,23 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/api/v1/app/agents/conversations/{conversationId}",
-      "samplePath": "/api/v1/app/agents/conversations/conversation_1",
-      "security": "cookie",
-      "csrf": false,
-      "operationId": "getWorkspaceAgentConversation",
-      "tags": [
-        "Agent"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/agents/conversations/{conversationId}",
       "samplePath": "/api/v1/app/agents/conversations/conversation_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteWorkspaceAgentConversation",
+      "tags": [
+        "Agent"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/app/agents/conversations/{conversationId}",
+      "samplePath": "/api/v1/app/agents/conversations/conversation_1",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getWorkspaceAgentConversation",
       "tags": [
         "Agent"
       ]
@@ -1352,6 +1645,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/app/agents/{agentId}",
+      "samplePath": "/api/v1/app/agents/agent_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteWorkspaceAgent",
+      "tags": [
+        "Agent"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/agents/{agentId}",
       "samplePath": "/api/v1/app/agents/agent_1",
@@ -1369,17 +1673,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateWorkspaceAgent",
-      "tags": [
-        "Agent"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/app/agents/{agentId}",
-      "samplePath": "/api/v1/app/agents/agent_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteWorkspaceAgent",
       "tags": [
         "Agent"
       ]
@@ -1451,6 +1744,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/app/conversations/{conversationId}",
+      "samplePath": "/api/v1/app/conversations/conversation_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteConversation",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/conversations/{conversationId}",
       "samplePath": "/api/v1/app/conversations/conversation_1",
@@ -1468,17 +1772,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateConversation",
-      "tags": [
-        "Chat"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/app/conversations/{conversationId}",
-      "samplePath": "/api/v1/app/conversations/conversation_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteConversation",
       "tags": [
         "Chat"
       ]
@@ -1572,23 +1865,23 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/app/conversations/{conversationId}/messages/{messageId}",
-      "samplePath": "/api/v1/app/conversations/conversation_1/messages/message_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateMessage",
-      "tags": [
-        "Chat"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/conversations/{conversationId}/messages/{messageId}",
       "samplePath": "/api/v1/app/conversations/conversation_1/messages/message_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteMessage",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/app/conversations/{conversationId}/messages/{messageId}",
+      "samplePath": "/api/v1/app/conversations/conversation_1/messages/message_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateMessage",
       "tags": [
         "Chat"
       ]
@@ -1649,6 +1942,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}",
+      "samplePath": "/api/v1/app/knowledge-bases/kb_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteKnowledgeBase",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}",
       "samplePath": "/api/v1/app/knowledge-bases/kb_1",
@@ -1666,17 +1970,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateKnowledgeBase",
-      "tags": [
-        "Knowledge"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}",
-      "samplePath": "/api/v1/app/knowledge-bases/kb_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteKnowledgeBase",
       "tags": [
         "Knowledge"
       ]
@@ -1715,23 +2008,23 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
-      "samplePath": "/api/v1/app/knowledge-bases/kb_1/documents/doc_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateKnowledgeDocument",
-      "tags": [
-        "Knowledge"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
       "samplePath": "/api/v1/app/knowledge-bases/kb_1/documents/doc_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteKnowledgeDocument",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
+      "samplePath": "/api/v1/app/knowledge-bases/kb_1/documents/doc_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateKnowledgeDocument",
       "tags": [
         "Knowledge"
       ]
@@ -1836,6 +2129,17 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve/debug",
+      "samplePath": "/api/v1/app/knowledge-bases/kb_1/retrieve/debug",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "retrieveKnowledgeDebug",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/mcp-local-servers",
       "samplePath": "/api/v1/app/mcp-local-servers",
@@ -1869,23 +2173,23 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/api/v1/app/mcp-servers/{serverId}",
-      "samplePath": "/api/v1/app/mcp-servers/mcp_server_1",
-      "security": "cookie",
-      "csrf": false,
-      "operationId": "getMcpServer",
-      "tags": [
-        "MCP"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/mcp-servers/{serverId}",
       "samplePath": "/api/v1/app/mcp-servers/mcp_server_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteMcpServer",
+      "tags": [
+        "MCP"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/app/mcp-servers/{serverId}",
+      "samplePath": "/api/v1/app/mcp-servers/mcp_server_1",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getMcpServer",
       "tags": [
         "MCP"
       ]
@@ -1990,6 +2294,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/app/memory/documents/{documentId}",
+      "samplePath": "/api/v1/app/memory/documents/doc_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteMemoryDocument",
+      "tags": [
+        "Memory"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/memory/documents/{documentId}",
       "samplePath": "/api/v1/app/memory/documents/doc_1",
@@ -2007,17 +2322,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateMemoryDocument",
-      "tags": [
-        "Memory"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/app/memory/documents/{documentId}",
-      "samplePath": "/api/v1/app/memory/documents/doc_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteMemoryDocument",
       "tags": [
         "Memory"
       ]
@@ -2111,23 +2415,23 @@
       ]
     },
     {
-      "method": "PATCH",
-      "path": "/api/v1/app/notifications/{notificationId}",
-      "samplePath": "/api/v1/app/notifications/notification_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "markNotificationRead",
-      "tags": [
-        "Notification"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/notifications/{notificationId}",
       "samplePath": "/api/v1/app/notifications/notification_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteNotification",
+      "tags": [
+        "Notification"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/app/notifications/{notificationId}",
+      "samplePath": "/api/v1/app/notifications/notification_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "markNotificationRead",
       "tags": [
         "Notification"
       ]
@@ -2188,23 +2492,23 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/app/organizations/{organizationId}/members/{userId}",
-      "samplePath": "/api/v1/app/organizations/org_1/members/user_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateOrganizationMemberRole",
-      "tags": [
-        "Tenant"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/app/organizations/{organizationId}/members/{userId}",
       "samplePath": "/api/v1/app/organizations/org_1/members/user_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "removeOrganizationMember",
+      "tags": [
+        "Tenant"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/app/organizations/{organizationId}/members/{userId}",
+      "samplePath": "/api/v1/app/organizations/org_1/members/user_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateOrganizationMemberRole",
       "tags": [
         "Tenant"
       ]
@@ -2265,6 +2569,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/app/personas/{personaId}",
+      "samplePath": "/api/v1/app/personas/persona_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deletePersona",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/app/personas/{personaId}",
       "samplePath": "/api/v1/app/personas/persona_1",
@@ -2282,17 +2597,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updatePersona",
-      "tags": [
-        "Chat"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/app/personas/{personaId}",
-      "samplePath": "/api/v1/app/personas/persona_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deletePersona",
       "tags": [
         "Chat"
       ]
@@ -2508,6 +2812,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/billing/marketplace-payout/webhook",
+      "samplePath": "/api/v1/billing/marketplace-payout/webhook",
+      "security": "public",
+      "csrf": false,
+      "operationId": "receiveMarketplacePayoutWebhook",
+      "tags": [
+        "Billing",
+        "Marketplace"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/billing/stripe/webhook",
       "samplePath": "/api/v1/billing/stripe/webhook",
       "security": "public",
@@ -2562,6 +2878,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/channels/{channelId}",
+      "samplePath": "/api/v1/channels/channel_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deletePublishingChannel",
+      "tags": [
+        "Publishing"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/channels/{channelId}",
       "samplePath": "/api/v1/channels/channel_1",
@@ -2579,17 +2906,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updatePublishingChannel",
-      "tags": [
-        "Publishing"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/channels/{channelId}",
-      "samplePath": "/api/v1/channels/channel_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deletePublishingChannel",
       "tags": [
         "Publishing"
       ]
@@ -2782,6 +3098,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/conversations/{conversationId}",
+      "samplePath": "/api/v1/conversations/conversation_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteConversationAlias",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/conversations/{conversationId}",
       "samplePath": "/api/v1/conversations/conversation_1",
@@ -2799,17 +3126,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateConversationAlias",
-      "tags": [
-        "Chat"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/conversations/{conversationId}",
-      "samplePath": "/api/v1/conversations/conversation_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteConversationAlias",
       "tags": [
         "Chat"
       ]
@@ -2848,23 +3164,23 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/conversations/{conversationId}/messages/{messageId}",
-      "samplePath": "/api/v1/conversations/conversation_1/messages/message_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateMessageAlias",
-      "tags": [
-        "Chat"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/conversations/{conversationId}/messages/{messageId}",
       "samplePath": "/api/v1/conversations/conversation_1/messages/message_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteMessageAlias",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/conversations/{conversationId}/messages/{messageId}",
+      "samplePath": "/api/v1/conversations/conversation_1/messages/message_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateMessageAlias",
       "tags": [
         "Chat"
       ]
@@ -2903,6 +3219,18 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/api/v1/gateway/proxy/chat/completions",
+      "samplePath": "/api/v1/gateway/proxy/chat/completions",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "gatewayProxyCreateChatCompletion",
+      "tags": [
+        "Relay",
+        "Chat"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/knowledge-bases",
       "samplePath": "/api/v1/knowledge-bases",
@@ -2925,6 +3253,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/knowledge-bases/{knowledgeBaseId}",
+      "samplePath": "/api/v1/knowledge-bases/kb_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteKnowledgeBase",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/knowledge-bases/{knowledgeBaseId}",
       "samplePath": "/api/v1/knowledge-bases/kb_1",
@@ -2942,17 +3281,6 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "updateKnowledgeBase",
-      "tags": [
-        "Knowledge"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/knowledge-bases/{knowledgeBaseId}",
-      "samplePath": "/api/v1/knowledge-bases/kb_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteKnowledgeBase",
       "tags": [
         "Knowledge"
       ]
@@ -2991,23 +3319,23 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
-      "samplePath": "/api/v1/knowledge-bases/kb_1/documents/doc_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "updateKnowledgeDocument",
-      "tags": [
-        "Knowledge"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
       "samplePath": "/api/v1/knowledge-bases/kb_1/documents/doc_1",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "deleteKnowledgeDocument",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}",
+      "samplePath": "/api/v1/knowledge-bases/kb_1/documents/doc_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "updateKnowledgeDocument",
       "tags": [
         "Knowledge"
       ]
@@ -3112,6 +3440,17 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieve/debug",
+      "samplePath": "/api/v1/knowledge-bases/kb_1/retrieve/debug",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "retrieveKnowledgeDebug",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/marketplace/agents",
       "samplePath": "/api/v1/marketplace/agents",
@@ -3129,6 +3468,17 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "publishMarketplaceAgent",
+      "tags": [
+        "Marketplace"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/marketplace/agents/{agentId}",
+      "samplePath": "/api/v1/marketplace/agents/agent_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteMarketplaceAgent",
       "tags": [
         "Marketplace"
       ]
@@ -3156,17 +3506,6 @@
       ]
     },
     {
-      "method": "DELETE",
-      "path": "/api/v1/marketplace/agents/{agentId}",
-      "samplePath": "/api/v1/marketplace/agents/agent_1",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "deleteMarketplaceAgent",
-      "tags": [
-        "Marketplace"
-      ]
-    },
-    {
       "method": "POST",
       "path": "/api/v1/marketplace/agents/{agentId}/abuse-reports",
       "samplePath": "/api/v1/marketplace/agents/agent_1/abuse-reports",
@@ -3189,23 +3528,23 @@
       ]
     },
     {
-      "method": "POST",
-      "path": "/api/v1/marketplace/agents/{agentId}/install",
-      "samplePath": "/api/v1/marketplace/agents/agent_1/install",
-      "security": "cookie+csrf",
-      "csrf": true,
-      "operationId": "installMarketplaceAgent",
-      "tags": [
-        "Marketplace"
-      ]
-    },
-    {
       "method": "DELETE",
       "path": "/api/v1/marketplace/agents/{agentId}/install",
       "samplePath": "/api/v1/marketplace/agents/agent_1/install",
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "uninstallMarketplaceAgentByInstallEndpoint",
+      "tags": [
+        "Marketplace"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/marketplace/agents/{agentId}/install",
+      "samplePath": "/api/v1/marketplace/agents/agent_1/install",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "installMarketplaceAgent",
       "tags": [
         "Marketplace"
       ]
@@ -3629,6 +3968,17 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/api/v1/workflows/{workflowId}",
+      "samplePath": "/api/v1/workflows/workflow_1",
+      "security": "cookie+csrf",
+      "csrf": true,
+      "operationId": "deleteWorkflow",
+      "tags": [
+        "Workflow"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/api/v1/workflows/{workflowId}",
       "samplePath": "/api/v1/workflows/workflow_1",
@@ -3651,12 +4001,12 @@
       ]
     },
     {
-      "method": "DELETE",
-      "path": "/api/v1/workflows/{workflowId}",
-      "samplePath": "/api/v1/workflows/workflow_1",
+      "method": "POST",
+      "path": "/api/v1/workflows/debug-retention/prune",
+      "samplePath": "/api/v1/workflows/debug-retention/prune",
       "security": "cookie+csrf",
       "csrf": true,
-      "operationId": "deleteWorkflow",
+      "operationId": "pruneWorkflowExecutionDebugRetention",
       "tags": [
         "Workflow"
       ]
@@ -3789,6 +4139,17 @@
       "security": "cookie+csrf",
       "csrf": true,
       "operationId": "resumeWorkflowExecution",
+      "tags": [
+        "Workflow"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflowId}/executions/{executionId}/state-replay",
+      "samplePath": "/api/v1/workflows/workflow_1/executions/execution_1/state-replay",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getWorkflowExecutionStateReplay",
       "tags": [
         "Workflow"
       ]

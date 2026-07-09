@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickhouse-data
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oblivious-clickhouse
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oblivious
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oblivious
+        app.kubernetes.io/component: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.12-alpine
+          ports:
+            - containerPort: 8123
+              name: http
+            - containerPort: 9000
+              name: native
+          env:
+            - name: CLICKHOUSE_DB
+              value: oblivious
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+      volumes:
+        - name: clickhouse-data
+          persistentVolumeClaim:
+            claimName: clickhouse-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oblivious-clickhouse
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+spec:
+  selector:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+    - name: native
+      port: 9000
+      targetPort: native
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oblivious-clickhouse-migrations
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+data:
+  0001_request_logs.sql: |
+    CREATE TABLE IF NOT EXISTS request_logs (
+        id UUID,
+        timestamp DateTime64(3),
+        organization_id UUID,
+        user_id UUID,
+        service String,
+        endpoint String,
+        method String,
+        status_code UInt16,
+        duration_ms UInt32,
+        request_tokens UInt32,
+        response_tokens UInt32,
+        model String,
+        cost_usd Float64,
+        error String,
+        trace_id UUID,
+        metadata String
+    ) ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(timestamp)
+    ORDER BY (organization_id, timestamp, service);
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oblivious-clickhouse-migrate
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: clickhouse
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oblivious
+        app.kubernetes.io/component: clickhouse-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: clickhouse/clickhouse-server:24.12-alpine
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              until clickhouse-client --host oblivious-clickhouse --port 9000 --query "SELECT 1"; do
+                sleep 2
+              done
+              clickhouse-client --host oblivious-clickhouse --port 9000 --query "CREATE DATABASE IF NOT EXISTS oblivious"
+              clickhouse-client --host oblivious-clickhouse --port 9000 --database oblivious --multiquery < /migrations/0001_request_logs.sql
+          volumeMounts:
+            - name: clickhouse-migrations
+              mountPath: /migrations
+              readOnly: true
+      volumes:
+        - name: clickhouse-migrations
+          configMap:
+            name: oblivious-clickhouse-migrations
