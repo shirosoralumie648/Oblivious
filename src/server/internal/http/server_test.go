@@ -67,6 +67,7 @@ func testDatabase(t *testing.T) *sql.DB {
 	statements := []string{
 		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS workflow_webhook_replay_keys CASCADE`,
 		`DROP TABLE IF EXISTS workflow_node_executions CASCADE`,
 		`DROP TABLE IF EXISTS workflow_executions CASCADE`,
 		`DROP TABLE IF EXISTS workflow_versions CASCADE`,
@@ -155,6 +156,8 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE workflow_node_executions (id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_type TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('pending', 'running', 'succeeded', 'completed', 'failed', 'skipped', 'paused', 'cancelled', 'timeout')), CHECK (attempt >= 0), CHECK (duration_ms >= 0))`,
 		`CREATE INDEX idx_workflow_node_executions_org_execution_created_http_test ON workflow_node_executions(organization_id, execution_id, created_at ASC)`,
 		`CREATE INDEX idx_workflow_node_executions_org_node_status_http_test ON workflow_node_executions(organization_id, node_id, status)`,
+		`CREATE TABLE workflow_webhook_replay_keys (replay_key TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE INDEX workflow_webhook_replay_keys_expires_http_test ON workflow_webhook_replay_keys (expires_at)`,
 		`CREATE TABLE observability_alert_provider_configs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, channel TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, config JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE INDEX idx_observability_alert_provider_configs_channel_http_test ON observability_alert_provider_configs(channel, status)`,
 		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, workflow_trigger_id TEXT, cron_expression TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, last_run_at TIMESTAMPTZ, next_run_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (target_type IN ('workflow', 'agent')), CHECK (btrim(name) <> ''), CHECK (btrim(cron_expression) <> ''))`,
