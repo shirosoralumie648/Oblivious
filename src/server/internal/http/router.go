@@ -124,6 +124,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 
 		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("/readyz", readinessHandler(cfg, database))
 	// workflowMetricsHandler calls RefreshExecutionHealthMetrics before serving the Prometheus scrape.
 	mux.Handle("/metrics", workflowMetricsHandler(workflowService))
 
@@ -1548,6 +1549,50 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})
 
 	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+}
+
+func readinessHandler(cfg config.Config, database *sql.DB) stdhttp.HandlerFunc {
+	return func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if database == nil {
+			writeError(w, stdhttp.StatusServiceUnavailable, "database_unavailable", "database is not configured")
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := database.PingContext(ctx); err != nil {
+			writeError(w, stdhttp.StatusServiceUnavailable, "database_unavailable", err.Error())
+			return
+		}
+
+		if cfg.Env == "production" {
+			var ledgerTableExists bool
+			if err := database.QueryRowContext(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&ledgerTableExists); err != nil {
+				writeError(w, stdhttp.StatusServiceUnavailable, "migration_ledger_unavailable", err.Error())
+				return
+			}
+			if !ledgerTableExists {
+				writeError(w, stdhttp.StatusServiceUnavailable, "migration_ledger_missing", "schema_migrations ledger is missing")
+				return
+			}
+
+			var ledgerCount int
+			if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&ledgerCount); err != nil {
+				writeError(w, stdhttp.StatusServiceUnavailable, "migration_ledger_unavailable", err.Error())
+				return
+			}
+			if ledgerCount == 0 {
+				writeError(w, stdhttp.StatusServiceUnavailable, "migration_ledger_missing", "schema_migrations ledger is missing")
+				return
+			}
+		}
+
+		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ready"})
+	}
 }
 
 func newConfiguredChatGateways(cfg config.Config) (chat.ReplyGenerator, chat.ChatGateway) {

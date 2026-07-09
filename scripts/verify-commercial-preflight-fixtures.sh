@@ -53,7 +53,7 @@ json_target_valid_report="$tmpdir/preflight-target-valid.json"
 json_target_corrupt_report="$tmpdir/preflight-target-corrupt.json"
 
 if TEST_DATABASE_URL="postgres://oblivious:oblivious@127.0.0.1:5432/oblivious?sslmode=disable" \
-  bash "$completion" >"$completion_missing_flags_output" 2>&1; then
+  env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS bash "$completion" >"$completion_missing_flags_output" 2>&1; then
   cat "$completion_missing_flags_output" >&2
   fail "commercial completion unexpectedly accepted missing final gate flags"
 fi
@@ -71,7 +71,12 @@ if COMMERCIAL_COMPLETION_RUN_DEPLOY=true \
   COMMERCIAL_COMPLETION_RUN_K8S=true \
   COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \
   COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
-  bash "$completion" >"$completion_missing_required_inputs_output" 2>&1; then
+  env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS \
+    -u TEST_DATABASE_URL \
+    -u OBLIVIOUS_K8S_SECRET_FILE \
+    -u OBLIVIOUS_TARGET_EVIDENCE_FILE \
+    -u OBLIVIOUS_TARGET_ARTIFACT_DIR \
+    bash "$completion" >"$completion_missing_required_inputs_output" 2>&1; then
   cat "$completion_missing_required_inputs_output" >&2
   fail "commercial completion unexpectedly accepted missing strict final input bundle"
 fi
@@ -97,7 +102,11 @@ if TEST_DATABASE_URL="postgres://oblivious:oblivious@127.0.0.1:5432/oblivious?ss
   COMMERCIAL_COMPLETION_RUN_K8S=true \
   COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \
   COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
-  bash "$completion" >"$completion_missing_secret_output" 2>&1; then
+  env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS \
+    -u OBLIVIOUS_K8S_SECRET_FILE \
+    -u OBLIVIOUS_TARGET_EVIDENCE_FILE \
+    -u OBLIVIOUS_TARGET_ARTIFACT_DIR \
+    bash "$completion" >"$completion_missing_secret_output" 2>&1; then
   cat "$completion_missing_secret_output" >&2
   fail "commercial completion unexpectedly accepted missing Kubernetes secret file"
 fi
@@ -170,7 +179,7 @@ run_target_preflight() {
   COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
     OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
     OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
-    node "$preflight" --target-evidence-only >"$output" 2>&1
+    env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS node "$preflight" --target-evidence-only >"$output" 2>&1
 }
 
 run_target_preflight_json() {
@@ -182,7 +191,7 @@ run_target_preflight_json() {
   COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
     OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
     OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
-    node "$preflight" --target-evidence-only --json-output "$report" >"$output" 2>&1
+    env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS node "$preflight" --target-evidence-only --json-output "$report" >"$output" 2>&1
 }
 
 run_completion_target_preflight() {
@@ -195,10 +204,10 @@ run_completion_target_preflight() {
     COMMERCIAL_COMPLETION_RUN_K8S=true \
     COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \
     COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
-    OBLIVIOUS_K8S_SECRET_FILE="$secret_file" \
-    OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
-    OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
-    bash "$completion" >"$output" 2>&1
+  OBLIVIOUS_K8S_SECRET_FILE="$secret_file" \
+  OBLIVIOUS_TARGET_EVIDENCE_FILE="$evidence" \
+  OBLIVIOUS_TARGET_ARTIFACT_DIR="$bodies" \
+    env -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS bash "$completion" >"$output" 2>&1
 }
 
 run_preflight "$valid_output" "$artifact_dir"
@@ -375,7 +384,17 @@ PY
 echo "[commercial-preflight-fixtures] wrote corrupt JSON preflight report"
 echo "[commercial-preflight-fixtures] rejected corrupt artifact body SHA"
 
-node "$preflight" --local --json-output "$json_missing_inputs_report" >"$tmpdir/preflight-missing-inputs.out" 2>&1
+env \
+  -u TEST_DATABASE_URL \
+  -u COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS \
+  -u COMMERCIAL_COMPLETION_RUN_DEPLOY \
+  -u COMMERCIAL_COMPLETION_RUN_K8S \
+  -u COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE \
+  -u COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE \
+  -u OBLIVIOUS_K8S_SECRET_FILE \
+  -u OBLIVIOUS_TARGET_EVIDENCE_FILE \
+  -u OBLIVIOUS_TARGET_ARTIFACT_DIR \
+  node "$preflight" --local --json-output "$json_missing_inputs_report" >"$tmpdir/preflight-missing-inputs.out" 2>&1
 "$python_bin" - "$json_missing_inputs_report" <<'PY'
 import json
 import pathlib

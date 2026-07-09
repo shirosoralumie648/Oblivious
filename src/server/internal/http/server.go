@@ -43,12 +43,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	var relayPool *relay.ChannelPool
 	var relayStore *relay.RelayStore
 	if cfg.RelayEnabled {
-		relayPricingStore = relay.NewPricingStoreWithDefaults()
-		if settings, err := admin.NewSQLStore(database).GetRelayPricingSettings(context.Background()); err != nil {
-			log.Printf("warning: failed to load relay pricing settings: %v", err)
-		} else if settings != nil {
-			relayPricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
-		}
+		relayPricingStore = loadRelayPricingStore(cfg, database)
 		relayStore = relay.NewRelayStore(database)
 		relayPool = relay.NewChannelPool()
 
@@ -356,6 +351,9 @@ func configureHTTPAlerting(
 				Secret:      cfg.AlertWebhookSecret,
 			}))
 		}
+		if cfg.Env == "production" && len(sinks) == 0 && !hasActiveAlertProviderConfig(providerStore) {
+			panic("HTTP alert delivery sink is required in production")
+		}
 		dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
 			RoutingRules: routingStore,
 			Sinks:        sinks,
@@ -370,12 +368,23 @@ func configureHTTPAlerting(
 		})
 		restoreCallbacks = append(restoreCallbacks, setHTTPAlertSink(alertSink))
 		restoreCallbacks = append(restoreCallbacks, setPublishingChannelAlertSink(alertSink))
+		if cfg.ObservabilityHTTPLatencySLOThresholdMS > 0 {
+			restoreCallbacks = append(restoreCallbacks, setHTTPAlertLatencySLOThreshold(time.Duration(cfg.ObservabilityHTTPLatencySLOThresholdMS)*time.Millisecond))
+		}
 	}
 	if cfg.ObservabilityHTTPRecoveryEnabled {
 		cooldown := time.Duration(cfg.ObservabilityHTTPRecoveryCooldownMS) * time.Millisecond
 		recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
 			StateStore: stateStore,
 			Policies: []observability.RecoveryPolicy{
+				{
+					Name:         "record-http-latency-slo",
+					Severity:     observability.AlertSeverityWarning,
+					Component:    observability.ComponentHTTP,
+					FieldMatches: map[string]string{"failure_kind": "latency_slo"},
+					ActionType:   observability.RecoveryActionScaleOut,
+					Cooldown:     cooldown,
+				},
 				{
 					Name:       "record-http-5xx",
 					Severity:   observability.AlertSeverityWarning,
@@ -435,6 +444,22 @@ func configureHTTPAlerting(
 	}
 }
 
+func hasActiveAlertProviderConfig(providerStore observability.AlertProviderConfigStore) bool {
+	if providerStore == nil {
+		return false
+	}
+	configs, err := providerStore.ListAlertProviderConfigs(context.Background())
+	if err != nil {
+		return false
+	}
+	for _, config := range configs {
+		if config.Status == observability.AlertProviderStatusActive {
+			return true
+		}
+	}
+	return false
+}
+
 func buildRelayConfig(
 	cfg config.Config,
 	database *sql.DB,
@@ -465,6 +490,26 @@ func buildRelayConfig(
 	}
 	applyRelaySemanticCacheConfig(relayConfig, buildRelaySemanticCacheConfig(cfg, database))
 	return relayConfig
+}
+
+func loadRelayPricingStore(cfg config.Config, database *sql.DB) *relay.PricingStore {
+	pricingStore, err := relay.LoadPricingStoreFromSQL(context.Background(), database)
+	if err != nil {
+		if cfg.Env == "production" {
+			log.Fatalf("load relay pricing catalog: %v", err)
+		}
+		log.Printf("warning: failed to load relay pricing catalog; using development defaults: %v", err)
+		pricingStore = relay.NewPricingStoreWithDefaults()
+	}
+	if settings, err := admin.NewSQLStore(database).GetRelayPricingSettings(context.Background()); err != nil {
+		if cfg.Env == "production" {
+			log.Fatalf("load relay pricing settings: %v", err)
+		}
+		log.Printf("warning: failed to load relay pricing settings: %v", err)
+	} else if settings != nil {
+		pricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
+	}
+	return pricingStore
 }
 
 // ensureDefaultChannel creates a default OpenAI channel if no channels exist

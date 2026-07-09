@@ -516,6 +516,7 @@ func httpLatencySLOAlertEvent(method, route string, status int, latency time.Dur
 			"request_id":   requestID,
 			"source":       "http.slo",
 			"slo":          "latency",
+			"failure_kind": "latency_slo",
 		},
 	}
 }

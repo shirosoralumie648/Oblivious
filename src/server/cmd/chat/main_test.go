@@ -13,7 +13,7 @@ func TestChatCommandUsesCommercialHTTPRouter(t *testing.T) {
 	}
 	source := string(sourceBytes)
 
-	if !strings.Contains(source, "serverhttp.NewRouter(cfg, db)") {
+	if !strings.Contains(source, "serverhttp.NewChatRouter(cfg, db)") {
 		t.Fatal("expected chat command to serve the commercial HTTP router")
 	}
 	if !strings.Contains(source, "fmt.Sprintf(\":%d\", cfg.Port)") {
