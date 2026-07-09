@@ -633,6 +633,60 @@ func (h adminHandler) getUsageAnalytics(w stdhttp.ResponseWriter, r *stdhttp.Req
 	writeSuccess(w, stdhttp.StatusOK, analytics)
 }
 
+func (h adminHandler) getRelayUsagePriceReconciliation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.RelayUsagePriceReconciliationFilter{
+		OrganizationID: firstNonEmpty(r.URL.Query().Get("organizationID"), r.URL.Query().Get("organizationId")),
+		UserID:         firstNonEmpty(r.URL.Query().Get("userID"), r.URL.Query().Get("userId")),
+		APITokenID:     r.URL.Query().Get("apiTokenID"),
+		RequestID:      r.URL.Query().Get("requestID"),
+		APIType:        r.URL.Query().Get("apiType"),
+		FeatureType:    r.URL.Query().Get("featureType"),
+		QuotaMode:      r.URL.Query().Get("quotaMode"),
+		Model:          r.URL.Query().Get("model"),
+		ChannelID:      r.URL.Query().Get("channelID"),
+		Provider:       r.URL.Query().Get("provider"),
+		Status:         r.URL.Query().Get("status"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
+	}
+	if from, ok := parseQueryTime(r, "from"); ok {
+		filter.From = from
+	}
+	if to, ok := parseQueryTime(r, "to"); ok {
+		filter.To = to
+	}
+	summary, err := h.service.GetRelayUsagePriceReconciliation(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, summary)
+}
+
+func (h adminHandler) getUsageRequestLogCoverage(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.UsageLogFilter{
+		OrganizationID: firstNonEmpty(r.URL.Query().Get("organizationID"), r.URL.Query().Get("organizationId")),
+		UserID:         firstNonEmpty(r.URL.Query().Get("userID"), r.URL.Query().Get("userId")),
+		APITokenID:     r.URL.Query().Get("apiTokenID"),
+		RequestID:      r.URL.Query().Get("requestID"),
+		APIType:        r.URL.Query().Get("apiType"),
+		FeatureType:    r.URL.Query().Get("featureType"),
+		QuotaMode:      r.URL.Query().Get("quotaMode"),
+		Model:          r.URL.Query().Get("model"),
+		ChannelID:      r.URL.Query().Get("channelID"),
+		Provider:       r.URL.Query().Get("provider"),
+		Status:         r.URL.Query().Get("status"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
+	}
+	summary, err := h.service.GetUsageRequestLogCoverage(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, summary)
+}
+
 func (h adminHandler) listAPITokens(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	filter := admin.APITokenFilter{
 		OrganizationID: r.URL.Query().Get("organizationID"),

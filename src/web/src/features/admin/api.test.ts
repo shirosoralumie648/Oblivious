@@ -528,6 +528,108 @@ describe('createAdminApi', () => {
     );
   });
 
+  it('serializes relay usage price reconciliation filters with backend query keys', async () => {
+    const get = vi.fn().mockResolvedValue({
+      checkedRecords: 2,
+      matchedRecords: 1,
+      missingSnapshotRecords: 1,
+      mismatchedRecords: 0,
+      ledgerTotalCost: 0.42,
+      snapshotTotalCost: 0.42,
+      deltaCost: 0,
+      issues: [
+        {
+          id: 'usage_missing_snapshot',
+          userId: 'user_1',
+          model: 'gpt-4o',
+          cost: 0.42,
+          snapshotTotalCost: 0,
+          deltaCost: 0.42,
+          issue: 'missing_snapshot',
+          createdAt: '2026-07-01T10:00:00Z',
+        },
+      ],
+      limit: 10,
+      offset: 0,
+    });
+    const api = createAdminApi(createClient({ get }));
+
+    await expect(
+      api.getRelayUsagePriceReconciliation({
+        organizationId: 'org_1',
+        userId: 'user_1',
+        apiTokenId: 'tok_1',
+        requestId: 'req_1',
+        apiType: 'chat',
+        featureType: 'workspace_chat',
+        quotaMode: 'relay_billing',
+        model: 'gpt-4o',
+        channelId: 'ch_1',
+        provider: 'openai',
+        status: 'success',
+        from: '2026-07-01T00:00:00Z',
+        to: '2026-07-02T00:00:00Z',
+        limit: 10,
+      })
+    ).resolves.toMatchObject({
+      checkedRecords: 2,
+      missingSnapshotRecords: 1,
+      issues: [{ id: 'usage_missing_snapshot', issue: 'missing_snapshot' }],
+    });
+
+    expect(get).toHaveBeenCalledWith(
+      '/api/v1/admin/billing/reconciliation/relay-usage-prices?organizationID=org_1&userID=user_1&apiTokenID=tok_1&requestID=req_1&apiType=chat&featureType=workspace_chat&quotaMode=relay_billing&model=gpt-4o&channelID=ch_1&provider=openai&status=success&from=2026-07-01T00%3A00%3A00Z&to=2026-07-02T00%3A00%3A00Z&limit=10'
+    );
+  });
+
+  it('serializes usage request-log coverage filters with backend query keys', async () => {
+    const get = vi.fn().mockResolvedValue({
+      checkedRecords: 3,
+      usageRowsWithRequestId: 2,
+      usageRowsMissingRequestId: 1,
+      matchedRequestLogRecords: 1,
+      missingRequestLogRecords: 1,
+      issues: [
+        {
+          id: 'usage_missing_log',
+          requestId: 'req_missing_log',
+          model: 'gpt-4o',
+          issue: 'missing_request_log',
+          createdAt: '2026-07-04T10:00:00Z',
+        },
+      ],
+      limit: 10,
+      offset: 0,
+    });
+    const api = createAdminApi(createClient({ get }));
+
+    await expect(
+      api.getUsageRequestLogCoverage({
+        organizationId: 'org_1',
+        userId: 'user_1',
+        apiTokenId: 'tok_1',
+        requestId: 'req_1',
+        apiType: 'chat',
+        featureType: 'workspace_chat',
+        quotaMode: 'relay_billing',
+        model: 'gpt-4o',
+        channelId: 'ch_1',
+        provider: 'openai',
+        status: 'success',
+        limit: 10,
+      })
+    ).resolves.toMatchObject({
+      checkedRecords: 3,
+      usageRowsMissingRequestId: 1,
+      missingRequestLogRecords: 1,
+      issues: [{ id: 'usage_missing_log', issue: 'missing_request_log' }],
+    });
+
+    expect(get).toHaveBeenCalledWith(
+      '/api/v1/admin/billing/reconciliation/usage-request-logs?organizationID=org_1&userID=user_1&apiTokenID=tok_1&requestID=req_1&apiType=chat&featureType=workspace_chat&quotaMode=relay_billing&model=gpt-4o&channelID=ch_1&provider=openai&status=success&limit=10'
+    );
+  });
+
   it('serializes API token filters with backend query keys', async () => {
     const get = vi.fn().mockResolvedValue({
       apiTokens: [

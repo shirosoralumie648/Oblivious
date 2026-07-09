@@ -36,6 +36,8 @@ import type {
   RelayPricingCatalogSyncRequest,
   RelayPricingCatalogSyncRun,
   RelayPricingCatalogSyncRunFilter,
+  RelayUsagePriceReconciliationFilter,
+  RelayUsagePriceReconciliationResponse,
   RelayPricingSettings,
   RouteCreateRequest,
   RouteInfo,
@@ -47,6 +49,7 @@ import type {
   UsageLimitSettings,
   UsageLogEntry,
   UsageLogFilter,
+  UsageRequestLogCoverageResponse,
   UserDetail,
   UserQuotaUpdateRequest,
   UserUpdateRequest,
@@ -425,6 +428,8 @@ export type AdminApi = {
   }) => Promise<PaginatedResponse<AuditEntry>>;
   listUsageLogs: (params?: UsageLogFilter) => Promise<PaginatedResponse<UsageLogEntry>>;
   getUsageAnalytics: (params?: UsageAnalyticsFilter) => Promise<UsageAnalyticsResponse>;
+  getRelayUsagePriceReconciliation: (params?: RelayUsagePriceReconciliationFilter) => Promise<RelayUsagePriceReconciliationResponse>;
+  getUsageRequestLogCoverage: (params?: UsageLogFilter) => Promise<UsageRequestLogCoverageResponse>;
   listAPITokens: (params?: APITokenFilter) => Promise<PaginatedResponse<APITokenEntry>>;
   revokeAPIToken: (id: string) => Promise<void>;
   listReviews: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<PublishedAgent>>;
@@ -672,6 +677,50 @@ export function createAdminApi(client: HttpClient): AdminApi {
         limit: params?.limit,
       };
       return client.get<UsageAnalyticsResponse>(`${apiPrefix}/usage-analytics${buildQuery(queryParams)}`);
+    },
+
+    getRelayUsagePriceReconciliation: (params) => {
+      const queryParams = {
+        organizationID: params?.organizationID ?? params?.organizationId,
+        userID: params?.userID ?? params?.userId,
+        apiTokenID: params?.apiTokenID ?? params?.apiTokenId,
+        requestID: params?.requestID ?? params?.requestId,
+        apiType: params?.apiType,
+        featureType: params?.featureType,
+        quotaMode: params?.quotaMode,
+        model: params?.model,
+        channelID: params?.channelID ?? params?.channelId,
+        provider: params?.provider,
+        status: params?.status,
+        from: params?.from,
+        to: params?.to,
+        limit: params?.limit,
+        offset: params?.offset,
+      };
+      return client.get<RelayUsagePriceReconciliationResponse>(
+        `${apiPrefix}/billing/reconciliation/relay-usage-prices${buildQuery(queryParams)}`
+      );
+    },
+
+    getUsageRequestLogCoverage: (params) => {
+      const queryParams = {
+        organizationID: params?.organizationID ?? params?.organizationId,
+        userID: params?.userID ?? params?.userId,
+        apiTokenID: params?.apiTokenID ?? params?.apiTokenId,
+        requestID: params?.requestID ?? params?.requestId,
+        apiType: params?.apiType,
+        featureType: params?.featureType,
+        quotaMode: params?.quotaMode,
+        model: params?.model,
+        channelID: params?.channelID ?? params?.channelId,
+        provider: params?.provider,
+        status: params?.status,
+        limit: params?.limit,
+        offset: params?.offset,
+      };
+      return client.get<UsageRequestLogCoverageResponse>(
+        `${apiPrefix}/billing/reconciliation/usage-request-logs${buildQuery(queryParams)}`
+      );
     },
 
     listAPITokens: async (params) => {

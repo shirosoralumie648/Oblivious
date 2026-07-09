@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 type UsageLogStore interface {
 	ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]*UsageLogEntry, int, error)
 	GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error)
+	GetRelayUsagePriceReconciliation(ctx context.Context, filter RelayUsagePriceReconciliationFilter) (*RelayUsagePriceReconciliationSummary, error)
 }
 
 // UsageAnalyticsStore defines aggregated Relay usage inspection operations.
@@ -67,6 +70,77 @@ func usageAnalyticsWhere(filter UsageAnalyticsFilter) (string, []any) {
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
+func relayUsagePriceReconciliationWhere(filter RelayUsagePriceReconciliationFilter) (string, []any) {
+	conditions := []string{"(api_type IS NOT NULL OR api_token_id IS NOT NULL OR channel_id IS NOT NULL)"}
+	var args []any
+	add := func(column, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		args = append(args, strings.TrimSpace(value))
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", column, len(args)))
+	}
+
+	add("organization_id", filter.OrganizationID)
+	add("user_id", filter.UserID)
+	add("api_token_id", filter.APITokenID)
+	add("request_id", filter.RequestID)
+	add("api_type", filter.APIType)
+	add("feature_type", filter.FeatureType)
+	add("quota_mode", filter.QuotaMode)
+	add("model_id", filter.Model)
+	add("channel_id", filter.ChannelID)
+	add("provider", filter.Provider)
+	add("status", filter.Status)
+	if !filter.From.IsZero() {
+		args = append(args, filter.From)
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if !filter.To.IsZero() {
+		args = append(args, filter.To)
+		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)))
+	}
+	return "WHERE " + strings.Join(conditions, " AND "), args
+}
+
+func relayUsagePriceReconciliationCTE(where string) string {
+	return `
+		WITH scoped AS (
+			SELECT
+				id,
+				COALESCE(organization_id, '') AS organization_id,
+				user_id,
+				COALESCE(api_token_id, '') AS api_token_id,
+				COALESCE(request_id, '') AS request_id,
+				COALESCE(api_type, '') AS api_type,
+				COALESCE(feature_type, '') AS feature_type,
+				COALESCE(quota_mode, '') AS quota_mode,
+				model_id,
+				COALESCE(channel_id, '') AS channel_id,
+				COALESCE(provider, '') AS provider,
+				COALESCE(status, '') AS status,
+				COALESCE(cost, 0) AS cost,
+				COALESCE(price_currency, '') AS price_currency,
+				COALESCE(price_source, '') AS price_source,
+				created_at,
+				CASE
+					WHEN price_snapshot ? 'totalCost'
+						AND (price_snapshot->>'totalCost') ~ '^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'
+					THEN (price_snapshot->>'totalCost')::numeric
+					ELSE NULL
+				END AS snapshot_total_cost
+			FROM usage_records ` + where + `
+		),
+		classified AS (
+			SELECT
+				*,
+				snapshot_total_cost IS NULL AS snapshot_missing,
+				snapshot_total_cost IS NOT NULL
+					AND ABS(cost - snapshot_total_cost) > 0.000001 AS cost_mismatch
+			FROM scoped
+		)`
+}
+
 func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]*UsageLogEntry, int, error) {
 	filter = normalizeUsageLogFilter(filter)
 	where, args := usageLogWhere(filter)
@@ -95,6 +169,10 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 			COALESCE(latency_ms, 0),
 			COALESCE(cost, 0),
 			COALESCE(channel_cost, 0),
+			COALESCE(price_snapshot, '{}'::jsonb),
+			COALESCE(price_currency, ''),
+			COALESCE(price_source, ''),
+			price_effective_from,
 			input_tokens,
 			output_tokens,
 			COALESCE(NULLIF(total_tokens, 0), input_tokens + output_tokens),
@@ -111,6 +189,8 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 	var entries []*UsageLogEntry
 	for rows.Next() {
 		var entry UsageLogEntry
+		var priceSnapshot []byte
+		var priceEffectiveFrom sql.NullTime
 		if err := rows.Scan(
 			&entry.ID,
 			&entry.OrganizationID,
@@ -129,12 +209,22 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 			&entry.LatencyMS,
 			&entry.Cost,
 			&entry.ChannelCost,
+			&priceSnapshot,
+			&entry.PriceCurrency,
+			&entry.PriceSource,
+			&priceEffectiveFrom,
 			&entry.PromptTokens,
 			&entry.CompletionTokens,
 			&entry.TotalTokens,
 			&entry.CreatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan usage log: %w", err)
+		}
+		if len(priceSnapshot) > 0 && json.Valid(priceSnapshot) {
+			entry.PriceSnapshot = json.RawMessage(append([]byte(nil), priceSnapshot...))
+		}
+		if priceEffectiveFrom.Valid {
+			entry.PriceEffectiveFrom = &priceEffectiveFrom.Time
 		}
 		entries = append(entries, &entry)
 	}
@@ -209,6 +299,106 @@ func (s *SQLStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsF
 		ByProvider:      byProvider,
 		CrossDimensions: crossDimensions,
 	}, nil
+}
+
+func (s *SQLStore) GetRelayUsagePriceReconciliation(ctx context.Context, filter RelayUsagePriceReconciliationFilter) (*RelayUsagePriceReconciliationSummary, error) {
+	filter = normalizeRelayUsagePriceReconciliationFilter(filter)
+	where, args := relayUsagePriceReconciliationWhere(filter)
+	cte := relayUsagePriceReconciliationCTE(where)
+
+	summary := &RelayUsagePriceReconciliationSummary{
+		Limit:  filter.Limit,
+		Offset: filter.Offset,
+		Issues: []RelayUsagePriceReconciliationIssue{},
+	}
+	if err := s.db.QueryRowContext(ctx, cte+`
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE snapshot_missing),
+			COUNT(*) FILTER (WHERE cost_mismatch),
+			COALESCE(SUM(cost), 0),
+			COALESCE(SUM(COALESCE(snapshot_total_cost, 0)), 0),
+			COALESCE(SUM(cost - COALESCE(snapshot_total_cost, 0)), 0)
+		FROM classified
+	`, args...).Scan(
+		&summary.CheckedRecords,
+		&summary.MissingSnapshotRecords,
+		&summary.MismatchedRecords,
+		&summary.LedgerTotalCost,
+		&summary.SnapshotTotalCost,
+		&summary.DeltaCost,
+	); err != nil {
+		return nil, fmt.Errorf("relay usage price reconciliation summary: %w", err)
+	}
+	summary.MatchedRecords = summary.CheckedRecords - summary.MissingSnapshotRecords - summary.MismatchedRecords
+	if summary.MatchedRecords < 0 {
+		summary.MatchedRecords = 0
+	}
+
+	issueArgs := append([]any{}, args...)
+	issueArgs = append(issueArgs, filter.Limit, filter.Offset)
+	rows, err := s.db.QueryContext(ctx, cte+`
+		SELECT
+			id,
+			organization_id,
+			user_id,
+			api_token_id,
+			request_id,
+			api_type,
+			feature_type,
+			quota_mode,
+			model_id,
+			channel_id,
+			provider,
+			status,
+			cost,
+			COALESCE(snapshot_total_cost, 0),
+			cost - COALESCE(snapshot_total_cost, 0),
+			price_currency,
+			price_source,
+			CASE WHEN snapshot_missing THEN 'missing_snapshot' ELSE 'cost_mismatch' END,
+			created_at
+		FROM classified
+		WHERE snapshot_missing OR cost_mismatch
+		ORDER BY created_at DESC, id DESC
+		LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2), issueArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("relay usage price reconciliation issues: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var issue RelayUsagePriceReconciliationIssue
+		if err := rows.Scan(
+			&issue.ID,
+			&issue.OrganizationID,
+			&issue.UserID,
+			&issue.APITokenID,
+			&issue.RequestID,
+			&issue.APIType,
+			&issue.FeatureType,
+			&issue.QuotaMode,
+			&issue.Model,
+			&issue.ChannelID,
+			&issue.Provider,
+			&issue.Status,
+			&issue.Cost,
+			&issue.SnapshotTotalCost,
+			&issue.DeltaCost,
+			&issue.PriceCurrency,
+			&issue.PriceSource,
+			&issue.Issue,
+			&issue.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan relay usage price reconciliation issue: %w", err)
+		}
+		summary.Issues = append(summary.Issues, issue)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return summary, nil
 }
 
 type usageAnalyticsCrossDimension struct {

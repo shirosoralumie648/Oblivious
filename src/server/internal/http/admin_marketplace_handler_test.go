@@ -2188,6 +2188,16 @@ func (s *fakeAdminStore) GetUsageAnalytics(ctx context.Context, filter admin.Usa
 	}, nil
 }
 
+func (s *fakeAdminStore) GetRelayUsagePriceReconciliation(ctx context.Context, filter admin.RelayUsagePriceReconciliationFilter) (*admin.RelayUsagePriceReconciliationSummary, error) {
+	return &admin.RelayUsagePriceReconciliationSummary{
+		CheckedRecords: 0,
+		MatchedRecords: 0,
+		Issues:         []admin.RelayUsagePriceReconciliationIssue{},
+		Limit:          filter.Limit,
+		Offset:         filter.Offset,
+	}, nil
+}
+
 func (s *fakeAdminStore) ListAPITokens(ctx context.Context, filter admin.APITokenFilter) ([]*admin.APITokenEntry, int, error) {
 	s.apiTokenFilter = filter
 	quotaLimit := 50.0

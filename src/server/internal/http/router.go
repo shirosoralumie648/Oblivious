@@ -809,6 +809,10 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			adminHandler.listMarketplaceSettlements(w, r)
 		case "payouts":
 			adminHandler.listMarketplacePayouts(w, r)
+		case "reconciliation/relay-usage-prices":
+			adminHandler.getRelayUsagePriceReconciliation(w, r)
+		case "reconciliation/usage-request-logs":
+			adminHandler.getUsageRequestLogCoverage(w, r)
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}

@@ -540,6 +540,65 @@ export type UsageAnalyticsFilter = {
   limit?: number;
 };
 
+export type RelayUsagePriceReconciliationIssue = {
+  id: string;
+  organizationId?: string;
+  userId: string;
+  apiTokenId?: string;
+  requestId?: string;
+  apiType?: string;
+  featureType?: string;
+  quotaMode?: string;
+  model: string;
+  channelId?: string;
+  provider?: string;
+  status?: string;
+  cost: number;
+  snapshotTotalCost: number;
+  deltaCost: number;
+  priceCurrency?: string;
+  priceSource?: string;
+  issue: 'missing_snapshot' | 'cost_mismatch' | string;
+  createdAt: string;
+};
+
+export type RelayUsagePriceReconciliationResponse = {
+  checkedRecords: number;
+  matchedRecords: number;
+  missingSnapshotRecords: number;
+  mismatchedRecords: number;
+  ledgerTotalCost: number;
+  snapshotTotalCost: number;
+  deltaCost: number;
+  issues: RelayUsagePriceReconciliationIssue[];
+  limit: number;
+  offset: number;
+};
+
+export type RelayUsagePriceReconciliationFilter = UsageLogFilter & {
+  from?: string;
+  to?: string;
+};
+
+export type UsageRequestLogCoverageIssue = {
+  id: string;
+  requestId?: string;
+  model?: string;
+  issue: 'missing_request_id' | 'missing_request_log' | string;
+  createdAt?: string;
+};
+
+export type UsageRequestLogCoverageResponse = {
+  checkedRecords: number;
+  usageRowsWithRequestId: number;
+  usageRowsMissingRequestId: number;
+  matchedRequestLogRecords: number;
+  missingRequestLogRecords: number;
+  issues: UsageRequestLogCoverageIssue[];
+  limit: number;
+  offset: number;
+};
+
 export type APITokenEntry = {
   id: string;
   organizationId: string;

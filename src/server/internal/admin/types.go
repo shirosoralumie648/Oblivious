@@ -564,6 +564,10 @@ type UsageLogEntry struct {
 	LatencyMS          int                 `json:"latencyMs,omitempty"`
 	Cost               float64             `json:"cost"`
 	ChannelCost        float64             `json:"channelCost"`
+	PriceSnapshot      json.RawMessage     `json:"priceSnapshot,omitempty"`
+	PriceCurrency      string              `json:"priceCurrency,omitempty"`
+	PriceSource        string              `json:"priceSource,omitempty"`
+	PriceEffectiveFrom *time.Time          `json:"priceEffectiveFrom,omitempty"`
 	PromptTokens       int                 `json:"promptTokens"`
 	CompletionTokens   int                 `json:"completionTokens"`
 	TotalTokens        int                 `json:"totalTokens"`
@@ -589,6 +593,29 @@ type RequestLogEvidence struct {
 	Error          string          `json:"error,omitempty"`
 	TraceID        string          `json:"traceId,omitempty"`
 	Metadata       json.RawMessage `json:"metadata,omitempty"`
+}
+
+// UsageRequestLogCoverageIssue is one sampled usage row that cannot be joined
+// to request-log evidence by request_id.
+type UsageRequestLogCoverageIssue struct {
+	ID        string    `json:"id"`
+	RequestID string    `json:"requestId,omitempty"`
+	Model     string    `json:"model,omitempty"`
+	Issue     string    `json:"issue"`
+	CreatedAt time.Time `json:"createdAt,omitempty"`
+}
+
+// UsageRequestLogCoverageSummary measures whether billing usage rows can be
+// reconciled to request-log evidence by request_id.
+type UsageRequestLogCoverageSummary struct {
+	CheckedRecords            int                            `json:"checkedRecords"`
+	UsageRowsWithRequestID    int                            `json:"usageRowsWithRequestId"`
+	UsageRowsMissingRequestID int                            `json:"usageRowsMissingRequestId"`
+	MatchedRequestLogRecords  int                            `json:"matchedRequestLogRecords"`
+	MissingRequestLogRecords  int                            `json:"missingRequestLogRecords"`
+	Issues                    []UsageRequestLogCoverageIssue `json:"issues"`
+	Limit                     int                            `json:"limit"`
+	Offset                    int                            `json:"offset"`
 }
 
 // UsageLogFilter contains filter parameters for admin Relay usage inspection.
@@ -646,6 +673,64 @@ type UsageAnalytics struct {
 	ByChannel       []UsageAnalyticsBucket `json:"byChannel"`
 	ByProvider      []UsageAnalyticsBucket `json:"byProvider"`
 	CrossDimensions []UsageAnalyticsBucket `json:"crossDimensions"`
+}
+
+// RelayUsagePriceReconciliationFilter contains filters for comparing recorded
+// Relay usage ledger cost against the immutable price snapshot stored on each
+// usage row.
+type RelayUsagePriceReconciliationFilter struct {
+	OrganizationID string
+	UserID         string
+	APITokenID     string
+	RequestID      string
+	APIType        string
+	FeatureType    string
+	QuotaMode      string
+	Model          string
+	ChannelID      string
+	Provider       string
+	Status         string
+	From           time.Time
+	To             time.Time
+	Limit          int
+	Offset         int
+}
+
+// RelayUsagePriceReconciliationIssue is a sampled row requiring operator review.
+type RelayUsagePriceReconciliationIssue struct {
+	ID                string    `json:"id"`
+	OrganizationID    string    `json:"organizationId,omitempty"`
+	UserID            string    `json:"userId"`
+	APITokenID        string    `json:"apiTokenId,omitempty"`
+	RequestID         string    `json:"requestId,omitempty"`
+	APIType           string    `json:"apiType,omitempty"`
+	FeatureType       string    `json:"featureType,omitempty"`
+	QuotaMode         string    `json:"quotaMode,omitempty"`
+	Model             string    `json:"model"`
+	ChannelID         string    `json:"channelId,omitempty"`
+	Provider          string    `json:"provider,omitempty"`
+	Status            string    `json:"status,omitempty"`
+	Cost              float64   `json:"cost"`
+	SnapshotTotalCost float64   `json:"snapshotTotalCost"`
+	DeltaCost         float64   `json:"deltaCost"`
+	PriceCurrency     string    `json:"priceCurrency,omitempty"`
+	PriceSource       string    `json:"priceSource,omitempty"`
+	Issue             string    `json:"issue"`
+	CreatedAt         time.Time `json:"createdAt"`
+}
+
+// RelayUsagePriceReconciliationSummary summarizes ledger-vs-snapshot cost drift.
+type RelayUsagePriceReconciliationSummary struct {
+	CheckedRecords         int                                  `json:"checkedRecords"`
+	MatchedRecords         int                                  `json:"matchedRecords"`
+	MissingSnapshotRecords int                                  `json:"missingSnapshotRecords"`
+	MismatchedRecords      int                                  `json:"mismatchedRecords"`
+	LedgerTotalCost        float64                              `json:"ledgerTotalCost"`
+	SnapshotTotalCost      float64                              `json:"snapshotTotalCost"`
+	DeltaCost              float64                              `json:"deltaCost"`
+	Issues                 []RelayUsagePriceReconciliationIssue `json:"issues"`
+	Limit                  int                                  `json:"limit"`
+	Offset                 int                                  `json:"offset"`
 }
 
 // BatchRequest is the input for batch operations (D-08).

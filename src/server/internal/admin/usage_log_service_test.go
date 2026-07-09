@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,9 @@ func TestServiceListUsageLogsNormalizesFiltersAndReturnsGatewayFields(t *testing
 			LatencyMS:        41,
 			Cost:             0.42,
 			ChannelCost:      0.21,
+			PriceSnapshot:    json.RawMessage(`{"currency":"quota","dimensions":[{"pricingEntryId":"rpe_prompt_v1"}],"totalCost":0.42}`),
+			PriceCurrency:    "quota",
+			PriceSource:      "initial_catalog",
 			PromptTokens:     100,
 			CompletionTokens: 20,
 			TotalTokens:      120,
@@ -68,6 +72,10 @@ func TestServiceListUsageLogsNormalizesFiltersAndReturnsGatewayFields(t *testing
 	}
 	if entries[0].FeatureType != "workspace_chat" || entries[0].QuotaMode != "relay_billing" {
 		t.Fatalf("expected usage classification fields in response, got %#v", entries[0])
+	}
+	if entries[0].PriceCurrency != "quota" || entries[0].PriceSource != "initial_catalog" ||
+		!strings.Contains(string(entries[0].PriceSnapshot), `"pricingEntryId":"rpe_prompt_v1"`) {
+		t.Fatalf("expected pricing snapshot fields in response, got %#v", entries[0])
 	}
 }
 
@@ -128,6 +136,68 @@ func TestServiceListUsageLogsAttachesRequestLogEvidenceByRequestID(t *testing.T)
 	}
 	if entries[1].RequestLogEvidence != nil {
 		t.Fatalf("expected entry without request id to have no request log evidence, got %+v", entries[1].RequestLogEvidence)
+	}
+}
+
+func TestServiceGetUsageRequestLogCoverageSummarizesMissingRequestLogs(t *testing.T) {
+	store := &usageLogStoreSpy{
+		entries: []*UsageLogEntry{
+			{ID: "usage_with_request_log", RequestID: " req_join_1 ", Model: "gpt-4o"},
+			{ID: "usage_missing_request_log", RequestID: "req_missing_log", Model: "gpt-4o"},
+			{ID: "usage_missing_request_id", Model: "gpt-4o"},
+		},
+		total: 3,
+	}
+	evidenceStore := &requestLogEvidenceStoreSpy{
+		evidence: map[string]RequestLogEvidence{
+			"req_join_1": {
+				RequestID:    "req_join_1",
+				RequestLogID: "550e8400-e29b-41d4-a716-446655440000",
+				Service:      "relay",
+				Endpoint:     "/v1/chat/completions",
+				Method:       "POST",
+				StatusCode:   200,
+				DurationMS:   42,
+				Model:        "gpt-4o",
+				CostUSD:      0.42,
+				Timestamp:    time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	service := NewService(store, WithRequestLogEvidenceStore(evidenceStore))
+
+	summary, err := service.GetUsageRequestLogCoverage(context.Background(), UsageLogFilter{
+		OrganizationID: " org_1 ",
+		Model:          " gpt-4o ",
+		Limit:          250,
+		Offset:         -10,
+	})
+	if err != nil {
+		t.Fatalf("get usage request log coverage: %v", err)
+	}
+	if store.filter.OrganizationID != "org_1" || store.filter.Model != "gpt-4o" || store.filter.Limit != 100 || store.filter.Offset != 0 {
+		t.Fatalf("expected normalized usage-log filter, got %#v", store.filter)
+	}
+	if len(evidenceStore.requestIDs) != 2 || evidenceStore.requestIDs[0] != "req_join_1" || evidenceStore.requestIDs[1] != "req_missing_log" {
+		t.Fatalf("expected evidence lookup for non-empty request ids only, got %#v", evidenceStore.requestIDs)
+	}
+	if summary.CheckedRecords != 3 ||
+		summary.UsageRowsWithRequestID != 2 ||
+		summary.UsageRowsMissingRequestID != 1 ||
+		summary.MatchedRequestLogRecords != 1 ||
+		summary.MissingRequestLogRecords != 1 {
+		t.Fatalf("unexpected request-log coverage summary: %+v", summary)
+	}
+	if len(summary.Issues) != 2 {
+		t.Fatalf("expected two coverage issues, got %+v", summary.Issues)
+	}
+	if summary.Issues[0].ID != "usage_missing_request_log" ||
+		summary.Issues[0].RequestID != "req_missing_log" ||
+		summary.Issues[0].Issue != "missing_request_log" {
+		t.Fatalf("expected missing request-log issue first, got %+v", summary.Issues)
+	}
+	if summary.Issues[1].ID != "usage_missing_request_id" || summary.Issues[1].Issue != "missing_request_id" {
+		t.Fatalf("expected missing request-id issue second, got %+v", summary.Issues)
 	}
 }
 
@@ -316,13 +386,76 @@ func TestUsageAnalyticsWhereIncludesGatewayFilters(t *testing.T) {
 	}
 }
 
+func TestServiceGetRelayUsagePriceReconciliationNormalizesFilter(t *testing.T) {
+	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	store := &usageLogStoreSpy{
+		reconciliation: &RelayUsagePriceReconciliationSummary{
+			CheckedRecords:         2,
+			MatchedRecords:         1,
+			MissingSnapshotRecords: 1,
+			Limit:                  100,
+			Issues: []RelayUsagePriceReconciliationIssue{{
+				ID:    "usage_missing_snapshot",
+				Issue: "missing_snapshot",
+			}},
+		},
+	}
+	service := NewService(store)
+
+	summary, err := service.GetRelayUsagePriceReconciliation(context.Background(), RelayUsagePriceReconciliationFilter{
+		OrganizationID: " org_1 ",
+		UserID:         " user_1 ",
+		APITokenID:     " tok_1 ",
+		RequestID:      " req_1 ",
+		APIType:        " chat ",
+		FeatureType:    " workspace_chat ",
+		QuotaMode:      " relay_billing ",
+		Model:          " gpt-4o ",
+		ChannelID:      " ch_1 ",
+		Provider:       " openai ",
+		Status:         " success ",
+		From:           from,
+		To:             to,
+		Limit:          250,
+		Offset:         -10,
+	})
+	if err != nil {
+		t.Fatalf("get relay usage price reconciliation: %v", err)
+	}
+	if summary == nil || summary.CheckedRecords != 2 || len(summary.Issues) != 1 {
+		t.Fatalf("expected reconciliation summary from store, got %+v", summary)
+	}
+	if store.reconciliationFilter.OrganizationID != "org_1" ||
+		store.reconciliationFilter.UserID != "user_1" ||
+		store.reconciliationFilter.APITokenID != "tok_1" ||
+		store.reconciliationFilter.RequestID != "req_1" ||
+		store.reconciliationFilter.APIType != "chat" ||
+		store.reconciliationFilter.FeatureType != "workspace_chat" ||
+		store.reconciliationFilter.QuotaMode != "relay_billing" ||
+		store.reconciliationFilter.Model != "gpt-4o" ||
+		store.reconciliationFilter.ChannelID != "ch_1" ||
+		store.reconciliationFilter.Provider != "openai" ||
+		store.reconciliationFilter.Status != "success" {
+		t.Fatalf("expected trimmed reconciliation filters, got %#v", store.reconciliationFilter)
+	}
+	if store.reconciliationFilter.Limit != 100 || store.reconciliationFilter.Offset != 0 {
+		t.Fatalf("expected normalized limit=100 offset=0, got limit=%d offset=%d", store.reconciliationFilter.Limit, store.reconciliationFilter.Offset)
+	}
+	if !store.reconciliationFilter.From.Equal(from) || !store.reconciliationFilter.To.Equal(to) {
+		t.Fatalf("expected reconciliation time range to pass through, got from=%s to=%s", store.reconciliationFilter.From, store.reconciliationFilter.To)
+	}
+}
+
 type usageLogStoreSpy struct {
 	Store
-	filter          UsageLogFilter
-	analyticsFilter UsageAnalyticsFilter
-	entries         []*UsageLogEntry
-	total           int
-	analytics       UsageAnalytics
+	filter               UsageLogFilter
+	analyticsFilter      UsageAnalyticsFilter
+	reconciliationFilter RelayUsagePriceReconciliationFilter
+	entries              []*UsageLogEntry
+	total                int
+	analytics            UsageAnalytics
+	reconciliation       *RelayUsagePriceReconciliationSummary
 }
 
 func (s *usageLogStoreSpy) ListUsageLogs(_ context.Context, filter UsageLogFilter) ([]*UsageLogEntry, int, error) {
@@ -333,6 +466,11 @@ func (s *usageLogStoreSpy) ListUsageLogs(_ context.Context, filter UsageLogFilte
 func (s *usageLogStoreSpy) GetUsageAnalytics(_ context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {
 	s.analyticsFilter = filter
 	return s.analytics, nil
+}
+
+func (s *usageLogStoreSpy) GetRelayUsagePriceReconciliation(_ context.Context, filter RelayUsagePriceReconciliationFilter) (*RelayUsagePriceReconciliationSummary, error) {
+	s.reconciliationFilter = filter
+	return s.reconciliation, nil
 }
 
 type usageAnalyticsStoreSpy struct {
