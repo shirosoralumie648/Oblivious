@@ -15,7 +15,7 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: defaultWebSocketOriginPolicy.Allow,
 }
 
 // ChatHandler Chat Completions 处理
@@ -53,6 +53,9 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 
 	// 估算用量
 	usage := h.adapter.EstimateUsage(req)
+	if req.Stream {
+		c.Request = c.Request.WithContext(types.WithTrustedStreaming(c.Request.Context(), true))
+	}
 
 	// 通过 executeRequest 路由
 	resp, err := h.executeRequest(c, req, usage)
@@ -72,13 +75,11 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 
 // handleStream SSE 流式处理
 func (h *ChatHandler) handleStream(c *gin.Context, req *channel.ProviderRequest, resp *types.ProviderResponse) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Transfer-Encoding", "chunked")
+	if c.Writer.Written() {
+		return
+	}
 
-	// resp.Content 在真实实现中是 upstream response body
-	// 这里简化处理；真实场景需要流式代理
+	writeChatSSEHeaders(c)
 	if len(resp.Content) > 0 {
 		c.Writer.Write(resp.Content)
 		c.Writer.(http.Flusher).Flush()
@@ -109,8 +110,21 @@ func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderReques
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
+			if err != nil {
+				return nil, err
+			}
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
 
 			providerReq := &channel.ProviderRequest{
 				APIType:   req.APIType,
@@ -120,6 +134,19 @@ func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderReques
 				Messages:  req.Messages,
 				MaxTokens: req.MaxTokens,
 				Headers:   headers,
+			}
+			if req.Stream {
+				providerReq.StreamChunkCallback = func(chunk []byte) error {
+					if !c.Writer.Written() {
+						writeChatSSEHeaders(c)
+						c.Status(http.StatusOK)
+					}
+					if _, err := c.Writer.Write(chunk); err != nil {
+						return err
+					}
+					c.Writer.Flush()
+					return nil
+				}
 			}
 
 			return h.doUpstreamRequest(providerReq)
@@ -146,9 +173,49 @@ func (h *ChatHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.Pr
 	}
 	defer resp.Body.Close()
 
-	bodyOut, _ := io.ReadAll(resp.Body)
+	var bodyOut []byte
+	if req.Stream && req.StreamChunkCallback != nil && resp.StatusCode < http.StatusBadRequest {
+		bodyOut, err = copyChatProviderStream(resp.Body, req.StreamChunkCallback)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		bodyOut, _ = io.ReadAll(resp.Body)
+	}
 	return &types.ProviderResponse{
 		StatusCode: resp.StatusCode,
+		Headers:    resp.Header.Clone(),
 		Content:    bodyOut,
 	}, nil
+}
+
+func writeChatSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Transfer-Encoding", "chunked")
+}
+
+func copyChatProviderStream(body io.Reader, onChunk func([]byte) error) ([]byte, error) {
+	var captured bytes.Buffer
+	buffer := make([]byte, 32*1024)
+	for {
+		n, readErr := body.Read(buffer)
+		if n > 0 {
+			chunk := append([]byte(nil), buffer[:n]...)
+			if _, err := captured.Write(chunk); err != nil {
+				return nil, err
+			}
+			if err := onChunk(chunk); err != nil {
+				return nil, err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return captured.Bytes(), nil
 }

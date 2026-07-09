@@ -15,6 +15,19 @@ import (
 	"oblivious/server/internal/relay/types"
 )
 
+type codedTestError struct {
+	message string
+	code    string
+}
+
+func (e codedTestError) Error() string {
+	return e.message
+}
+
+func (e codedTestError) RelayErrorCode() string {
+	return e.code
+}
+
 func TestRouter_SelectsHealthyChannel(t *testing.T) {
 	// Setup: create pool with two channels, one healthy, one not
 	pool := NewChannelPool()
@@ -86,6 +99,46 @@ func TestRouter_RouteWithFallback_RetriesAllChannels(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	// Both attempts use the same channel due to LB; with 2 channels it varies
+}
+
+func TestRouterRouteWithBillingFailsClosedWhenPricingMissing(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "priced",
+		Provider: "openai",
+		BaseURL:  "https://upstream.example",
+		APIKey:   "sk-priced",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 1)
+	pricing := NewPricingStore()
+	pricing.SetPrice("gpt-4o-mini", types.APITypeChat, types.DimPromptTokens, 0.0002)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{"priced": NewCircuitBreaker("priced", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		NewBillingHook(pricing, nil),
+		"",
+	)
+
+	upstreamCalls := 0
+	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem_missing_price", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		upstreamCalls++
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if resp != nil {
+		t.Fatalf("expected no response when pricing is missing, got %+v", resp)
+	}
+	var routeErr *RouterError
+	if !errors.As(err, &routeErr) || routeErr.Code != http.StatusInternalServerError || routeErr.ErrorCode != "relay_pricing_not_configured" {
+		t.Fatalf("expected relay_pricing_not_configured router error, got %#v", err)
+	}
+	if upstreamCalls != 0 {
+		t.Fatalf("pricing must fail closed before upstream, got %d upstream calls", upstreamCalls)
+	}
 }
 
 func TestRouterRouteWithFallbackRetriesRetryableProviderResponse(t *testing.T) {
@@ -231,7 +284,7 @@ func TestRouterRouteWithBillingUsesModelRoute(t *testing.T) {
 		nil,
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 
@@ -289,7 +342,7 @@ func TestRouterRouteWithBillingDoesNotUseCrossModelAffinity(t *testing.T) {
 		nil,
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	affinityStore := newMemoryConversationAffinityStore()
@@ -533,7 +586,7 @@ func TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffi
 		nil,
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	affinityStore := newMemoryConversationAffinityStore()
@@ -628,6 +681,240 @@ func TestRouterRouteWithBillingAppliesTrustedUserGroupPricingMultiplier(t *testi
 	}
 	if usageLogger.records[0].Cost != 3000 {
 		t.Fatalf("expected usage record to use vip group cost 3000, got %f", usageLogger.records[0].Cost)
+	}
+	if usageLogger.records[0].PriceSnapshot == nil || usageLogger.records[0].PriceSnapshot.GroupMultiplier != 0.5 || usageLogger.records[0].PriceSnapshot.TotalCost != 3000 {
+		t.Fatalf("expected usage record to include vip price snapshot, got %+v", usageLogger.records[0].PriceSnapshot)
+	}
+	if len(usageLogger.records[0].PriceSnapshot.Dimensions) != 2 || usageLogger.records[0].PriceSnapshot.Dimensions[0].Currency != "quota" {
+		t.Fatalf("expected prompt/completion price dimensions in usage snapshot, got %+v", usageLogger.records[0].PriceSnapshot.Dimensions)
+	}
+}
+
+func TestRouterRouteWithBillingRecordsRequestLogBillingMetadata(t *testing.T) {
+	router, _ := newRetryAffinityTestRouter()
+	quotaManager := &stubQuotaManager{}
+	apiTokenQuotaManager := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(apiTokenQuotaManager)
+	router.SetUsageLogger(usageLogger)
+
+	requestLogScope := types.NewRequestLogScope()
+	ctx := types.WithTrustedUserID(context.Background(), "user_metered")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_metered")
+	ctx = types.WithTrustedAPITokenID(ctx, "tok_metered")
+	ctx = types.WithTrustedRequestID(ctx, "req_metered")
+	ctx = types.WithRequestLogScope(ctx, requestLogScope)
+
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_request_log_scope", &types.Usage{TotalTokens: 200}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{PromptTokens: 80, CompletionTokens: 40, TotalTokens: 120}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful response, got %+v", resp)
+	}
+	metadata, ok := requestLogScope.Snapshot()
+	if !ok {
+		t.Fatal("expected request log metadata to be recorded")
+	}
+	if metadata.Model != "gpt-4o-mini" ||
+		metadata.RequestedModel != "gpt-4o-mini" ||
+		metadata.ResolvedModel != "gpt-4o-mini" ||
+		metadata.ChannelID != "primary" ||
+		metadata.Provider != "openai" ||
+		metadata.BillingSessionID != "bill_test" ||
+		metadata.RequestTokens != 80 ||
+		metadata.ResponseTokens != 40 ||
+		metadata.TotalTokens != 120 ||
+		metadata.Cost != usageLogger.records[0].Cost ||
+		metadata.ChannelCost != usageLogger.records[0].ChannelCost ||
+		metadata.PreauthorizedAmount != quotaManager.preconsumeAmount ||
+		metadata.TokenPreauthorizedAmount != apiTokenQuotaManager.preauthorizedAmount ||
+		metadata.Status != string(RelayUsageStatusSuccess) ||
+		metadata.PriceCurrency != usageLogger.records[0].PriceCurrency ||
+		metadata.PriceSource != usageLogger.records[0].PriceSource {
+		t.Fatalf("unexpected request log metadata: %+v usage=%+v quota=%+v token=%+v", metadata, usageLogger.records[0], quotaManager, apiTokenQuotaManager)
+	}
+	if metadata.PriceSnapshot == nil {
+		t.Fatalf("expected price snapshot to be copied into request log metadata: %+v", metadata)
+	}
+}
+
+func TestRouterRouteWithBillingFailsClosedWhenUsageRecordingFails(t *testing.T) {
+	router, _ := newRetryAffinityTestRouter()
+	quotaManager := &stubQuotaManager{}
+	apiTokenQuotaManager := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{err: errors.New("usage store unavailable")}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(apiTokenQuotaManager)
+	router.SetUsageLogger(usageLogger)
+
+	ctx := types.WithTrustedUserID(context.Background(), "user_metered")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_metered")
+	ctx = types.WithTrustedAPITokenID(ctx, "tok_metered")
+	ctx = types.WithTrustedRequestID(ctx, "req_metered")
+
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_usage_fail", &types.Usage{TotalTokens: 100}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{PromptTokens: 40, CompletionTokens: 60, TotalTokens: 100}), nil
+	})
+
+	if err == nil {
+		t.Fatal("expected usage recording failure")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil provider response on fail-closed metering error, got %+v", resp)
+	}
+	var routeErr *RouterError
+	if !errors.As(err, &routeErr) {
+		t.Fatalf("expected RouterError, got %T: %v", err, err)
+	}
+	if routeErr.Code != http.StatusInternalServerError || routeErr.ErrorCode != "usage_recording_failed" {
+		t.Fatalf("expected usage_recording_failed 500, got %+v", routeErr)
+	}
+	if quotaManager.settleCalls != 0 {
+		t.Fatalf("expected quota settlement to be skipped, got %d calls", quotaManager.settleCalls)
+	}
+	if quotaManager.refundCalls != 1 {
+		t.Fatalf("expected quota preauthorization refund, got %d calls", quotaManager.refundCalls)
+	}
+	if apiTokenQuotaManager.settleCalls != 0 {
+		t.Fatalf("expected API token settlement to be skipped, got %d calls", apiTokenQuotaManager.settleCalls)
+	}
+	if apiTokenQuotaManager.refundCalls != 1 || apiTokenQuotaManager.refundedTokenID != "tok_metered" {
+		t.Fatalf("expected API token preauthorization refund, got %+v", apiTokenQuotaManager)
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected one attempted usage record, got %+v", usageLogger.records)
+	}
+	if usageLogger.records[0].RequestID != "req_metered" || usageLogger.records[0].Status != RelayUsageStatusSuccess {
+		t.Fatalf("expected attempted success usage evidence with request id, got %+v", usageLogger.records[0])
+	}
+}
+
+func TestRouterRouteWithBillingRecordsPendingUsageBeforeStreamingProvider(t *testing.T) {
+	router, _ := newRetryAffinityTestRouter()
+	quotaManager := &stubQuotaManager{}
+	apiTokenQuotaManager := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(apiTokenQuotaManager)
+	router.SetUsageLogger(usageLogger)
+
+	ctx := types.WithTrustedUserID(context.Background(), "user_stream")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_stream")
+	ctx = types.WithTrustedAPITokenID(ctx, "tok_stream")
+	ctx = types.WithTrustedRequestID(ctx, "req_stream")
+	ctx = types.WithTrustedStreaming(ctx, true)
+	estimatedUsage := &types.Usage{TotalTokens: 100}
+
+	providerCalled := false
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_stream_pending", estimatedUsage, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		providerCalled = true
+		if len(usageLogger.records) != 1 {
+			t.Fatalf("expected pending usage record before provider callback, got %+v", usageLogger.records)
+		}
+		pending := usageLogger.records[0]
+		if pending.Status != RelayUsageStatusPending || pending.StatusCode != 0 {
+			t.Fatalf("expected pending status before provider callback, got %+v", pending)
+		}
+		if pending.RequestID != "req_stream" || pending.APITokenID != "tok_stream" || pending.OrganizationID != "org_stream" {
+			t.Fatalf("pending usage identity not preserved: %+v", pending)
+		}
+		if pending.PriceSnapshot == nil || pending.PriceSnapshot.TotalCost != pending.Cost || len(pending.PriceSnapshot.Dimensions) != 1 || pending.PriceSnapshot.Dimensions[0].Dimension != types.DimTotalTokens {
+			t.Fatalf("pending usage should carry estimated total-token price snapshot, got %+v", pending.PriceSnapshot)
+		}
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{PromptTokens: 40, CompletionTokens: 60, TotalTokens: 100}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful provider response, got %+v", resp)
+	}
+	if !providerCalled {
+		t.Fatal("provider callback was not called")
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected pending usage record to be finalized in place, got %+v", usageLogger.records)
+	}
+	if usageLogger.records[0].Status != RelayUsageStatusSuccess || usageLogger.records[0].StatusCode != http.StatusOK {
+		t.Fatalf("expected finalized success usage record, got %+v", usageLogger.records)
+	}
+	if usageLogger.records[0].PriceSnapshot == nil || len(usageLogger.records[0].PriceSnapshot.Dimensions) != 2 {
+		t.Fatalf("expected finalized usage to replace pending snapshot with actual prompt/completion dimensions, got %+v", usageLogger.records[0].PriceSnapshot)
+	}
+	if quotaManager.settleCalls != 1 || apiTokenQuotaManager.settleCalls != 1 {
+		t.Fatalf("expected quota and API-token settlement after final usage record, quota=%d token=%d", quotaManager.settleCalls, apiTokenQuotaManager.settleCalls)
+	}
+}
+
+func TestRouterRouteWithBillingFinalizesStreamingAbortUsageAndRequestLogScope(t *testing.T) {
+	router, _ := newRetryAffinityTestRouter()
+	router.billingHook.pricing.SetPrice("gpt-4o-mini", types.APITypeRealtime, types.DimTotalTokens, 0.0001)
+	quotaManager := &stubQuotaManager{}
+	apiTokenQuotaManager := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(apiTokenQuotaManager)
+	router.SetUsageLogger(usageLogger)
+
+	requestLogScope := types.NewRequestLogScope()
+	ctx := types.WithTrustedUserID(context.Background(), "user_realtime_abort")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_realtime_abort")
+	ctx = types.WithTrustedAPITokenID(ctx, "tok_realtime_abort")
+	ctx = types.WithTrustedRequestID(ctx, "req_realtime_abort")
+	ctx = types.WithTrustedStreaming(ctx, true)
+	ctx = types.WithRequestLogScope(ctx, requestLogScope)
+	estimatedUsage := &types.Usage{TotalTokens: 100}
+
+	resp, err := router.RouteWithBilling(ctx, types.APITypeRealtime, "gpt-4o-mini", "", "idem_realtime_abort", estimatedUsage, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		if len(usageLogger.records) == 0 {
+			t.Fatal("expected pending usage record before realtime provider callback")
+		}
+		return nil, codedTestError{
+			message: "realtime_usage_missing: upstream realtime stream closed without usage",
+			code:    "realtime_usage_missing",
+		}
+	})
+
+	if err == nil {
+		t.Fatal("expected realtime streaming provider error")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on realtime abort, got %+v", resp)
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected pending usage record to be replaced by one terminal error record, got %+v", usageLogger.records)
+	}
+	record := usageLogger.records[0]
+	if record.RequestID != "req_realtime_abort" || record.APITokenID != "tok_realtime_abort" || record.OrganizationID != "org_realtime_abort" {
+		t.Fatalf("terminal realtime usage identity not preserved: %+v", record)
+	}
+	if record.APIType != types.APITypeRealtime.String() || record.Status != RelayUsageStatusError || record.StatusCode != http.StatusBadGateway || record.ErrorCode != "realtime_usage_missing" {
+		t.Fatalf("expected terminal realtime_usage_missing usage record, got %+v", record)
+	}
+	if record.Cost != 0 || record.ChannelCost != 0 {
+		t.Fatalf("realtime abort usage must not settle cost, got %+v", record)
+	}
+	if quotaManager.settleCalls != 0 || apiTokenQuotaManager.settleCalls != 0 {
+		t.Fatalf("realtime abort must not settle quota, quota=%d token=%d", quotaManager.settleCalls, apiTokenQuotaManager.settleCalls)
+	}
+	if quotaManager.refundCalls == 0 || apiTokenQuotaManager.refundCalls == 0 {
+		t.Fatalf("expected realtime abort to refund preauthorization, quota=%d token=%d", quotaManager.refundCalls, apiTokenQuotaManager.refundCalls)
+	}
+	metadata, ok := requestLogScope.Snapshot()
+	if !ok {
+		t.Fatal("expected realtime abort to record request-log billing metadata")
+	}
+	if metadata.RequestID != "req_realtime_abort" || metadata.OrganizationID != "org_realtime_abort" || metadata.UserID != "user_realtime_abort" {
+		t.Fatalf("request-log metadata identity mismatch: %+v", metadata)
+	}
+	if metadata.Status != string(RelayUsageStatusError) || metadata.ErrorCode != "realtime_usage_missing" || metadata.ChannelID == "" || metadata.Provider == "" {
+		t.Fatalf("request-log metadata should expose realtime abort failure join fields, got %+v", metadata)
 	}
 }
 
@@ -797,7 +1084,7 @@ func newRetryAffinityTestRouter() (*Router, *memoryConversationAffinityStore) {
 		},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	affinityStore := newMemoryConversationAffinityStore()

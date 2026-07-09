@@ -16,7 +16,7 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: defaultWebSocketOriginPolicy.Allow,
 }
 
 // ChatHandler Chat Completions 处理
@@ -79,6 +79,9 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 		cacheReq = attachSemanticCacheEmbedding(c.Request.Context(), cacheReq, h.semanticCacheEmbedder)
 		c.Request = c.Request.WithContext(types.WithSemanticCacheRequest(c.Request.Context(), cacheReq))
 	}
+	if req.Stream {
+		c.Request = c.Request.WithContext(types.WithTrustedStreaming(c.Request.Context(), true))
+	}
 
 	// 通过 executeRequest 路由
 	resp, err := h.executeRequest(c, req, usage)
@@ -88,7 +91,7 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 	}
 
 	if req.Stream {
-		h.handleStream(c, req, resp)
+		h.handleStream(c, resp)
 		return nil
 	}
 
@@ -101,23 +104,19 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 }
 
 // handleStream SSE 流式处理
-func (h *ChatHandler) handleStream(c *gin.Context, req *channel.ProviderRequest, resp *types.ProviderResponse) {
+func (h *ChatHandler) handleStream(c *gin.Context, resp *types.ProviderResponse) {
 	statusCode := resp.StatusCode
 	if statusCode < http.StatusContinue {
 		statusCode = http.StatusOK
 	}
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("Transfer-Encoding", "chunked")
-
-	// resp.Content 在真实实现中是 upstream response body
-	// 这里简化处理；真实场景需要流式代理
-	if len(resp.Content) > 0 {
+	writeSSEHeaders(c)
+	if !c.Writer.Written() && len(resp.Content) > 0 {
 		c.Data(statusCode, "text/event-stream", resp.Content)
 		return
 	}
-	c.Status(statusCode)
+	if !c.Writer.Written() {
+		c.Status(statusCode)
+	}
 }
 
 // HandleStream 实现 Handler 接口（用于 WebSocket，但 Chat 用 Handle）
@@ -215,8 +214,28 @@ func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderReques
 				Tools:      req.Tools,
 				ToolChoice: req.ToolChoice,
 			}
+			if req.Stream {
+				providerReq.StreamChunkCallback = func(chunk []byte) error {
+					if !c.Writer.Written() {
+						writeSSEHeaders(c)
+						c.Status(http.StatusOK)
+					}
+					if _, err := c.Writer.Write(chunk); err != nil {
+						return err
+					}
+					c.Writer.Flush()
+					return nil
+				}
+			}
 
 			return executeProviderAdapterRequest(c.Request.Context(), adapter, providerReq)
 		},
 	)
+}
+
+func writeSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Transfer-Encoding", "chunked")
 }

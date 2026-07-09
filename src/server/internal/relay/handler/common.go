@@ -212,7 +212,15 @@ func executeProviderAdapterRequest(ctx context.Context, adapter types.ProviderAd
 	}
 	defer resp.Body.Close()
 
-	bodyOut, _ := io.ReadAll(resp.Body)
+	var bodyOut []byte
+	if req.Stream && req.StreamChunkCallback != nil && resp.StatusCode < http.StatusBadRequest {
+		bodyOut, err = copyProviderStream(resp.Body, req.StreamChunkCallback)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		bodyOut, _ = io.ReadAll(resp.Body)
+	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		return &types.ProviderResponse{
 			StatusCode: resp.StatusCode,
@@ -236,6 +244,30 @@ func executeProviderAdapterRequest(ctx context.Context, adapter types.ProviderAd
 	}
 	providerResp.Done = true
 	return providerResp, nil
+}
+
+func copyProviderStream(body io.Reader, onChunk func([]byte) error) ([]byte, error) {
+	var captured bytes.Buffer
+	buffer := make([]byte, 32*1024)
+	for {
+		n, readErr := body.Read(buffer)
+		if n > 0 {
+			chunk := append([]byte(nil), buffer[:n]...)
+			if _, err := captured.Write(chunk); err != nil {
+				return nil, err
+			}
+			if err := onChunk(chunk); err != nil {
+				return nil, err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return captured.Bytes(), nil
 }
 
 type relayStatusError interface {

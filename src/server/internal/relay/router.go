@@ -221,6 +221,20 @@ func (e *RouterError) RelayErrorCode() string {
 	return e.ErrorCode
 }
 
+type relayErrorCoder interface {
+	RelayErrorCode() string
+}
+
+func upstreamUsageErrorCode(err error) string {
+	var coded relayErrorCoder
+	if errors.As(err, &coded) {
+		if code := strings.TrimSpace(coded.RelayErrorCode()); code != "" {
+			return code
+		}
+	}
+	return "upstream_error"
+}
+
 func (r *Router) SetQuotaManager(manager QuotaManager) {
 	r.quotaManager = manager
 }
@@ -254,6 +268,7 @@ func (r *Router) RouteWithBilling(
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 	featureType, _ := types.TrustedFeatureTypeFromContext(ctx)
 	userGroup, _ := types.TrustedUserGroupFromContext(ctx)
+	streamingResponse, _ := types.TrustedStreamingFromContext(ctx)
 
 	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
 		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
@@ -345,8 +360,15 @@ func (r *Router) RouteWithBilling(
 		attemptIdempotencyKey := attemptScopedIdempotencyKey(idempotencyKey, attempt)
 		var billingSessionID string
 		if r.quotaManager != nil {
-			preauthAmount := r.estimatedUsageCost(model, apiType, usage, ch, userGroup)
-			session, err := r.quotaManager.PreConsume(ctx, userID, organizationID, preauthAmount, attemptIdempotencyKey, billingChannelID, model, apiType.String())
+			preauthQuote, err := r.estimatedUsagePriceQuote(model, apiType, usage, ch, userGroup)
+			if err != nil {
+				releaseRateLimit()
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "relay pricing is not configured: " + err.Error(), ErrorCode: "relay_pricing_not_configured"}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+			session, err := r.quotaManager.PreConsume(ctx, userID, organizationID, preauthQuote.TotalCost, attemptIdempotencyKey, billingChannelID, model, apiType.String())
 			if err != nil {
 				releaseRateLimit()
 				routeErr := &RouterError{Code: http.StatusPaymentRequired, Message: "billing pre-authorization failed: " + err.Error(), ErrorCode: "billing_pre_authorization_failed"}
@@ -369,14 +391,25 @@ func (r *Router) RouteWithBilling(
 			}, usage)
 			if err != nil {
 				releaseRateLimit()
-				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "billing pre-authorization failed: " + err.Error(), ErrorCode: "billing_pre_authorization_failed"}
+				routeErr := billingPreAuthorizationRouterError(err)
 				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
 				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
 				return nil, routeErr
 			}
 		}
 
-		tokenPreauthorizedAmount := r.estimatedUsageCost(model, apiType, usage, ch, userGroup)
+		tokenPreauthorizedQuote, err := r.estimatedUsagePriceQuote(model, apiType, usage, ch, userGroup)
+		if err != nil {
+			releaseRateLimit()
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+			}
+			routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "relay pricing is not configured: " + err.Error(), ErrorCode: "relay_pricing_not_configured"}
+			_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+			r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+			return nil, routeErr
+		}
+		tokenPreauthorizedAmount := tokenPreauthorizedQuote.TotalCost
 		if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 			if err := r.apiTokenQuotaManager.PreAuthorizeRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount); err != nil {
 				releaseRateLimit()
@@ -386,6 +419,24 @@ func (r *Router) RouteWithBilling(
 				status, code := relayAPITokenQuotaRouterError(err)
 				routeErr := &RouterError{Code: status, Message: "API token quota pre-authorization failed: " + err.Error(), ErrorCode: code}
 				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+		}
+
+		if streamingResponse {
+			pendingRecord := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, usage, tokenPreauthorizedQuote, startedAt)
+			pendingRecord.Status = RelayUsageStatusPending
+			pendingRecord.StatusCode = 0
+			if err := r.recordUsage(ctx, pendingRecord); err != nil {
+				releaseRateLimit()
+				if r.quotaManager != nil && billingSessionID != "" {
+					_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+				}
+				if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+					_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+				}
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "usage recording failed: " + err.Error(), ErrorCode: "usage_recording_failed"}
 				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
 				return nil, routeErr
 			}
@@ -401,7 +452,14 @@ func (r *Router) RouteWithBilling(
 			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
 			}
-			_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, http.StatusBadGateway, "upstream_error", startedAt))
+			errorRecord := r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, http.StatusBadGateway, upstreamUsageErrorCode(err), startedAt)
+			if streamingResponse {
+				_ = r.replaceUsage(ctx, errorRecord)
+				recordRequestLogBillingMetadata(ctx, model, billingSessionID, tokenPreauthorizedQuote, tokenPreauthorizedAmount, errorRecord)
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, errorRecord.StatusCode, "miss", startedAt)
+				return nil, err
+			}
+			_ = r.recordUsage(ctx, errorRecord)
 			lastErr = err
 			excludedChannels[selectedChannelID] = true
 			if attempt < maxRouteBillingAttempts {
@@ -441,6 +499,13 @@ func (r *Router) RouteWithBilling(
 		} else {
 			r.recordSelectedSuccess(selectedChannelID)
 		}
+		if resp != nil {
+			resp.BillingSessionID = billingSessionID
+			if tokenPreauthorizedQuote != nil {
+				resp.PreauthorizedAmount = tokenPreauthorizedQuote.TotalCost
+			}
+			resp.TokenPreauthorizedAmount = tokenPreauthorizedAmount
+		}
 
 		if conversationID != "" && r.affinityStore != nil {
 			_ = r.affinityStore.SaveConversationAffinity(ctx, conversationID, selectedChannelID)
@@ -450,7 +515,56 @@ func (r *Router) RouteWithBilling(
 		if resp != nil && resp.Usage != nil {
 			actualUsage = resp.Usage
 		}
-		actualCost := r.estimatedUsageCost(model, apiType, actualUsage, ch, userGroup)
+		actualQuote, err := r.estimatedUsagePriceQuote(model, apiType, actualUsage, ch, userGroup)
+		if err != nil {
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+			}
+			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+			}
+			routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "relay pricing is not configured: " + err.Error(), ErrorCode: "relay_pricing_not_configured"}
+			_ = r.replaceUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+			r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+			return nil, routeErr
+		}
+
+		statusCode := http.StatusOK
+		if resp != nil && resp.StatusCode >= http.StatusContinue {
+			statusCode = resp.StatusCode
+		}
+		actualCost := actualQuote.TotalCost
+		record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, actualUsage, actualQuote, startedAt)
+		record.StatusCode = statusCode
+		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
+			record.Status = RelayUsageStatusError
+			if resp.Error != nil {
+				record.ErrorCode = resp.Error.Code
+			}
+		}
+		recordRequestLogBillingMetadata(ctx, model, billingSessionID, tokenPreauthorizedQuote, tokenPreauthorizedAmount, record)
+		var usageErr error
+		if streamingResponse {
+			usageErr = r.replaceUsage(ctx, record)
+		} else {
+			usageErr = r.recordUsage(ctx, record)
+		}
+		if usageErr != nil {
+			if !streamingResponse {
+				if r.quotaManager != nil && billingSessionID != "" {
+					_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+				}
+				if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+					_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+				}
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "usage recording failed: " + usageErr.Error(), ErrorCode: "usage_recording_failed"}
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+			// Streaming handlers may already have sent response bytes by this point.
+			// A pending record was written before calling the provider, so settlement can continue
+			// while the durable ledger is reconciled by the pending/final lifecycle.
+		}
 
 		if r.quotaManager != nil && billingSessionID != "" {
 			if err := r.quotaManager.Settle(ctx, organizationID, billingSessionID, actualCost); err != nil {
@@ -458,7 +572,7 @@ func (r *Router) RouteWithBilling(
 					_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
 				}
 				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "billing settlement failed: " + err.Error(), ErrorCode: "billing_settlement_failed"}
-				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				_ = r.replaceUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
 				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
 				return nil, routeErr
 			}
@@ -470,7 +584,7 @@ func (r *Router) RouteWithBilling(
 					_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
 				}
 				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "API token quota settlement failed: " + err.Error(), ErrorCode: "api_token_quota_settlement_failed"}
-				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				_ = r.replaceUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
 				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
 				return nil, routeErr
 			}
@@ -493,20 +607,6 @@ func (r *Router) RouteWithBilling(
 			}
 		}
 
-		statusCode := http.StatusOK
-		if resp != nil && resp.StatusCode >= http.StatusContinue {
-			statusCode = resp.StatusCode
-		}
-		record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, actualUsage, actualCost, startedAt)
-		record.StatusCode = statusCode
-		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
-			record.Status = RelayUsageStatusError
-			if resp.Error != nil {
-				record.ErrorCode = resp.Error.Code
-			}
-		}
-		recordRequestLogBillingMetadata(ctx, model, billingSessionID, tokenPreauthorizedAmount, record)
-		_ = r.recordUsage(ctx, record)
 		r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, statusCode, "miss", startedAt)
 
 		return resp, nil
@@ -518,14 +618,18 @@ func (r *Router) RouteWithBilling(
 	return lastResp, nil
 }
 
-func recordRequestLogBillingMetadata(ctx context.Context, requestedModel string, billingSessionID string, preauthorizedAmount float64, record RelayUsageLogRecord) {
+func recordRequestLogBillingMetadata(ctx context.Context, requestedModel string, billingSessionID string, preauthQuote *PricingQuote, tokenPreauthorizedAmount float64, record RelayUsageLogRecord) {
 	scope, ok := types.RequestLogScopeFromContext(ctx)
 	if !ok {
 		return
 	}
-	tokenPreauthorizedAmount := 0.0
+	preauthorizedAmount := tokenPreauthorizedAmount
+	if preauthQuote != nil {
+		preauthorizedAmount = preauthQuote.TotalCost
+	}
+	requestLogTokenPreauthorizedAmount := 0.0
 	if record.APITokenID != "" {
-		tokenPreauthorizedAmount = preauthorizedAmount
+		requestLogTokenPreauthorizedAmount = tokenPreauthorizedAmount
 	}
 	scope.Record(types.RequestLogMetadata{
 		RequestID:                record.RequestID,
@@ -538,7 +642,7 @@ func recordRequestLogBillingMetadata(ctx context.Context, requestedModel string,
 		Provider:                 record.Provider,
 		BillingSessionID:         billingSessionID,
 		PreauthorizedAmount:      preauthorizedAmount,
-		TokenPreauthorizedAmount: tokenPreauthorizedAmount,
+		TokenPreauthorizedAmount: requestLogTokenPreauthorizedAmount,
 		Cost:                     record.Cost,
 		ChannelCost:              record.ChannelCost,
 		RequestTokens:            record.PromptTokens,
@@ -546,6 +650,9 @@ func recordRequestLogBillingMetadata(ctx context.Context, requestedModel string,
 		TotalTokens:              record.TotalTokens,
 		Status:                   string(record.Status),
 		ErrorCode:                record.ErrorCode,
+		PriceCurrency:            record.PriceCurrency,
+		PriceSource:              record.PriceSource,
+		PriceSnapshot:            record.PriceSnapshot,
 	})
 }
 
@@ -567,6 +674,13 @@ func routeRetryBackoff(attempt int) time.Duration {
 	default:
 		return 3 * time.Second
 	}
+}
+
+func billingPreAuthorizationRouterError(err error) *RouterError {
+	if errors.Is(err, ErrRelayPriceNotConfigured) {
+		return &RouterError{Code: http.StatusInternalServerError, Message: "relay pricing is not configured: " + err.Error(), ErrorCode: "relay_pricing_not_configured"}
+	}
+	return &RouterError{Code: http.StatusInternalServerError, Message: "billing pre-authorization failed: " + err.Error(), ErrorCode: "billing_pre_authorization_failed"}
 }
 
 func (r *Router) localRateLimitWeightAdjuster(ctx context.Context, model string, usage *types.Usage) func(*types.RouteChannel) int {
@@ -796,52 +910,75 @@ func runtimeHealthScore(stats *types.ChannelStats) float64 {
 	return score
 }
 
-func (r *Router) estimatedUsageCost(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel, userGroup string) float64 {
-	cost := 0.0
+func (r *Router) estimatedUsageCost(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel, userGroup string) (float64, error) {
+	quote, err := r.estimatedUsagePriceQuote(model, apiType, usage, ch, userGroup)
+	if err != nil {
+		return 0, err
+	}
+	return quote.TotalCost, nil
+}
+
+func (r *Router) estimatedUsagePriceQuote(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel, userGroup string) (*PricingQuote, error) {
 	var pricing *PricingStore
 	if r.billingHook != nil && r.billingHook.pricing != nil {
 		pricing = r.billingHook.pricing
-		cost = pricing.CalculateCost(model, apiType, usage)
-	}
-	if cost <= 0 && usage != nil {
-		cost = float64(usage.TotalTokens) / 1000 * 0.001
-		cost += float64(usage.ImageCount) * 0.004
-		cost += usage.AudioSeconds * 0.0001
-	}
-	if pricing != nil {
-		cost = pricing.ApplyGroupMultiplier(cost, userGroup)
-	}
-	if ch != nil {
-		multiplier := ch.CostMultiplier
-		if multiplier <= 0 && ch.Channel != nil {
-			multiplier = ch.Channel.CostMultiplier
+		quote, err := pricing.QuoteUsageForGroupStrict(model, apiType, usage, userGroup)
+		if err != nil {
+			return nil, err
 		}
-		if multiplier <= 0 {
-			multiplier = 1
-		}
-		cost *= multiplier
+		return applyRouteChannelPriceQuote(quote, ch), nil
 	}
+	return nil, fmt.Errorf("%w: pricing store is not configured", ErrRelayPriceNotConfigured)
+}
+
+func applyRouteChannelPriceQuote(quote *PricingQuote, ch *types.RouteChannel) *PricingQuote {
+	if quote == nil {
+		return nil
+	}
+	multiplier := routeChannelCostMultiplier(ch)
+	quote.ChannelMultiplier = multiplier
+	quote.TotalCost *= multiplier
+	if quote.TotalCost <= 0 {
+		quote.TotalCost = 0.000001
+	}
+	return quote
+}
+
+func applyRouteChannelCostMultiplier(cost float64, ch *types.RouteChannel) float64 {
+	cost *= routeChannelCostMultiplier(ch)
 	if cost <= 0 {
 		return 0.000001
 	}
 	return cost
 }
 
-func (r *Router) channelCost(cost float64, ch *types.RouteChannel) float64 {
+func routeChannelCostMultiplier(ch *types.RouteChannel) float64 {
 	if ch == nil {
-		return 0
+		return 1
 	}
 	multiplier := ch.CostMultiplier
 	if multiplier <= 0 && ch.Channel != nil {
 		multiplier = ch.Channel.CostMultiplier
 	}
 	if multiplier <= 0 {
-		multiplier = 1
+		return 1
 	}
+	return multiplier
+}
+
+func (r *Router) channelCost(cost float64, ch *types.RouteChannel) float64 {
+	if ch == nil {
+		return 0
+	}
+	multiplier := routeChannelCostMultiplier(ch)
 	return cost / multiplier
 }
 
-func (r *Router) successUsageRecord(userID, organizationID, apiTokenID, requestID string, apiType types.APIType, model string, ch *types.RouteChannel, usage *types.Usage, cost float64, startedAt time.Time) RelayUsageLogRecord {
+func (r *Router) successUsageRecord(userID, organizationID, apiTokenID, requestID string, apiType types.APIType, model string, ch *types.RouteChannel, usage *types.Usage, quote *PricingQuote, startedAt time.Time) RelayUsageLogRecord {
+	var cost float64
+	if quote != nil {
+		cost = quote.TotalCost
+	}
 	record := RelayUsageLogRecord{
 		UserID:         userID,
 		OrganizationID: organizationID,
@@ -854,7 +991,13 @@ func (r *Router) successUsageRecord(userID, organizationID, apiTokenID, requestI
 		LatencyMS:      time.Since(startedAt).Milliseconds(),
 		Cost:           cost,
 		ChannelCost:    r.channelCost(cost, ch),
+		PriceSnapshot:  quote,
 		CreatedAt:      time.Now().UTC(),
+	}
+	if quote != nil {
+		record.PriceCurrency = quote.Currency
+		record.PriceSource = quote.Source
+		record.PriceEffectiveFrom = cloneTime(quote.EffectiveFrom)
 	}
 	if ch != nil {
 		record.ChannelID = routeChannelID(ch)
@@ -871,7 +1014,7 @@ func (r *Router) successUsageRecord(userID, organizationID, apiTokenID, requestI
 }
 
 func (r *Router) errorUsageRecord(userID, organizationID, apiTokenID, requestID string, apiType types.APIType, model string, ch *types.RouteChannel, statusCode int, errorCode string, startedAt time.Time) RelayUsageLogRecord {
-	record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, nil, 0, startedAt)
+	record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, nil, nil, startedAt)
 	record.Status = RelayUsageStatusError
 	record.StatusCode = statusCode
 	record.ErrorCode = errorCode
@@ -888,6 +1031,21 @@ func (r *Router) recordUsage(ctx context.Context, record RelayUsageLogRecord) er
 		if featureType, ok := types.TrustedFeatureTypeFromContext(ctx); ok {
 			record.FeatureType = featureType
 		}
+	}
+	return r.usageLogger.RecordRelayUsage(ctx, record)
+}
+
+func (r *Router) replaceUsage(ctx context.Context, record RelayUsageLogRecord) error {
+	if r == nil || r.usageLogger == nil {
+		return nil
+	}
+	if record.FeatureType == "" {
+		if featureType, ok := types.TrustedFeatureTypeFromContext(ctx); ok {
+			record.FeatureType = featureType
+		}
+	}
+	if replacer, ok := r.usageLogger.(RelayUsageReplacer); ok && record.RequestID != "" {
+		return replacer.ReplaceRelayUsage(ctx, record)
 	}
 	return r.usageLogger.RecordRelayUsage(ctx, record)
 }

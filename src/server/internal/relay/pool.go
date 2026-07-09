@@ -129,7 +129,11 @@ func channelMatchesOrganization(ch *types.Channel, organizationID string) bool {
 	if organizationID == "" {
 		return true
 	}
-	return ch != nil && strings.TrimSpace(ch.OrganizationID) == organizationID
+	if ch == nil {
+		return false
+	}
+	channelOrganizationID := strings.TrimSpace(ch.OrganizationID)
+	return channelOrganizationID == "" || channelOrganizationID == organizationID
 }
 
 // SetChannelHealthy 设置渠道健康状态

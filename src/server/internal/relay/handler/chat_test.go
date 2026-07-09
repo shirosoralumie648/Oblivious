@@ -1,13 +1,17 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"oblivious/server/internal/relay/channel"
@@ -92,6 +96,9 @@ func TestChatStreamingProxiesSelectedProviderSSEThroughBillingRoute(t *testing.T
 	if testRouter.routeWithBillingCalls != 1 {
 		t.Fatalf("RouteWithBilling calls = %d, want 1", testRouter.routeWithBillingCalls)
 	}
+	if !testRouter.lastTrustedStreaming {
+		t.Fatal("expected handler to mark streaming requests for router metering")
+	}
 	if testRouter.lastProviderUsage == nil {
 		t.Fatal("expected streaming response usage to be parsed for billing settlement")
 	}
@@ -100,6 +107,107 @@ func TestChatStreamingProxiesSelectedProviderSSEThroughBillingRoute(t *testing.T
 	}
 	if !strings.Contains(rec.Body.String(), `data: {"choices":[{"delta":{"content":"hel"}}]}`) || !strings.Contains(rec.Body.String(), "data: [DONE]") {
 		t.Fatalf("expected provider SSE body, got %s", rec.Body.String())
+	}
+}
+
+func TestChatStreamingFlushesFirstProviderChunkBeforeUpstreamCompletes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	firstChunkWritten := make(chan struct{})
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseUpstream) })
+	}
+	t.Cleanup(release)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&struct{}{}); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n"))
+		flusher.Flush()
+		close(firstChunkWritten)
+		<-releaseUpstream
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	testRouter := &chatTestRouter{selected: &types.RouteChannel{
+		Channel:   &types.Channel{ID: "ch-live-stream", Provider: "openai", BaseURL: upstream.URL, APIKey: "sk-live-stream", Enabled: true},
+		ChannelID: "ch-live-stream",
+		Enabled:   true,
+		Healthy:   true,
+	}}
+	restoreRouter := setRouterForChatTest(testRouter)
+	t.Cleanup(restoreRouter)
+
+	handler := NewChatHandler(nil, &channel.OpenAIAdapter{})
+	engine := gin.New()
+	engine.POST("/v1/chat/completions", func(c *gin.Context) {
+		if err := handler.Handle(c); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+	})
+	server := httptest.NewServer(engine)
+	t.Cleanup(server.Close)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(server.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{
+		"model":"gpt-4o-mini",
+		"stream":true,
+		"messages":[{"role":"user","content":"stream now"}]
+	}`))
+	if err != nil {
+		t.Fatalf("post streaming chat: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	lineCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			errCh <- err
+			return
+		}
+		lineCh <- line
+	}()
+
+	select {
+	case <-firstChunkWritten:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not write first chunk")
+	}
+
+	select {
+	case line := <-lineCh:
+		if !strings.Contains(line, `"content":"hel"`) {
+			t.Fatalf("first streamed line = %q, want first upstream chunk", line)
+		}
+	case err := <-errCh:
+		t.Fatalf("read first streamed line: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("handler did not flush first provider chunk before upstream completed")
+	}
+
+	release()
+	rest, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read remaining stream: %v", err)
+	}
+	if !strings.Contains(string(rest), `"content":"lo"`) || !strings.Contains(string(rest), "data: [DONE]") {
+		t.Fatalf("remaining stream missing final provider chunks: %s", string(rest))
+	}
+	if testRouter.lastProviderUsage == nil || testRouter.lastProviderUsage.TotalTokens != 2 {
+		t.Fatalf("expected stream usage to be parsed after upstream completed, got %+v", testRouter.lastProviderUsage)
 	}
 }
 
@@ -618,8 +726,10 @@ func TestChatHandlerUsesGeminiAdapterAndNormalizesUsage(t *testing.T) {
 type chatTestRouter struct {
 	selected                 *types.RouteChannel
 	lastProviderUsage        *types.Usage
+	lastPrebillUsage         *types.Usage
 	lastConversationID       string
 	lastSemanticCacheRequest types.SemanticCacheRequest
+	lastTrustedStreaming     bool
 	routeWithBillingCalls    int
 	resp                     *types.ProviderResponse
 }
@@ -628,10 +738,12 @@ func (r *chatTestRouter) Route(_ context.Context, _ string, fn func(ch *types.Ro
 	return fn(r.selected)
 }
 
-func (r *chatTestRouter) RouteWithBilling(ctx context.Context, _ types.APIType, _, _, _ string, _ *types.Usage, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
+func (r *chatTestRouter) RouteWithBilling(ctx context.Context, _ types.APIType, _, _, _ string, usage *types.Usage, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
 	r.routeWithBillingCalls++
+	r.lastPrebillUsage = usage
 	r.lastConversationID, _ = types.TrustedConversationIDFromContext(ctx)
 	r.lastSemanticCacheRequest, _ = types.SemanticCacheRequestFromContext(ctx)
+	r.lastTrustedStreaming, _ = types.TrustedStreamingFromContext(ctx)
 	if r.resp != nil {
 		r.lastProviderUsage = r.resp.Usage
 		return r.resp, nil
