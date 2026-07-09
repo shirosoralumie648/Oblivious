@@ -115,6 +115,17 @@ func (g *LocalGateway) GenerateReplyStream(ctx context.Context, messages []Messa
 	return nil
 }
 
+func (g *LocalGateway) GenerateStructuredReply(ctx context.Context, messages []Message, config ConversationConfig, tools []map[string]any) (*CompletionResponse, error) {
+	reply, err := g.GenerateReply(ctx, messages, config)
+	if err != nil {
+		return nil, err
+	}
+	return &CompletionResponse{
+		Content:      reply,
+		FinishReason: "stop",
+	}, nil
+}
+
 func formatDemoReply(messages []Message) string {
 	for index := len(messages) - 1; index >= 0; index-- {
 		if messages[index].Role == "user" {

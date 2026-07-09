@@ -25,6 +25,10 @@ type Config struct {
 	// It defaults in the runtime wiring when unset so monolith tests keep their historical env.
 	AgentRelayBaseURL string
 
+	// ChatRelayBaseURL points Chat runtimes at the Relay/OpenAI-compatible API.
+	// It defaults in the runtime wiring when unset so monolith deployments keep using local Relay.
+	ChatRelayBaseURL string
+
 	// Agent web search configuration. Provider stays disabled unless a supported
 	// provider, endpoint, and API key are all configured.
 	AgentWebSearchProvider    string
@@ -48,14 +52,19 @@ type Config struct {
 	RAGRerankerTopK    int
 
 	// Relay configuration
-	RelayEnabled                 bool
-	RelayDefaultModel            string
-	RelayRateLimitBackend        string
-	RelayRateLimitRedisKeyPrefix string
-	RelaySemanticCacheBackend    string
-	RedisAddr                    string
-	RedisPassword                string
-	RedisDB                      int
+	RelayEnabled                            bool
+	RelayDefaultModel                       string
+	RelayRateLimitBackend                   string
+	RelayRateLimitRedisKeyPrefix            string
+	RelaySemanticCacheBackend               string
+	RelayBatchPollingWorkerEnabled          bool
+	RelayBatchPollingWorkerIntervalMS       int
+	RelayBatchPollingWorkerClaimLimit       int
+	RelayBatchCommercialLifecycleEnabled    bool
+	RelayRealtimeCommercialLifecycleEnabled bool
+	RedisAddr                               string
+	RedisPassword                           string
+	RedisDB                                 int
 
 	// Default channel configuration (for development)
 	OpenAIAPIKey  string
@@ -196,6 +205,7 @@ func Load() (Config, error) {
 	if modelDefaultName == "" {
 		modelDefaultName = "demo-reply"
 	}
+	chatRelayBaseURL := strings.TrimSpace(os.Getenv("CHAT_RELAY_BASE_URL"))
 	agentRelayBaseURL := strings.TrimSpace(os.Getenv("AGENT_RELAY_BASE_URL"))
 	agentWebSearchProvider := strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_PROVIDER")))
 	agentWebSearchFallbackRaw := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_FALLBACK"))
@@ -298,6 +308,25 @@ func Load() (Config, error) {
 		redisDB = parsedDB
 	}
 	relayRateLimitRedisKeyPrefix := strings.TrimSpace(os.Getenv("RELAY_RATE_LIMIT_REDIS_KEY_PREFIX"))
+	relayBatchPollingWorkerEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_ENABLED")), "true")
+	relayBatchPollingWorkerIntervalMS := 60000
+	if raw := strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_INTERVAL_MS")); raw != "" {
+		parsedInterval, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsedInterval < 1 {
+			return Config{}, fmt.Errorf("invalid RELAY_BATCH_POLLING_WORKER_INTERVAL_MS: %q", raw)
+		}
+		relayBatchPollingWorkerIntervalMS = parsedInterval
+	}
+	relayBatchPollingWorkerClaimLimit := 10
+	if raw := strings.TrimSpace(os.Getenv("RELAY_BATCH_POLLING_WORKER_CLAIM_LIMIT")); raw != "" {
+		parsedLimit, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid RELAY_BATCH_POLLING_WORKER_CLAIM_LIMIT: %q", raw)
+		}
+		relayBatchPollingWorkerClaimLimit = parsedLimit
+	}
+	relayBatchCommercialLifecycleEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_BATCH_COMMERCIAL_LIFECYCLE_ENABLED")), "true")
+	relayRealtimeCommercialLifecycleEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_REALTIME_COMMERCIAL_LIFECYCLE_ENABLED")), "true")
 
 	// Default channel configuration (for development)
 	openaiAPIKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -510,49 +539,55 @@ func Load() (Config, error) {
 	dbURLObservability := strings.TrimSpace(os.Getenv("DB_URL_OBSERVABILITY"))
 
 	return Config{
-		Port:                         port,
-		Env:                          env,
-		CORSAllowedOrigins:           origins,
-		DatabaseURL:                  databaseURL,
-		SessionCookieName:            sessionCookieName,
-		SessionCookieSecure:          sessionCookieSecure,
-		SessionSecret:                sessionSecret,
-		LLMBaseURL:                   llmBaseURL,
-		LLMAPIKey:                    llmAPIKey,
-		LLMTimeoutMS:                 llmTimeoutMS,
-		ModelDefaultName:             modelDefaultName,
-		AgentRelayBaseURL:            agentRelayBaseURL,
-		AgentWebSearchProvider:       agentWebSearchProvider,
-		AgentWebSearchFallback:       agentWebSearchFallback,
-		AgentWebSearchEndpoint:       agentWebSearchEndpoint,
-		AgentWebSearchAPIKey:         agentWebSearchAPIKey,
-		AgentWebSearchResultLimit:    agentWebSearchResultLimit,
-		AgentWebSearchGoogleCSEID:    agentWebSearchGoogleCSEID,
-		QdrantURL:                    qdrantURL,
-		QdrantAPIKey:                 qdrantAPIKey,
-		QdrantVectorSize:             qdrantVectorSize,
-		RAGRerankerBaseURL:           ragRerankerBaseURL,
-		RAGRerankerAPIKey:            ragRerankerAPIKey,
-		RAGRerankerModel:             ragRerankerModel,
-		RAGRerankerTopK:              ragRerankerTopK,
-		RelayEnabled:                 relayEnabled,
-		RelayDefaultModel:            relayDefaultModel,
-		RelayRateLimitBackend:        relayRateLimitBackend,
-		RelayRateLimitRedisKeyPrefix: relayRateLimitRedisKeyPrefix,
-		RelaySemanticCacheBackend:    relaySemanticCacheBackend,
-		RedisAddr:                    redisAddr,
-		RedisPassword:                redisPassword,
-		RedisDB:                      redisDB,
-		OpenAIAPIKey:                 openaiAPIKey,
-		OpenAIBaseURL:                openaiBaseURL,
-		StripeSecretKey:              stripeSecretKey,
-		StripeSuccessURL:             stripeSuccessURL,
-		StripeCancelURL:              stripeCancelURL,
-		StripeWebhookSecret:          stripeWebhookSecret,
-		AlipayCheckoutBaseURL:        alipayCheckoutBaseURL,
-		AlipayWebhookSecret:          alipayWebhookSecret,
-		WeChatPayCheckoutBaseURL:     weChatPayCheckoutBaseURL,
-		WeChatPayWebhookSecret:       weChatPayWebhookSecret,
+		Port:                                    port,
+		Env:                                     env,
+		CORSAllowedOrigins:                      origins,
+		DatabaseURL:                             databaseURL,
+		SessionCookieName:                       sessionCookieName,
+		SessionCookieSecure:                     sessionCookieSecure,
+		SessionSecret:                           sessionSecret,
+		LLMBaseURL:                              llmBaseURL,
+		LLMAPIKey:                               llmAPIKey,
+		LLMTimeoutMS:                            llmTimeoutMS,
+		ModelDefaultName:                        modelDefaultName,
+		ChatRelayBaseURL:                        chatRelayBaseURL,
+		AgentRelayBaseURL:                       agentRelayBaseURL,
+		AgentWebSearchProvider:                  agentWebSearchProvider,
+		AgentWebSearchFallback:                  agentWebSearchFallback,
+		AgentWebSearchEndpoint:                  agentWebSearchEndpoint,
+		AgentWebSearchAPIKey:                    agentWebSearchAPIKey,
+		AgentWebSearchResultLimit:               agentWebSearchResultLimit,
+		AgentWebSearchGoogleCSEID:               agentWebSearchGoogleCSEID,
+		QdrantURL:                               qdrantURL,
+		QdrantAPIKey:                            qdrantAPIKey,
+		QdrantVectorSize:                        qdrantVectorSize,
+		RAGRerankerBaseURL:                      ragRerankerBaseURL,
+		RAGRerankerAPIKey:                       ragRerankerAPIKey,
+		RAGRerankerModel:                        ragRerankerModel,
+		RAGRerankerTopK:                         ragRerankerTopK,
+		RelayEnabled:                            relayEnabled,
+		RelayDefaultModel:                       relayDefaultModel,
+		RelayRateLimitBackend:                   relayRateLimitBackend,
+		RelayRateLimitRedisKeyPrefix:            relayRateLimitRedisKeyPrefix,
+		RelaySemanticCacheBackend:               relaySemanticCacheBackend,
+		RelayBatchPollingWorkerEnabled:          relayBatchPollingWorkerEnabled,
+		RelayBatchPollingWorkerIntervalMS:       relayBatchPollingWorkerIntervalMS,
+		RelayBatchPollingWorkerClaimLimit:       relayBatchPollingWorkerClaimLimit,
+		RelayBatchCommercialLifecycleEnabled:    relayBatchCommercialLifecycleEnabled,
+		RelayRealtimeCommercialLifecycleEnabled: relayRealtimeCommercialLifecycleEnabled,
+		RedisAddr:                               redisAddr,
+		RedisPassword:                           redisPassword,
+		RedisDB:                                 redisDB,
+		OpenAIAPIKey:                            openaiAPIKey,
+		OpenAIBaseURL:                           openaiBaseURL,
+		StripeSecretKey:                         stripeSecretKey,
+		StripeSuccessURL:                        stripeSuccessURL,
+		StripeCancelURL:                         stripeCancelURL,
+		StripeWebhookSecret:                     stripeWebhookSecret,
+		AlipayCheckoutBaseURL:                   alipayCheckoutBaseURL,
+		AlipayWebhookSecret:                     alipayWebhookSecret,
+		WeChatPayCheckoutBaseURL:                weChatPayCheckoutBaseURL,
+		WeChatPayWebhookSecret:                  weChatPayWebhookSecret,
 
 		ScheduleWorkerEnabled:    scheduleWorkerEnabled,
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,

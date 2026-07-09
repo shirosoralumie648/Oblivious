@@ -111,25 +111,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
-	relayGateway := chat.NewRelayGateway(
-		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
-		chat.WithDefaultModel(cfg.RelayDefaultModel),
-	)
-	var replyGenerator chat.ReplyGenerator
-	var agentGateway chat.ChatGateway
-	if cfg.RelayEnabled {
-		var gateway chat.ChatGateway = relayGateway
-		if cfg.Env != "production" {
-			localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
-			gateway = chat.NewCompositeGateway(relayGateway, localGenerator)
-		}
-		replyGenerator = gateway
-		agentGateway = gateway
-	} else {
-		localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
-		replyGenerator = localGenerator
-		agentGateway = chat.NewLocalGateway(localGenerator)
-	}
+	replyGenerator, agentGateway := newConfiguredChatGateways(cfg)
 	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	chatHandler := newChatHandler(chatService)
 	knowledgeStore := knowledge.NewSQLStore(database)
@@ -232,6 +214,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		adminQuotaSettingsService = quotaService
 	}
 	adminHandler := newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
+	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabase(cfg, database))
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
 		marketplace.NewSearchService(database),
@@ -1455,6 +1438,34 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})
 
 	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+}
+
+func newConfiguredChatGateways(cfg config.Config) (chat.ReplyGenerator, chat.ChatGateway) {
+	relayGateway := chat.NewRelayGateway(
+		chat.WithRelayURL(configuredChatRelayBaseURL(cfg)),
+		chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	if cfg.RelayEnabled {
+		if cfg.Env != "production" {
+			localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+			composite := chat.NewCompositeGateway(relayGateway, localGenerator)
+			return composite, composite
+		}
+		return relayGateway, relayGateway
+	}
+	if cfg.Env == "production" {
+		unavailable := chat.NewLocalGateway(nil)
+		return unavailable, unavailable
+	}
+	localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+	return localGenerator, chat.NewLocalGateway(localGenerator)
+}
+
+func configuredChatRelayBaseURL(cfg config.Config) string {
+	if baseURL := strings.TrimRight(strings.TrimSpace(cfg.ChatRelayBaseURL), "/"); baseURL != "" {
+		return baseURL
+	}
+	return fmt.Sprintf("http://localhost:%d/v1", cfg.Port)
 }
 
 func newKnowledgeService(cfg config.Config, knowledgeStore any) *knowledge.Service {
