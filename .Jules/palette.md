@@ -1,0 +1,3 @@
+## 2024-07-11 - Pagination Navigation Accessibility
+**Learning:** React elements like pagination controls are visually grouped but can sound disjointed to screen readers if just bundled in a `div`. Additionally, decorative visual spacers (like `...` between non-sequential page numbers) create unnecessary screen reader noise.
+**Action:** Use a `<nav aria-label="Pagination">` to semantically group pagination buttons. Always explicitly use `aria-label` for all buttons in the control (e.g., `aria-label="Go to next page"` or dynamically `aria-label={"Page " + page}`) and use `aria-hidden="true"` to hide decorative visual spacers like `...` to improve the accessible experience.
