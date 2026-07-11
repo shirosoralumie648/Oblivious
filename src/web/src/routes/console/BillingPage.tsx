@@ -334,15 +334,21 @@ function formatPackageDuration(durationDays: number | undefined) {
   return durationDays && durationDays > 0 ? `${durationDays} days` : 'ongoing';
 }
 
+const integerFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
 function formatInteger(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+  // Optimization: Reuse Intl.NumberFormat instance to avoid expensive instantiation overhead on every call
+  return integerFormatter.format(value);
 }
 
+const invoiceDueDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric'
+});
+
 function formatInvoiceDueDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-    year: 'numeric'
-  }).format(new Date(value));
+  // Optimization: Reuse Intl.DateTimeFormat instance to avoid expensive instantiation overhead on every call
+  return invoiceDueDateFormatter.format(new Date(value));
 }

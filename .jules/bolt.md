@@ -1,0 +1,3 @@
+## 2024-07-11 - Cache Intl Formatters for Performance
+ **Learning:** Instantiating `Intl.NumberFormat` and `Intl.DateTimeFormat` objects inside rendering functions or loops is a common frontend performance anti-pattern. These instantiations are surprisingly expensive and can cause unnecessary CPU overhead on every render, especially when formatting multiple values like lists or tables.
+ **Action:** Always declare `Intl.NumberFormat` and `Intl.DateTimeFormat` instances as module-level constants and reuse them across calls rather than instantiating them dynamically within components or helper functions.
