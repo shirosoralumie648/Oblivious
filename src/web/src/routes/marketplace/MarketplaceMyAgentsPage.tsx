@@ -190,12 +190,16 @@ const settlementCycleLabels: Record<SettlementCycle, string> = {
   quarterly: 'Quarterly',
 };
 
+// ⚡ Bolt: Extract Intl formatters to avoid expensive re-instantiation
+const USDFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const NumberFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
 function formatUSD(amount: number | undefined) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount ?? 0);
+  return USDFormatter.format(amount ?? 0);
 }
 
 function formatNumber(value: number | undefined) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value ?? 0);
+  return NumberFormatter.format(value ?? 0);
 }
 
 function templateTags(value: string) {
