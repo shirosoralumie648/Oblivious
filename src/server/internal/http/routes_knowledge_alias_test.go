@@ -181,11 +181,11 @@ func TestRegisterKnowledgeAliasRoutesDispatchesDocumentUpload(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)
 
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("upload expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("upload expected 202, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
-	if store.requestedID != "kb_2" || store.requestedDoc.Title != "Runbook.txt" {
-		t.Fatalf("expected upload kb_2/Runbook.txt, got id=%q doc=%+v", store.requestedID, store.requestedDoc)
+	if len(store.createdIngestionJobs) == 0 || store.createdIngestionJobs[0].KnowledgeBaseID != "kb_2" || store.createdIngestionJobs[0].Title != "Runbook.txt" {
+		t.Fatalf("expected upload kb_2/Runbook.txt, got id=%q doc=%+v", store.requestedID, store.createdIngestionJobs)
 	}
 }
 
