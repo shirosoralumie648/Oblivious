@@ -141,6 +141,7 @@ func (g *RelayGateway) GenerateStructuredReply(ctx context.Context, messages []M
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			RecordedByRelay:  true,
 		}
 	}
 

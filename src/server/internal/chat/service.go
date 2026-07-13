@@ -557,7 +557,7 @@ func (s *Service) persistAssistantReply(ctx context.Context, session auth.Sessio
 		return err
 	}
 
-	if s.usageRecorder != nil {
+	if s.usageRecorder != nil && !usageRecordedByRelay(usage) {
 		if err := s.usageRecorder.RecordChatUsage(ctx, UsageRecord{
 			ConversationID: conversationID,
 			InputTokens:    usageInputTokens(content, usage),
@@ -586,6 +586,10 @@ func (s *Service) persistAssistantReply(ctx context.Context, session auth.Sessio
 	}
 
 	return nil
+}
+
+func usageRecordedByRelay(usage *CompletionUsage) bool {
+	return usage != nil && usage.RecordedByRelay
 }
 
 func usageInputTokens(content string, usage *CompletionUsage) int {

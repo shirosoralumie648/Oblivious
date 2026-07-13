@@ -397,6 +397,47 @@ func TestSendMessageRecordsGatewayUsageTokensWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestSendMessageSkipsChatUsageWhenRelayUsageIsAuthoritative(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	recorder := &fakeUsageRecorder{}
+	service := NewService(store, usageReportingGenerator{
+		reply: "assistant reply",
+		usage: &CompletionUsage{
+			PromptTokens:     12,
+			CompletionTokens: 8,
+			TotalTokens:      20,
+			RecordedByRelay:  true,
+		},
+	}, "demo-reply", recorder)
+
+	_, err := service.SendMessage(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User: auth.User{
+				ID: "user_1",
+			},
+		},
+		"conversation_1",
+		"track relay usage once",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	if len(recorder.records) != 0 {
+		t.Fatalf("expected relay-authoritative usage to skip duplicate chat usage rows, got %+v", recorder.records)
+	}
+}
+
 func TestSendMessageStreamEmitsAndPersistsAssistantReply(t *testing.T) {
 	store := &recordingStore{
 		config: ConversationConfig{

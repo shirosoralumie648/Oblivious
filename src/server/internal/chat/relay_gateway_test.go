@@ -323,6 +323,9 @@ func TestRelayGateway_GenerateStructuredReply_WithToolCalls(t *testing.T) {
 	if reply.Usage == nil || reply.Usage.TotalTokens != 16 {
 		t.Fatalf("expected usage tokens to be parsed, got %+v", reply.Usage)
 	}
+	if !reply.Usage.RecordedByRelay {
+		t.Fatalf("expected relay parsed usage to be marked authoritative, got %+v", reply.Usage)
+	}
 }
 
 func TestRelayGateway_GenerateStructuredReply_PlainText(t *testing.T) {
@@ -374,6 +377,9 @@ func TestRelayGateway_GenerateStructuredReply_PlainText(t *testing.T) {
 	}
 	if reply.Usage == nil || reply.Usage.TotalTokens != 8 {
 		t.Fatalf("expected usage tokens to be parsed, got %+v", reply.Usage)
+	}
+	if !reply.Usage.RecordedByRelay {
+		t.Fatalf("expected relay parsed usage to be marked authoritative, got %+v", reply.Usage)
 	}
 }
 
