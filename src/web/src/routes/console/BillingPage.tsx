@@ -334,15 +334,21 @@ function formatPackageDuration(durationDays: number | undefined) {
   return durationDays && durationDays > 0 ? `${durationDays} days` : 'ongoing';
 }
 
+// ⚡ Bolt: Optimize Intl object instantiation
+// Re-using Intl.NumberFormat and Intl.DateTimeFormat instances prevents expensive re-instantiation
+// overhead during render cycles, improving performance when rendering multiple integers or dates.
+const integerFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const invoiceDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric'
+});
+
 function formatInteger(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+  return integerFormatter.format(value);
 }
 
 function formatInvoiceDueDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-    year: 'numeric'
-  }).format(new Date(value));
+  return invoiceDateFormatter.format(new Date(value));
 }
