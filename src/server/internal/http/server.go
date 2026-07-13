@@ -242,7 +242,7 @@ func startRelayBatchPollingWorkerIfEnabled(
 	failureFinalizer relay.BatchFailureFinalizer,
 	newWorker relayBatchPollingWorkerFactory,
 ) bool {
-	if !cfg.RelayEnabled || !cfg.RelayBatchPollingWorkerEnabled || store == nil || client == nil || newWorker == nil {
+	if !cfg.RelayEnabled || !cfg.RelayBatchPollingWorkerEnabled || server == nil || store == nil || client == nil || newWorker == nil {
 		return false
 	}
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -253,9 +253,7 @@ func startRelayBatchPollingWorkerIfEnabled(
 		FailureFinalizer:    failureFinalizer,
 	})
 	go worker.Run(workerCtx)
-	if server != nil {
-		server.RegisterOnShutdown(cancelWorker)
-	}
+	server.RegisterOnShutdown(cancelWorker)
 	return true
 }
 

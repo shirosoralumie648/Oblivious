@@ -708,7 +708,9 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 	if err != nil {
 		return nil, err
 	}
-	defer metrics.ObserveRAGRetrievalLatency(options.Mode, time.Since(startedAt).Seconds())
+	defer func() {
+		metrics.ObserveRAGRetrievalLatency(options.Mode, time.Since(startedAt).Seconds())
+	}()
 	queryEmbedding, err := s.embedQuery(withKnowledgeRelayIdentity(ctx, session), normalizedQuery)
 	if err != nil {
 		return nil, err

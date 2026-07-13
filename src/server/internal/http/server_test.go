@@ -1080,6 +1080,21 @@ func TestStartRelayBatchPollingWorkerIfEnabledSkipsWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestStartRelayBatchPollingWorkerIfEnabledSkipsWithoutShutdownRegistrar(t *testing.T) {
+	factory := &recordingRelayBatchPollingWorkerFactory{}
+	cfg := testConfig()
+	cfg.RelayEnabled = true
+	cfg.RelayBatchPollingWorkerEnabled = true
+
+	started := startRelayBatchPollingWorkerIfEnabled(nil, cfg, &recordingRelayBatchPollingWorkerStore{}, &recordingRelayBatchStatusClient{}, nil, nil, factory.newWorker)
+	if started {
+		t.Fatal("expected relay batch polling worker to stay stopped without shutdown registrar")
+	}
+	if factory.worker != nil {
+		t.Fatalf("worker should not be constructed without shutdown registrar, worker=%+v", factory.worker)
+	}
+}
+
 type recordingShutdownRegistrar struct {
 	shutdowns []func()
 }
