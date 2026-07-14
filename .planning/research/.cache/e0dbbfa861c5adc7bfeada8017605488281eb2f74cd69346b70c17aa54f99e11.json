@@ -1,0 +1,1 @@
+{"content":"Kubernetes stable is 1.36.2. The project maintains the latest three minor branches; kubelet may be up to three minors older than the API server and kubectl within one minor. Validate one declared target minor plus adjacent skew.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.791Z","ttl":86400000,"kind":"docs"}
