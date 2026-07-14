@@ -1,0 +1,1 @@
+{"content":"Qdrant 1.18.2 is the current official release versus repository 1.12.1. Upgrade only for the declared Qdrant profile, with snapshots, restore tests, and retrieval contract checks.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.791Z","ttl":86400000,"kind":"docs"}

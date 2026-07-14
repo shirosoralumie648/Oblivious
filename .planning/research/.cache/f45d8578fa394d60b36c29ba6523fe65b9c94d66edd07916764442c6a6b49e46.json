@@ -1,0 +1,1 @@
+{"content":"pgvector 0.8.5 is the newest official tag, supports PostgreSQL 13+, and provides HNSW plus iterative scans. Pin 0.8.5 with PostgreSQL 16 and validate tenant-filtered recall.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.719Z","ttl":86400000,"kind":"docs"}
