@@ -217,17 +217,119 @@
 
 ## Traceability
 
-每条需求由哪个阶段覆盖。创建 Roadmap 时填充。
+每条 v1 需求必须且只能由一个阶段覆盖。
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| 所有 v1 需求 | Unmapped | Pending |
+| IDEN-01 | Phase 32 | Pending |
+| IDEN-02 | Phase 32 | Pending |
+| IDEN-03 | Phase 32 | Pending |
+| IDEN-04 | Phase 32 | Pending |
+| IDEN-05 | Phase 32 | Pending |
+| IDEN-06 | Phase 32 | Pending |
+| IDEN-07 | Phase 32 | Pending |
+| IDEN-08 | Phase 32 | Pending |
+| IDEN-09 | Phase 32 | Pending |
+| RLAY-01 | Phase 34 | Pending |
+| RLAY-02 | Phase 34 | Pending |
+| RLAY-03 | Phase 34 | Pending |
+| RLAY-04 | Phase 34 | Pending |
+| RLAY-05 | Phase 34 | Pending |
+| RLAY-06 | Phase 34 | Pending |
+| RLAY-07 | Phase 34 | Pending |
+| RLAY-08 | Phase 34 | Pending |
+| RLAY-09 | Phase 34 | Pending |
+| RLAY-10 | Phase 34 | Pending |
+| CHAT-01 | Phase 34 | Pending |
+| CHAT-02 | Phase 34 | Pending |
+| CHAT-03 | Phase 34 | Pending |
+| CHAT-04 | Phase 34 | Pending |
+| CHAT-05 | Phase 34 | Pending |
+| CHAT-06 | Phase 34 | Pending |
+| KNOW-01 | Phase 35 | Pending |
+| KNOW-02 | Phase 33 | Pending |
+| KNOW-03 | Phase 33 | Pending |
+| KNOW-04 | Phase 33 | Pending |
+| KNOW-05 | Phase 35 | Pending |
+| KNOW-06 | Phase 33 | Pending |
+| KNOW-07 | Phase 35 | Pending |
+| AUTO-01 | Phase 35 | Pending |
+| AUTO-02 | Phase 33 | Pending |
+| AUTO-03 | Phase 33 | Pending |
+| AUTO-04 | Phase 35 | Pending |
+| AUTO-05 | Phase 33 | Pending |
+| AUTO-06 | Phase 35 | Pending |
+| AUTO-07 | Phase 33 | Pending |
+| AUTO-08 | Phase 33 | Pending |
+| AUTO-09 | Phase 35 | Pending |
+| AUTO-10 | Phase 33 | Pending |
+| AUTO-11 | Phase 35 | Pending |
+| SECU-01 | Phase 32 | Pending |
+| SECU-02 | Phase 32 | Pending |
+| SECU-03 | Phase 32 | Pending |
+| SECU-04 | Phase 33 | Pending |
+| SECU-05 | Phase 33 | Pending |
+| STOR-01 | Phase 33 | Pending |
+| STOR-02 | Phase 33 | Pending |
+| BILL-01 | Phase 36 | Pending |
+| BILL-02 | Phase 36 | Pending |
+| BILL-03 | Phase 36 | Pending |
+| BILL-04 | Phase 36 | Pending |
+| BILL-05 | Phase 36 | Pending |
+| BILL-06 | Phase 36 | Pending |
+| BILL-07 | Phase 36 | Pending |
+| BILL-08 | Phase 36 | Pending |
+| BILL-09 | Phase 36 | Pending |
+| MRKT-01 | Phase 36 | Pending |
+| MRKT-02 | Phase 36 | Pending |
+| MRKT-03 | Phase 36 | Pending |
+| MRKT-04 | Phase 36 | Pending |
+| MRKT-05 | Phase 36 | Pending |
+| MRKT-06 | Phase 36 | Pending |
+| MRKT-07 | Phase 36 | Pending |
+| MRKT-08 | Phase 36 | Pending |
+| MRKT-09 | Phase 36 | Pending |
+| MRKT-10 | Phase 36 | Pending |
+| CHAN-01 | Phase 35 | Pending |
+| CHAN-02 | Phase 35 | Pending |
+| CHAN-03 | Phase 35 | Pending |
+| CHAN-04 | Phase 35 | Pending |
+| CHAN-05 | Phase 35 | Pending |
+| CHAN-06 | Phase 35 | Pending |
+| ADMN-01 | Phase 35 | Pending |
+| ADMN-02 | Phase 35 | Pending |
+| ADMN-03 | Phase 35 | Pending |
+| ADMN-04 | Phase 36 | Pending |
+| ADMN-05 | Phase 35 | Pending |
+| ADMN-06 | Phase 35 | Pending |
+| OPER-01 | Phase 37 | Pending |
+| OPER-02 | Phase 37 | Pending |
+| OPER-03 | Phase 37 | Pending |
+| OPER-04 | Phase 37 | Pending |
+| OPER-05 | Phase 38 | Pending |
+| OPER-06 | Phase 38 | Pending |
+| OPER-07 | Phase 37 | Pending |
+| OPER-08 | Phase 38 | Pending |
+| RELS-01 | Phase 31 | Pending |
+| RELS-02 | Phase 31 | Pending |
+| RELS-03 | Phase 39 | Pending |
+| RELS-04 | Phase 35 | Pending |
+| RELS-05 | Phase 35 | Pending |
+| RELS-06 | Phase 35 | Pending |
+| RELS-07 | Phase 36 | Pending |
+| RELS-08 | Phase 39 | Pending |
+| RELS-09 | Phase 39 | Pending |
+| RELS-10 | Phase 39 | Pending |
+| RELS-11 | Phase 39 | Pending |
+| RELS-12 | Phase 39 | Pending |
 
 **Coverage:**
 - v1 requirements: 101 total
-- Mapped to phases: 0
-- Unmapped: 101
+- Mapped to phases: 101
+- Unmapped: 0
+- Orphaned: 0
+- Duplicate mappings: 0
 
 ---
 *Requirements defined: 2026-07-14*
-*Last updated: 2026-07-14 after initial definition*
+*Last updated: 2026-07-15 after Roadmap renumbering to Phase 31-39*
