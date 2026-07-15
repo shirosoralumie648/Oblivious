@@ -12,7 +12,9 @@
 - Integer phases (1, 2, 3): planned milestone work
 - Decimal phases (2.1, 2.2): urgent insertions marked `INSERTED`
 
-- [ ] **Phase 31: 发布合同与当前基线** - 明确承诺能力、部署形态和当前 runtime 契约。
+- [ ] **Phase 31: 发布合同与可信构建身份** - 固定能力承诺、显式 profile、clean source identity 和统一报告协议。
+- [ ] **Phase 31.1: 动态 Readiness 与持续 Fail-Closed** (INSERTED) - 用进程内动态授权源约束所有新副作用。
+- [ ] **Phase 31.2: 契约表面一致性与聚合门禁** (INSERTED) - 让所有 canonical surface 与 runtime 双向一致并阻断漂移。
 - [ ] **Phase 32: 身份、租户与共享出站安全** - 建立可信组织边界和统一 fail-closed 集成安全。
 - [ ] **Phase 33: 耐久执行、RAG Worker 与共享对象** - 让知识和自动化任务可恢复、可重放且不依赖本地状态。
 - [ ] **Phase 34: Relay、Chat 与证据主链** - 证明唯一 Provider/usage 权威及完整流式 Chat 生命周期。
@@ -24,19 +26,47 @@
 
 ## Phase Details
 
-### Phase 31: 发布合同与当前基线
-**Goal**: 发布运营者可以从机器可读合同确认承诺能力、部署形态和当前 runtime 契约。
+### Phase 31: 发布合同与可信构建身份
+**Goal**: 发布运营者可以从唯一 authored contract 和可信 clean-source identity 准确确认本版本承诺的 capability、deployment profile 与报告身份。
 **Depends on**: Nothing (first phase)
-**Requirements**: RELS-01, RELS-02
+**Requirements**: RELS-01
 **Success Criteria** (what must be TRUE):
-  1. 发布运营者可以检查 capability/deployment manifest，并准确识别本次发布承诺的模块、集成和运行模式。
-  2. 未承诺或生命周期不完整的能力不会出现在默认可用范围内，并会显式 fail closed。
-  3. OpenAPI、protobuf、migration 和前端 client 与当前 runtime 一致，任何 contract drift 都会阻断发布。
+  1. schema-validated authored contract 以领域和 lifecycle slice 描述 commitment、profile、dependencies、state stores、typed operations、catalog bindings 与 readiness requirements，且不 author 自引用 commit/digest。
+  2. clean Git commit/tree 与 canonical contract digest 形成不可由 caller 覆盖的 BuildIdentityV1，并可注入 binary 与 OCI label；dirty 或 identity mismatch 明确 fail closed。
+  3. 所有后续 surface producer 共用嵌套 SurfaceReportV1、trusted identity resolver 和原子输出合同，environment/mode 不会混入 drift 或 skipped checks。
+  4. monolith 是唯一 committed/default profile；microservices、dual、split 具有 profile-bound、无副作用且稳定失败的 migrate/deploy/rollback refs，不会被资产存在隐式晋级。
 **Plans**: TBD
+**Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
+
+### Phase 31.1: 动态 Readiness 与持续 Fail-Closed (INSERTED)
+**Goal**: 当前 runtime 使用一个进程内动态 ReadinessManager 持续计算 availability，并在所有新副作用前 fail closed。
+**Depends on**: Phase 31
+**Requirements**: RELS-01
+**Success Criteria** (what must be TRUE):
+  1. runtime 按显式 profile 和 trusted build identity 完成 DB ping、migration、bounded bootstrap probes，再发布 generation 1 并周期刷新；旧审计文件不能成为授权源。
+  2. 30 秒 refresh、120 秒 max age 与 30 秒 future skew 由 authored profile 固定，单一 Go evaluator 处理 identity、freshness 和 capability verdict。
+  3. HTTP/gRPC、worker claim/effect、Provider/model/tool/channel 与财务 dispatch 在每次新副作用前调用同一 guard；expired、disabled、blocked 或 unknown 状态零调用拒绝。
+  4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
+  5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
+**Plans**: TBD
+**Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
+
+### Phase 31.2: 契约表面一致性与聚合门禁 (INSERTED)
+**Goal**: OpenAPI、runtime routes、frontend transports、protobuf、migration 与产品呈现对同一 contract identity 双向一致，任何 drift 或 committed skip 都阻断发布。
+**Depends on**: Phase 31.1
+**Requirements**: RELS-02
+**Success Criteria** (what must be TRUE):
+  1. OpenAPI operation、runtime registry 与 derived route manifest 在 method/path/security/capability/media/schema 上双向一致。
+  2. TypeScript AST inventory 覆盖全部 production HttpClient、fetch/SWR、upload、SSE/streamText、EventSource 与 WebSocket caller，并验证 request encoder 和 response decoder；text/markdown 不再走 JSON decoder。
+  3. pinned protoc/tool plugins 在 CI 可复现安装，所有 canonical proto source 与 generated output 唯一归属并可确定性再生。
+  4. numbered SQL/checksum、runtime ledger 与 committed monolith replay 分别产生 typed evidence；无 DB/Docker 不能被计为通过。
+  5. verify-quality-gates.sh 是唯一 direct aggregate owner，聚合 trusted build/readiness/surface reports，拒绝 identity splice、drift、skip、重复 surface 和敏感公开输出。
+**Plans**: TBD
+**Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
 ### Phase 32: 身份、租户与共享出站安全
 **Goal**: 组织成员可以安全完成身份与组织生命周期，所有同步、异步和外部边界都使用可信租户上下文。
-**Depends on**: Phase 31
+**Depends on**: Phase 31.2
 **Requirements**: IDEN-01, IDEN-02, IDEN-03, IDEN-04, IDEN-05, IDEN-06, IDEN-07, IDEN-08, IDEN-09, SECU-01, SECU-02, SECU-03
 **Success Criteria** (what must be TRUE):
   1. 用户可以注册、登录、保持会话、退出和恢复凭据，失败或过期流程不会留下部分可用身份。
@@ -134,11 +164,13 @@
 
 ## Progress
 
-**Execution Order:** Phase 31 -> Phase 32 -> Phase 33 -> Phase 34 -> Phase 35 -> Phase 36 -> Phase 37 -> Phase 38 -> Phase 39
+**Execution Order:** Phase 31 -> Phase 31.1 -> Phase 31.2 -> Phase 32 -> Phase 33 -> Phase 34 -> Phase 35 -> Phase 36 -> Phase 37 -> Phase 38 -> Phase 39
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 31. 发布合同与当前基线 | 0/TBD | Not started | - |
+| 31. 发布合同与可信构建身份 | 0/TBD | Not started | - |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 0/TBD | Not started | - |
+| 31.2 契约表面一致性与聚合门禁 | 0/TBD | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
 | 34. Relay、Chat 与证据主链 | 0/TBD | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 31
-current_phase_name: "current milestone: 1 of 9 - 发布合同与当前基线"
+current_phase_name: "current milestone: 1 of 11 - 发布合同与可信构建身份"
 status: planning
 stopped_at: Phase 31 context gathered
-last_updated: "2026-07-15T00:28:50.575Z"
+last_updated: "2026-07-15T16:06:43.918Z"
 last_activity: 2026-07-15
-last_activity_desc: Horizontal Layers Roadmap approved with Phase 31-39 and 101/101 v1 requirements mapped
+last_activity_desc: Phase 31 design approved and roadmap split into 31, 31.1, and 31.2
 progress:
-  total_phases: 9
+  total_phases: 11
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,14 +24,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 **Core value:** 让组织客户能够可靠地构建、运行并商业化 AI 应用，同时让每一次 AI 操作都可隔离、可计费、可追踪、可审计、可恢复。
-**Current focus:** Phase 31 - 发布合同与当前基线
+**Current focus:** Phase 31 - 发布合同与可信构建身份
 
 ## Current Position
 
-Phase: 31 of 39 (current milestone: 1 of 9 - 发布合同与当前基线)
+Phase: 31 of 39 (current milestone: 1 of 11 - 发布合同与可信构建身份)
 Plan: Not planned
 Status: Ready to plan
-Last activity: 2026-07-15 - Horizontal Layers Roadmap approved with Phase 31-39 and 101/101 v1 requirements mapped
+Last activity: 2026-07-15 - Phase 31 design approved and roadmap split into 31, 31.1, and 31.2
 
 Progress: [----------] 0%
 
@@ -68,6 +68,11 @@ None yet.
 - [Phase 31] Advertised deployment profiles, authoritative writers and exact capability manifest require live confirmation.
 - [Phase 33] Target object storage and Sandbox capacity/deployment model are not selected.
 - [Phases 34, 36, 37, 39] Provider, payment/payout, observability, cluster and signing details require target credentials and fresh external evidence.
+
+### Roadmap Evolution
+
+- Phase 31.1 inserted after Phase 31: 动态 Readiness 与持续 Fail-Closed (URGENT)
+- Phase 31.2 inserted after Phase 31.1: 契约表面一致性与聚合门禁 (URGENT)
 
 ## Deferred Items
 
