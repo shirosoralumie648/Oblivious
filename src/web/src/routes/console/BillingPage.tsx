@@ -334,15 +334,20 @@ function formatPackageDuration(durationDays: number | undefined) {
   return durationDays && durationDays > 0 ? `${durationDays} days` : 'ongoing';
 }
 
+// Optimization: instantiate Intl formatters once as module-level constants to avoid
+// expensive recreation on every function call/render
+const integerFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const invoiceDueDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric'
+});
+
 function formatInteger(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+  return integerFormatter.format(value);
 }
 
 function formatInvoiceDueDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-    year: 'numeric'
-  }).format(new Date(value));
+  return invoiceDueDateFormatter.format(new Date(value));
 }
