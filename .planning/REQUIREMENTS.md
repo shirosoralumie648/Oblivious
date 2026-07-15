@@ -310,8 +310,8 @@
 | OPER-06 | Phase 38 | Pending |
 | OPER-07 | Phase 37 | Pending |
 | OPER-08 | Phase 38 | Pending |
-| RELS-01 | Phase 31 | Pending |
-| RELS-02 | Phase 31 | Pending |
+| RELS-01 | Phase 31, Phase 31.1 | Pending |
+| RELS-02 | Phase 31.2 | Pending |
 | RELS-03 | Phase 39 | Pending |
 | RELS-04 | Phase 35 | Pending |
 | RELS-05 | Phase 35 | Pending |
