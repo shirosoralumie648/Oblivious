@@ -1,0 +1,3 @@
+## 2026-07-15 - Accessible Pagination Navigation
+**Learning:** Pagination components in this app should use a semantic `<nav aria-label="Pagination">` wrapper instead of a generic `<div>`, and include explicit `aria-label` attributes on control buttons (Previous/Next) and individual page buttons to ensure screen readers can announce the navigation context correctly. Additionally, visual spacers like ellipses should be hidden from screen readers using `aria-hidden="true"` to reduce auditory noise.
+**Action:** When implementing or reviewing new UI navigation components, always verify the root container uses the correct semantic tag and ARIA landmark role. Ensure visual-only text is hidden with `aria-hidden` and icon/control buttons have descriptive `aria-label`s.
