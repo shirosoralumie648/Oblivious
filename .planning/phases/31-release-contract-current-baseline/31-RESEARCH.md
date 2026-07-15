@@ -1,230 +1,283 @@
-# Phase 31: 发布合同与当前基线 - Research
+# Phase 31: 发布合同与可信构建身份 - Research
 
-**Researched:** 2026-07-15
-**Domain:** versioned release contract, deployment profile enforcement, and multi-surface contract drift
-**Confidence:** HIGH
+**Researched:** 2026-07-16
+**Scope:** Phase 31 foundation only; `RELS-01` contribution, repository-local E1/E2
+**Confidence:** HIGH for ownership and contracts; MEDIUM for final plan slicing until Wave 0 helpers exist
 
-<user_constraints>
-## User Constraints (from CONTEXT.md)
+## Foundation-Only Scope Declaration
 
-### Locked Decisions
+本研究只回答如何实现以下五个 foundation contracts：
 
-### 能力粒度与状态
+1. schema-validated `AuthoredContractV1`；
+2. clean-source-derived `BuildIdentityV1`；
+3. shared nested `SurfaceReportV1`；
+4. profile-bound `OperationRef` 与 excluded-profile zero-side-effect rejection；
+5. pre-commit fixture + post-commit clean `HEAD` 两段验证。
 
-- **D-01:** capability manifest 使用“领域 + 生命周期切片”两层模型。顶层领域保持稳定，例如 Identity、Relay、Chat、Knowledge、Automation、Billing、Marketplace、Admin、Operations；可独立失败、禁用或验收的生命周期行为必须拆成稳定 capability ID，不能用整个模块的单一状态掩盖 streaming、cancel、replay、refund、payout 等缺口，也不能把逐 route 存在当作能力完整。
-- **D-02:** 每个 capability 分开表达商业承诺与运行可用性。发布合同记录 `commitment` 和 profile 下的默认可用策略；runtime readiness report 记录当前 `availability`，两者不得合并成一个含义模糊的状态。
-- **D-03:** 固定状态集合为 `commitment: committed | conditional | excluded` 和 `availability: enabled | disabled | blocked`。`blocked` 表示按合同或当前 profile 本应可用，但必要依赖或 readiness 未通过，必须阻断发布。任何非 `enabled` 状态都必须带稳定、结构化的 `reasonCode`；未知状态和值必须校验失败。
-- **D-04:** release manifest 是随版本固定的承诺快照，不由运行时健康变化改写。runtime readiness report 是动态观测，两者通过 release identity、deployment profile 和 capability ID 关联。运营者必须能同时看到“本版本承诺什么”和“当前环境实际是否就绪”。
+`ReadinessManager`、refresh/freshness、runtime side-effect guards、Admin/app projection、catalog enforcement，以及 readiness/deployment details registrations 和 producers 属于 Phase 31.1。HTTP/frontend/protobuf/migration parity、这些 surface 的 details registrations/producers、aggregate/gate wiring 和 operator docs 属于 Phase 31.2。signature、provenance、immutable image digest 与 E3/E4 proof 属于 Phase 39。
 
-### 首发部署模式
+## Source Decisions
 
-- **D-05:** 当前发布合同只把 `monolith` 作为 committed deployment profile。`docker-compose.yml` 的默认 `oblivious-server` 和当前主线 runtime 支持这一结论。`microservices`、`dual`、`split` 以及固定 12 服务拓扑在本阶段均为 `excluded` 且默认 `disabled`；已有 Dockerfile、Kubernetes manifest、独立 `cmd/*` 或 accepted ADR 只能作为候选资产，不能自动成为发布承诺。
-- **D-06:** 每个 release contract 必须且只能声明一个显式默认 profile；当前默认值为 `monolith`。禁止根据存在的 manifest、环境变量或可执行文件隐式推断 profile。缺失、未知或拼写错误的 profile 必须在启动或部署校验阶段 fail closed。
-- **D-07:** 每个 deployment profile 必须声明拓扑/entrypoint、必需依赖和状态存储、适用 capability 集合及 override、migration/deploy/rollback 入口和 readiness 要求。profile readiness 必须独立计算，不能用另一个 profile 的证据替代。
-- **D-08:** 非 monolith profile 只有在 Phase 38 通过与 committed capability 集合相同的正向旅程、tenant-denial、migration、deploy、rollback 和必要恢复验证后，才能通过一次显式合同变更晋级为 `committed`。环境级临时开关不得绕过晋级规则。
+`31-CONTEXT.md` 中 `D-FND-01` 至 `D-FND-12` 是 planner 的锁定输入。批准设计为 `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`。本研究不重新引入拆分前的 runtime/parity decisions，也不把资产存在解释为 profile commitment。
 
-### 权威合同与漂移阻断
+## Recommended Foundation Architecture
 
-- **D-09:** 新增一个 schema-validated、版本化、仓库内唯一的 authored release contract 作为能力承诺和部署 profile 的机器权威。公开文档、operator 输出和随制品发布的 manifest 都必须从该权威源生成或验证；`docs/api/route-surface-manifest.json` 继续作为 OpenAPI 派生 route inventory，不能承担能力成熟度或部署承诺权威。
-- **D-10:** 各契约表面保持清晰的 canonical owner：HTTP 公共契约由 `docs/api/openapi.yaml` 定义并与 runtime route registry 双向校验；protobuf 由 `api/proto/*.proto` 定义并与生成 stub/client 校验；migration 由已编号 SQL、不可变内容/checksum 和 runtime migration ledger 共同约束；前端 client 必须由 OpenAPI 生成，或通过等价的 path/method/request/response fingerprint 与 OpenAPI/runtime 校验。release contract 引用这些表面的 schema/version/digest，不复制另一份手写 route/schema 真相。
-- **D-11:** 初次建立基线时，当前可运行代码和实际注册表面优先于旧的设计拓扑或完成措辞；发现冲突后必须显式修改权威契约或 runtime，禁止静默选择一边或自动覆盖。基线建立后执行双向漂移检查：缺失、额外、method/security/capability ID 不符、protobuf 生成物过期、migration 内容漂移或前端 client 不兼容都阻断 CI 和发布。
-- **D-12:** 漂移门禁必须输出机器可读报告，至少包含 release commit、surface、canonical source、consumer、digest/version、missing/extra/incompatible 明细、pass/fail 和 skipped checks。committed surface 的任何 skip 都按失败处理；报告应能被现有 quality/commercial verifier 汇总。
+```text
+config/release/contract.v1.json
+          |
+          v
+strict schema + semantic loader ----> canonical bytes ----> contract digest
+          |                                      |
+          |                                      v
+          |                         clean Git commit/tree
+          |                                      |
+          +--------------------------> BuildIdentityV1
+                                                 |
+                            trusted provider -----+----- operation dispatcher
+                                                 |
+                                                 +----- SurfaceReportV1 writer
+                                                 |
+                                                 +----- binary/OCI/package verifier
+```
 
-### 未承诺能力的呈现与 fail-closed
+The authored contract is the only manually maintained authority. Identity and reports are derived outputs. No derived field may be copied back into the authored contract.
 
-- **D-13:** `excluded` capability 不出现在默认用户导航、公开产品文档、模型/工具选择器或默认生成 client 中；`conditional` capability 只在当前 profile 声明且 runtime readiness 为 `enabled` 时显示。Operator/Admin 可以查看包含 excluded 项在内的完整 inventory，但这不等于对外承诺。
-- **D-14:** fail-closed 行为按状态区分：`excluded` surface 默认不注册、不广告，直接探测表现为 `404`；已进入稳定条件契约但为 `disabled` 的 surface 在任何副作用前返回标准 envelope 和 `capability_disabled`；应当可用但依赖失败的 `blocked` surface 返回 `503` 和 `capability_blocked`，同时成为 release blocker。具体非 404 状态码可由 planner 与现有 envelope 约定对齐，但错误 code 和语义必须稳定。
-- **D-15:** 禁用不能只靠 UI。相同 capability ID 必须约束 frontend exposure、HTTP/gRPC ingress、service/worker execution、outbound Provider/tool 调用和财务副作用入口。manifest 缺失、capability 未知、profile 不匹配或 readiness 无法读取时一律按未启用处理；任何环境变量都不能单独启用 `excluded` capability。
-- **D-16:** 运营者的机器/人类可读视图至少显示 capability ID、commitment、current availability、deployment profile、reasonCode、必要依赖、最后检查时间、修复提示和 evidence/contract refs。公开错误必须保留可操作性但隐藏 secrets、内部地址和敏感配置；禁止用笼统的“coming soon”或存在 route/page 来暗示承诺。
+## AuthoredContractV1
 
-### the agent's Discretion
+### Required Semantic Sections
 
-- canonical release contract 的确切文件名和目录、JSON 或 YAML 序列化、schema validator 库及生成命令由 researcher/planner 根据现有工具链决定，但必须保持单一 authored authority、稳定 schema version、确定性输出和 runtime/release artifact 可消费性。
-- capability ID 的具体分隔符、`reasonCode` 命名表和 operator 输出的版式可在不改变上述语义的前提下决定。
-- 前端 client 采用完整 code generation 还是 fingerprint-based parity gate，由研究结果决定；无论选择哪种方式，都必须覆盖实际被调用的 feature API modules，不能只检查一个示例 client。
+| Section | Foundation contract |
+|---|---|
+| `schemaVersion` | Exact supported value; unknown major/minor fails closed. |
+| capability catalog | Stable domain and lifecycle-slice IDs, commitment, reason semantics, no duplicates. |
+| reason-code catalog | Stable identifiers referenced by contract failures; unknown references fail. |
+| `defaultProfile` | Exactly one authored metadata default; currently `monolith`. It is not runtime input. |
+| profiles | Explicit commitment plus topology, entrypoints, dependencies and state stores. |
+| capability overrides | Every referenced capability exists; excluded assets cannot promote commitment. |
+| typed operations | Exactly one migrate/deploy/rollback `OperationRef` per profile. |
+| catalog bindings | Stable references only; runtime resolution/enforcement is deferred to Phase 31.1. |
+| surface references | Identifiers and canonical-source refs only; parity/fingerprints are deferred to Phase 31.2. |
+| readiness requirements | Authored requirements only; no current observations, generation or timestamps. |
 
-### Deferred Ideas (OUT OF SCOPE)
+### Decode And Validation Order
 
-- Microservices、dual 或 split profile 的 capability/tenant parity、migration、deploy、rollback 和恢复证明属于 Phase 38。
-- Identity、安全、durable execution、Relay、客户旅程、财务、观测和恢复缺口分别属于 Phase 32-37；本阶段只准确声明其当前承诺/禁用状态。
-- Immutable image、SBOM、provenance、signature、target E3 evidence 和 same-commit E4 no-skip release 属于 Phase 39。
-</user_constraints>
+1. Read bounded UTF-8 bytes and reject empty/non-JSON input.
+2. Validate against the pinned JSON Schema implementation and `contract.schema.json`.
+3. Strictly decode into Go structs with `json.Decoder.DisallowUnknownFields()`.
+4. Require EOF after the first value so trailing JSON cannot be ignored.
+5. Run semantic validation for ID uniqueness, enum values, default cardinality, reference closure, profile commitment rules and operation-path safety.
+6. Canonicalize the validated typed value and compute `sha256:<lowercase hex>`.
 
-<phase_requirements>
-## Phase Requirements
+JSON Schema and Go semantic validation are complementary. The schema owns structural constraints; Go owns cross-reference and repository-path invariants. A partial handwritten replacement for JSON Schema is not sufficient.
 
-| ID | Description | Research Support |
-|---|---|---|
-| RELS-01 | capability/deployment manifest 明确列出承诺的模块、集成和运行模式，未承诺能力保持禁用。 | 单一 authored JSON、monolith-only profile、严格 runtime loader、capability policy 与 operator join。 |
-| RELS-02 | OpenAPI、protobuf、migration、前端 client 和当前 runtime 一致，contract drift 会阻断发布。 | 复用 route parity/migration checksum/protoc 生成链，新增统一 fingerprint report 与 fail-closed gate。 |
-</phase_requirements>
+### Canonical Bytes
 
-## Summary
+Use a single foundation implementation and golden vectors. Recommended rules:
 
-当前仓库已有可复用的合同基础：OpenAPI 与 370 条派生 route inventory、Go runtime route 双向测试、112 个主 PostgreSQL migration 的 SHA-256 ledger、六个主要 proto 的 `protoc` 生成目标，以及 shell-wrapper + structured validator 的 release gate 形态。[VERIFIED: docs/api/route-surface-manifest.json, src/server/internal/http/route_surface_test.go, src/server/internal/migrations/migrations.go, src/server/Makefile]
+- canonicalize the validated typed value, never the unvalidated raw file;
+- UTF-8 compact JSON, sorted object keys, no insignificant whitespace, one defined trailing-newline policy;
+- arrays preserve authored order only where order is semantic; set-like arrays are normalized or rejected unless already in canonical order;
+- contract numbers are integral and bounded so Go/Python number formatting cannot diverge;
+- reject duplicate JSON object keys before canonicalization;
+- golden tests include non-ASCII strings, reordered keys, reordered set-like arrays and newline/whitespace variations.
 
-缺口不是再造业务功能，而是缺少一个能把这些表面与“发布承诺、部署 profile、当前 readiness”关联的唯一机器权威。现有 deployment verifier 还会静态检查 microservice 候选资产，旧 ADR 也描述 12 服务目标；两者都不能被解释为 committed profile。[VERIFIED: scripts/verify_deployment_operations_contract.py, docs/architecture/ADR-012-microservices-boundaries.md]
+`scripts/target_release_digests.py:canonical_json_bytes` is the nearest repository analog for sorted compact JSON, but the foundation must define its own versioned contract and golden digest. It must not inherit target-evidence self-normalization fields.
 
-**Primary recommendation:** 以 `config/release/contract.v1.json` + `config/release/contract.schema.json` 为唯一 authored authority，使用现有 Go/Python/TypeScript 工具链消费和校验；只把 `monolith` 标为 committed/default，把其他 profile 明确标为 excluded/disabled，并由统一 JSON drift report 阻断 quality/commercial gates。
+## OperationRef
 
-## Architectural Responsibility Map
-
-| Capability | Primary Tier | Secondary Tier | Rationale |
-|---|---|---|---|
-| Release promise/profile authority | Repository config | Release tooling | 不由动态 health 或部署资产反向改写。[VERIFIED: 31-CONTEXT.md D-04/D-09] |
-| Runtime profile/readiness | Go backend | Deployment config | `cmd/server` 是当前 monolith 启动入口，启动应先校验 profile 再产生副作用。[VERIFIED: src/server/cmd/server/main.go] |
-| HTTP/runtime parity | OpenAPI + Go HTTP | Python gate | OpenAPI/manifest parity和 runtime route 双向测试已存在。[VERIFIED: scripts/verify_openapi_contract.py, src/server/internal/http/route_surface_test.go] |
-| Protobuf parity | `api/proto` | generated Go consumers | canonical sources 与生成目标已存在但覆盖位置不统一。[VERIFIED: api/proto, src/server/Makefile] |
-| Migration parity | numbered SQL + ledger | release report | runtime 已按文件内容 SHA-256 fail closed。[VERIFIED: src/server/internal/migrations/migrations.go] |
-| Frontend exposure/client parity | feature API modules | generated fingerprints | 真实消费者分散在 15 个 feature API 文件，不能以单个示例代表。[VERIFIED: src/web/src/features, src/web/src/services/http/client.ts] |
-
-## Standard Stack
-
-不新增第三方包。JSON 适合确定性排序、Go `encoding/json` 严格解析、Python `json` gate 和 release artifact 直接消费；现有 PyYAML 继续只负责 OpenAPI/YAML 输入。[VERIFIED: src/server/go.mod, scripts/verify_openapi_contract.py]
-
-| Tool | Current source/version | Phase use |
-|---|---|---|
-| Go stdlib | project Go 1.25; host 1.26.2 | strict contract loader, SHA-256 digest, runtime policy/readiness tests |
-| Python 3 + PyYAML | host Python 3.13.12; already imported | deterministic cross-surface aggregator and fixture mutations |
-| TypeScript compiler | existing frontend toolchain | AST/fingerprint coverage of all actual feature clients, not regex parsing |
-| `protoc` toolchain | protoc 25.1, `protoc-gen-go` 1.36.11, gRPC 1.6.2 | regenerate to temp and byte/digest compare tracked outputs |
-
-## Recommended Files And Reusable Patterns
-
-| Concern | Recommended files | Reuse |
-|---|---|---|
-| Authored authority | `config/release/contract.v1.json`, `config/release/contract.schema.json` | deterministic JSON and explicit `schemaVersion`; no route/schema duplication |
-| Shared runtime policy | `src/server/internal/releasecontract/{contract.go,readiness.go,contract_test.go}` | strict enum/unknown-field rejection and `crypto/sha256` pattern from migrations |
-| Startup/operator view | `src/server/cmd/server/main.go`, `src/server/cmd/release-contract/main.go`, `src/server/internal/http/routes_release_contract.go` | validate before DB/migration; expose read-only Admin/operator join with existing envelope |
-| Profile declaration | `docker-compose.yml`, `deploy/kubernetes/server.yaml`, `deploy/kubernetes/configmap.yaml` | make selected `monolith` explicit; preserve candidate assets as excluded inventory |
-| HTTP drift | `docs/api/openapi.yaml`, `docs/api/route-surface-manifest.json`, `scripts/verify_openapi_contract.py`, `src/server/internal/http/route_surface_test.go` | add stable capability ID while retaining current OpenAPI -> manifest -> runtime checks |
-| Frontend drift | `scripts/generate_frontend_api_fingerprints.py`, `scripts/verify_frontend_client_contract.mjs`, `src/web/src/generated/api-contract.ts`, all `src/web/src/features/**/*Api.ts` | generate operation fingerprints, then AST-check every real consumer |
-| Proto drift | `api/proto/capability.proto`, existing `api/proto/*.proto`, `src/server/Makefile`, `scripts/verify-protobuf-contract.sh` | service/method capability options; temp regeneration and tracked-output comparison |
-| Migration drift | `scripts/verify-migration-contract.sh`, `scripts/verify-migration-replay.sh`, `src/server/internal/migrations` | keep historical SQL immutable; report file-set digest plus runtime ledger checksum parity |
-| Unified gate/report | `scripts/verify-release-contract.sh`, `scripts/verify_release_contract.py`, `scripts/verify-release-contract-fixtures.sh` | shell + Python fail-fast/negative-fixture pattern; `--output` JSON for aggregation |
-| Gate wiring/docs | `scripts/check.sh`, `scripts/verify-quality-gates.sh`, `scripts/verify-commercial-completion.sh`, `docs/release/rc-checklist.md`, `docs/architecture/current-system-contracts.md` | one gate invoked by all aggregators; repository-local claim language only |
-
-## Architecture Patterns
-
-### Contract Shape And Identity
-
-Use stable lowercase dotted capability IDs such as `chat.response.stream` and `billing.refund.execute`; IDs are never route names. The contract owns `schemaVersion`, release version, exactly one `defaultProfile`, profiles, capabilities, reason-code catalog, and digests/versions of canonical surfaces. Dynamic reports add git commit, contract digest, selected profile, checked time and evidence class; they never rewrite the contract.
-
-`monolith` references `src/server/cmd/server/main.go`, `oblivious-server`, required state/dependencies and migration/deploy/rollback/readiness commands. `microservices`, `dual`, and `split` remain present only as excluded/disabled inventory with `profile_parity_unproven`; `OBLIVIOUS_DB_MODE=dual_write` is a storage migration mode, not a deployment commitment.[VERIFIED: docker-compose.yml, docs/architecture/current-system-contracts.md]
-
-### One Policy Across Exposure And Execution
-
-Load and validate the selected profile before migrations or server construction. Pass an immutable policy object into route registration, workers and side-effect services. Excluded ingress is not registered (404); conditional-disabled and blocked checks run before side effects and return the existing envelope with stable codes. Frontend navigation and generated client exports consume the same operator/API projection, not independent feature flags.
-
-### Canonical Surface Pipeline
-
-`OpenAPI -> derived route manifest/fingerprints -> runtime/client consumers -> unified report`. Protobuf and migrations run parallel source-to-consumer comparisons, then the aggregator joins every finding by capability ID and contract digest. A committed surface with a skipped checker makes the aggregate result fail; an excluded surface appearing in runtime/client inventory is reported as incompatible.
-
-### Contract Shape Example
-
-```json
-{
-  "schemaVersion": 1,
-  "defaultProfile": "monolith",
-  "profiles": [
-    {"id": "monolith", "commitment": "committed", "default": true},
-    {
-      "id": "microservices",
-      "commitment": "excluded",
-      "default": false,
-      "defaultAvailability": "disabled",
-      "reasonCode": "profile_parity_unproven"
-    }
-  ],
-  "surfaceRefs": {
-    "openapi": {"source": "docs/api/openapi.yaml", "digestAlgorithm": "sha256"},
-    "protobuf": {"source": "api/proto/*.proto", "digestAlgorithm": "sha256"},
-    "migrations": {"source": "src/server/migrations/*.sql", "digestAlgorithm": "sha256"}
-  }
+```go
+type OperationRef struct {
+    ProfileID string   `json:"profileId"`
+    Path      string   `json:"path"`
+    Argv      []string `json:"argv"`
 }
 ```
 
-This is a structural planning example, not the completed baseline. The authored file must also contain the full profile requirements, lifecycle capability entries, reason-code catalog and deterministic surface digests; dynamic `availability` belongs only in the readiness report.
+Validation and dispatch invariants:
 
-## Don't Hand-Roll
+- `ProfileID` must equal the owning profile ID.
+- `Path` must be non-empty, slash-normalized, repo-relative and inside a fixed allowlist such as `scripts/`; absolute paths, `..` escape, symlink escape and NUL fail validation.
+- `Argv` is passed directly to `exec.CommandContext(path, argv...)`; it is never joined into `sh -c`, `bash -c` or another command string.
+- environment inheritance is explicit and minimal; release identity is not accepted from operation environment.
+- dispatch loads the contract, resolves the explicit profile and checks commitment before looking up or starting the child.
+- excluded profile dispatch returns a stable nonzero error such as `profile_excluded`; tests use a child-launch spy/sentinel and prove zero filesystem/process side effects.
+- missing/unknown profile and mismatched `OperationRef.profileId` fail before child startup.
 
-| Problem | Avoid | Use instead |
+The dispatcher establishes a safe operation contract only. It does not claim that monolith migration/deploy/rollback succeeds in a target environment; operational parity remains Phase 38.
+
+## BuildIdentityV1
+
+```go
+type BuildIdentityV1 struct {
+    SchemaVersion  string `json:"schemaVersion"`
+    ReleaseCommit string `json:"releaseCommit"`
+    SourceTree     string `json:"sourceTree"`
+    ContractDigest string `json:"contractDigest"`
+    Dirty          bool   `json:"dirty"`
+    EvidenceClass  string `json:"evidenceClass"`
+}
+```
+
+Required value shape:
+
+```json
+{
+  "schemaVersion": "build-identity/v1",
+  "releaseCommit": "<40-hex>",
+  "sourceTree": "<40-hex>",
+  "contractDigest": "sha256:<hex>",
+  "dirty": false,
+  "evidenceClass": "repository-local"
+}
+```
+
+### Derivation Boundary
+
+- The trusted build wrapper obtains `git rev-parse HEAD^{commit}` and `git rev-parse HEAD^{tree}` from the repository and requires `git status --porcelain=v1 --untracked-files=all` to be empty. Ignored `.tmp` outputs remain outside this check.
+- `GITHUB_SHA` is comparison-only. A CLI flag or environment variable cannot replace the Git-derived commit/tree.
+- Because `.dockerignore` excludes `.git`, identity must be derived before Docker build. The wrapper passes a complete validated identity as build input; Dockerfile stages do not synthesize Git identity.
+- Linker variables are untrusted until `buildinfo` validates field shapes and recomputes the packaged contract digest. The trusted provider returns an identity only after all comparisons pass.
+- Server, migrate and grpc-smoke use the same linker values. The OCI inspection gate compares labels, each binary inspection output and the packaged contract digest to the clean repository identity.
+- Direct ad-hoc Docker builds may produce non-release artifacts, but they cannot pass the identity-bearing foundation verifier without matching the clean repository source.
+
+### Trusted Provider Interface
+
+```go
+type IdentityProvider interface {
+    Resolve(ctx context.Context, contractPath string) (BuildIdentityV1, error)
+}
+```
+
+Consumers receive a validated value, not raw linker strings. Phase 31 tests and CLI use this provider; Phase 31.1 later injects it into startup and authorization.
+
+## SurfaceReportV1
+
+```go
+type SurfaceReportV1 struct {
+    SchemaVersion   string          `json:"schemaVersion"`
+    ReleaseIdentity ReleaseIdentity `json:"releaseIdentity"`
+    SurfaceIdentity SurfaceIdentity `json:"surfaceIdentity"`
+    Drift           Drift           `json:"drift"`
+    Evidence        Evidence        `json:"evidence"`
+    Outcome         Outcome         `json:"outcome"`
+}
+```
+
+Top-level unknown fields fail. The shared foundation schema fixes these ownership boundaries:
+
+- `releaseIdentity`: trusted build fields plus explicit deployment profile; never producer input.
+- `surfaceIdentity`: surface name, canonical source, consumer, version and source/consumer digests.
+- `drift`: only sorted `missing`, `extra`, `incompatible` arrays.
+- `evidence`: repository-local class, environment, mode, checked-at time, tool versions and schema-allowlisted `details`.
+- `outcome`: `pass | fail`, stable error codes and skipped checks.
+
+Phase 31 validates the envelope and shared fields, provides the typed `evidence.details` registry API, and registers the foundation build-identity/build-inspection details used by its own build report producer. Each later phase registers only the schemas it owns when its producers arrive: readiness and deployment in Phase 31.1; HTTP/runtime, frontend, protobuf and migration in Phase 31.2. Foundation tests prove arbitrary, duplicate or unregistered detail keys cannot silently pass; committed-skip aggregation remains Phase 31.2.
+
+### Atomic Writer Interface
+
+```go
+type ReportWriter interface {
+    Write(ctx context.Context, path string, report SurfaceReportV1) error
+}
+```
+
+Writer sequence:
+
+1. validate schema, trusted identity and deterministic ordering;
+2. create the output parent when absent;
+3. create a temporary file in the same directory;
+4. write complete bytes, flush, `fsync`, close, then atomic rename;
+5. `fsync` the parent where supported;
+6. remove temp files on every failure and preserve any prior valid destination.
+
+When a producer fails, it may best-effort write a trusted failure report, but its original nonzero status remains authoritative. An unwritable report path adds `report_output_unwritable`; it must not turn the producer failure into success or leave partial output.
+
+## Exact File Ownership
+
+| Owner | Proposed files | Responsibility |
 |---|---|---|
-| Source parsing | regex over YAML/Go/TypeScript/proto | PyYAML, Go AST/current route tests, TypeScript compiler AST, `protoc` |
-| Migration identity | a second checksum algorithm/ledger | `migrations.Checksum` and `schema_migrations` |
-| Route maturity | infer from route/page existence or tags | explicit capability IDs + release commitment/readiness |
-| Profile selection | infer from files or `OBLIVIOUS_DB_MODE` | explicit contract default plus selected deployment profile |
-| Readiness evidence | write health changes back to manifest | immutable contract + separately timestamped readiness report |
+| Authored authority | `config/release/contract.v1.json`, `config/release/contract.schema.json` | Only authored commitment/profile/capability authority and structural schema. |
+| Contract domain | `src/server/internal/releasecontract/contract.go`, `load.go`, `validate.go`, `digest.go`, `operation.go` | Typed model, strict load, semantic validation, canonical digest and safe operation dispatch. |
+| Contract tests | `src/server/internal/releasecontract/contract_test.go`, `digest_test.go`, `operation_test.go`, `src/server/internal/releasecontract/testdata/` | Positive/negative schema, canonicalization, reference and zero-side-effect operation fixtures. |
+| Schema dependency | `src/server/go.mod`, `src/server/go.sum` | One pinned maintained JSON Schema implementation if no existing dependency satisfies strict validation. |
+| Build identity | `src/server/internal/buildinfo/identity.go`, `provider.go`, `linker.go` | Linker inputs, validated `BuildIdentityV1` and trusted provider. |
+| Build identity tests | `src/server/internal/buildinfo/identity_test.go`, `provider_test.go` | Clean/dirty temp Git repos, substitution rejection and packaged-contract mismatch. |
+| Shared report | `src/server/internal/surfacereport/report.go`, `validate.go`, `writer.go` | Nested V1 model, shared validation and atomic output. |
+| Shared report tests | `src/server/internal/surfacereport/report_test.go`, `writer_test.go` | Identity injection, schema negatives, failure preservation and unwritable-output behavior. |
+| Foundation CLI | `src/server/cmd/release-contract/main.go`, `main_test.go` | Validate/digest/identity/inspect/operation commands using internal packages. |
+| Binary inspection | `src/server/cmd/server/main.go`, `src/server/cmd/migrate/main.go`, `src/server/cmd/grpc-smoke/main.go` | Minimal early identity-inspection path shared by all active binaries; no DB, migration, listener or network side effects. |
+| Build packaging | `Dockerfile.server`, `scripts/build-release-image.sh` | Derive outside Docker, inject all binaries, package contract, set/inspect OCI labels. |
+| Verification helpers | `scripts/run-go-tests-matched.sh`, `scripts/verify-release-contract.sh`, `scripts/verify-release-contract-fixtures.sh` | Nonzero-match Go test guard, foundation gate and mutation/build fixtures. |
 
-## Common Pitfalls
+The three entrypoints may add only a minimal early identity-inspection path required by the approved build contract. Normal startup ordering, DB-before-listener sequencing and continuous authorization are Phase 31.1 changes.
 
-- **Candidate topology promoted by accident:** current compose/Kubernetes/ADR files contain microservice assets, and the existing operations verifier checks them. Keep those checks as asset hygiene, but label their evidence as excluded-candidate E1/E2, never profile parity.[VERIFIED: docker-compose.yml, scripts/verify_deployment_operations_contract.py]
-- **A second handwritten API truth:** route manifest remains OpenAPI-derived; release contract stores capability associations and digests, not copied request/response schemas.[VERIFIED: scripts/verify_openapi_contract.py]
-- **Frontend sample bias:** a gate covering only `src/web/src/types/api.ts` misses 15 real feature client modules. Require full module discovery and fail when a client is unclassified.[VERIFIED: src/web/src/features]
-- **Proto false green:** generated files exist in top-level, internal and pkg locations, while `proto-gen` covers six internal targets and not every duplicate. Define one explicit source-to-output map and flag all unmanaged generated copies.[VERIFIED: api/proto, src/server/internal/grpc, src/server/pkg, src/server/Makefile]
-- **Historical migration rewrite:** never add metadata by editing applied SQL. Associate capability metadata in the release contract and compare immutable file digests to the existing ledger.[VERIFIED: src/server/internal/migrations/migrations.go]
-- **Readiness claim inflation:** Phase 31 can prove repository contract enforcement (E1/E2), not target runtime (E3) or same-commit no-skip release (E4).[VERIFIED: .planning/PROJECT.md, .planning/ROADMAP.md]
+## Two-Stage Verification
 
-## Plan-Oriented Decomposition
+### Stage A - Pre-Commit Development Proof
 
-1. **31-01 Contract authority and conservative baseline (RELS-01):** add schema/contract, stable ID and reason catalogs, monolith-only profile inventory, deterministic digest/validate CLI, and negative schema fixtures.
-2. **31-02 Runtime enforcement and operator join (RELS-01):** validate explicit profile before startup side effects, thread policy through HTTP/worker/side-effect boundaries, add read-only operator report, and prove 404/disabled/blocked semantics.
-3. **31-03 HTTP and frontend parity (RELS-02):** add OpenAPI capability IDs, regenerate route/fingerprint outputs, preserve bidirectional runtime checks, cover every feature API module and excluded UI/client exposure.
-4. **31-04 Protobuf and migration parity (RELS-02):** annotate proto services/methods, standardize the generation map, compare temp-generated artifacts, report migration set/runtime ledger digests without changing historical SQL.
-5. **31-05 Unified blocker and claim alignment (RELS-01/02):** aggregate structured reports, add one-field negative fixtures, wire check/quality/commercial gates, and update operator/current-contract docs with explicit E1/E2 residual risk.
+- Unit tests create disposable Git repositories, write the contract, commit known trees and derive known identities.
+- Dirty tracked, staged, untracked and contract-only mutations each fail with stable diagnostics.
+- Contract/report mutation fixtures change one field at a time.
+- `scripts/run-go-tests-matched.sh` lists matching tests first and fails when a regex selects zero tests; only then may it execute `go test -run`.
+- Build tests that do not require the current repository identity may run while the developer worktree is dirty.
 
-## Validation Architecture
+### Stage B - Post-Commit Clean HEAD Proof
 
-### Test Framework
+- Confirm `git status --porcelain=v1 --untracked-files=all` is empty.
+- Resolve real `HEAD^{commit}` and `HEAD^{tree}` with no override path.
+- Recompute canonical contract digest.
+- Build/inspect all active binaries and OCI image from that identity.
+- Compare binary identity, OCI labels and packaged contract digest to the clean source tuple.
+- Record repository-local environment, commands, results, skips and residual risk. Any skip or mismatch is nonzero.
+- Push only after this stage passes for the commit being pushed.
 
-| Property | Value |
+## Foundation Test Matrix
+
+| Risk | Required automated proof |
 |---|---|
-| Frameworks | Go `testing`, Python/shell fixture gates, Vitest/TypeScript compiler checks |
-| Existing anchors | `src/server/internal/http/route_surface_test.go`, `scripts/verify-openapi-contract.sh`, `scripts/verify-migration-contract.sh` |
-| Quick command | `bash scripts/verify-release-contract-fixtures.sh` |
-| Full repository-local gate | `bash scripts/check.sh all && bash scripts/test.sh server` |
+| Unknown or ambiguous contract | Schema negatives, duplicate-key rejection, trailing JSON, semantic reference closure. |
+| Digest drift | Golden canonical bytes across key/whitespace variations and semantic mutations. |
+| Identity override/splice | clean/dirty repos, env/flag substitution attempts, commit/tree/digest mismatch. |
+| Container identity fabrication | build without trusted wrapper cannot pass clean-HEAD comparison; all binary/OCI/package values are compared. |
+| Unsafe operation execution | absolute/traversal/symlink paths, shell metacharacter argv, profile mismatch and excluded zero-launch proof. |
+| Flat or producer-owned report identity | top-level schema negatives and producer input rejection. |
+| Partial report corruption | write/fsync/rename failure injection preserves destination and removes temp files. |
+| False-green targeted tests | zero-match regex is rejected before `go test`. |
 
-### Phase Requirements -> Test Map
+## Anti-Patterns To Reject
 
-| Req | Behavior | Test type | Automated command | Gap |
-|---|---|---|---|---|
-| RELS-01 | schema/status/profile invariants and monolith-only commitment | fixture + Go unit | `bash scripts/verify-release-contract-fixtures.sh && (cd src/server && go test ./internal/releasecontract -count=1)` | Wave 0: files absent |
-| RELS-01 | excluded/disabled/blocked enforcement before side effects | HTTP/unit | `(cd src/server && go test ./internal/http -run 'TestReleaseContract|TestRouteSurface' -count=1)` | Wave 0: policy tests absent |
-| RELS-02 | OpenAPI/manifest/runtime/client bidirectional parity | contract + Go + Node | `bash scripts/verify-openapi-contract.sh && bash scripts/verify-frontend-client-contract.sh && (cd src/server && go test ./internal/http -run TestRouteSurface -count=1)` | Wave 0: client gate absent |
-| RELS-02 | proto source/generated parity | generation fixture | `bash scripts/verify-protobuf-contract.sh` | Wave 0: stale gate absent |
-| RELS-02 | migration filename/content/ledger parity | static + integration | `bash scripts/verify-migration-contract.sh && bash scripts/verify-migration-replay.sh` | replay needs Docker or DB |
-| RELS-01/02 | committed skip/drift blocks release aggregation | negative fixture + quality gate | `bash scripts/verify-release-contract-fixtures.sh && bash scripts/verify-quality-gates.sh` | Wave 0: integration absent |
+- Authoring `releaseCommit` or `contractDigest` inside `contract.v1.json`.
+- Hashing pretty-printed/raw JSON without a versioned canonicalization rule.
+- Accepting release identity through runtime env, ordinary CLI flags or producer JSON.
+- Deriving Git identity inside Docker even though `.git` is excluded.
+- Flattening `SurfaceReportV1` or letting each producer invent fields.
+- Replacing an existing report before the new file is fully synced and validated.
+- Executing `OperationRef` through a shell string or validating traversal only with a prefix check.
+- Treating excluded operation rejection as deploy/rollback success or profile parity.
+- Pulling `ReadinessManager`, OpenAPI/frontend/protobuf/migration parity or aggregate gate ownership back into Phase 31.
+- Calling repository-local identity proof E3/E4 or closing full `RELS-01`.
 
-### Required Negative Fixtures
+## Implementation Prerequisites And Residual Risks
 
-Unknown schema key/status/profile; zero or multiple defaults; environment attempts to enable excluded capability; route missing/extra/wrong method/security/capability ID; unclassified frontend client; stale proto output; edited migration checksum; cross-commit/digest readiness report; committed checker marked skipped. Each mutation must assert its stable machine error class.
+There is no unresolved product decision blocking planning. The following foundation assets do not yet exist and must be created in Wave 0 or the first owning plan:
 
-### Sampling And Evidence Boundary
+- strict schema/semantic validation and canonical digest packages;
+- trusted Git/build identity provider and all-binary build injection;
+- shared report validator/atomic writer;
+- zero-match Go test helper and foundation fixtures;
+- a trusted build wrapper that reconciles clean Git identity with Docker's `.git`-free context.
 
-- Per task: narrow fixture/unit command plus `git diff --check`.
-- Per plan: relevant surface gate and `bash scripts/check.sh docs`.
-- Phase gate: all contract fixtures, full server tests, `bash scripts/check.sh all`, and a saved repository-local JSON report with no committed skips.
-- VALIDATION.md must record E1/E2, environment/tool versions, migration replay mode and skips/residual risks. It must not claim E3 target parity or E4 commercial readiness.
+Residual risk after Phase 31 remains intentional: the identity/report contracts will exist, but runtime freshness, side-effect enforcement, surface parity, target deployment proof and supply-chain authenticity stay unproven until their routed phases complete.
 
-## Security Domain
+## Sources
 
-| ASVS area | Applies | Required control |
-|---|---|---|
-| V2/V3 auth/session | indirect | operator surface reuses current authenticated Admin boundary |
-| V4 access control | yes | excluded ingress absent; conditional/blocked checks before side effects; Admin-only full inventory |
-| V5 validation | yes | strict schema/enums/unknown-field rejection and fail-closed missing contract/profile |
-| V6 cryptography | yes | standard SHA-256 digest only; no secrets or custom signing in this phase |
-
-Threat checks must cover manifest tampering, cross-version report splicing, environment override bypass, stale generated consumers, and secret/internal-address leakage in public errors. Supply-chain signing remains Phase 39.
-
-## Environment Availability
-
-Go 1.26.2, Node 24.15.0, pnpm 10.6.0, Python 3.13.12, protoc 25.1, `protoc-gen-go` 1.36.11 and `protoc-gen-go-grpc` 1.6.2 are available locally. Migration replay still requires reachable Docker or an explicit database URL.[VERIFIED: local command probes, scripts/verify-migration-replay.sh]
-
-## Sources And Confidence
-
-- **HIGH:** Phase context, requirements, roadmap/project/state, codebase maps, current OpenAPI/runtime tests, migration implementation, deployment manifests and release gates.
-- **No external sources used:** this is codebase-only research; no package addition or package-legitimacy audit is required.
-- **Assumptions log:** empty. Recommendations are derived from locked decisions and verified repository patterns; exact baseline capability classifications must be authored and reviewed during 31-01 rather than inferred automatically.
-
-**Valid until:** the release contract or any canonical surface owner changes.
+- `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
+- `.planning/phases/31-release-contract-current-baseline/31-CONTEXT.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `Dockerfile.server`
+- `.dockerignore`
+- `src/server/cmd/server/main.go`
+- `src/server/internal/migrations/migrations.go`
+- `scripts/target_release_digests.py`
+- `scripts/verify-target-release-evidence.sh`
