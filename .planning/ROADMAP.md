@@ -78,7 +78,53 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: TBD
+**Plans**: 10 plans
+
+**Planning envelope exception:** checker-requested closure requires complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites do not fit the original 6-8 target while retaining the nine-file hard cap, so the decomposition uses ten focused plans without shrinking coverage or trusting executable/environment identity.
+
+Plans:
+**Wave 1** *(blocked on Phase 31 Plan 31-06 completion)*
+
+- [ ] 31.1-01-PLAN.md - Establish evaluator/manager, immutable RuntimeAuthorities, authored entrypoint identity, RouterOptions, and the pure readiness report constructor.
+
+**Wave 2** *(blocked on Wave 1 completion; consumer packages are file-disjoint and may run in parallel)*
+
+- [ ] 31.1-04-PLAN.md - Guard schedule, channel, batch, and archive worker claim/effect boundaries.
+- [ ] 31.1-05-PLAN.md - Guard Relay/Chat attempts and enforce server-derived model/routing authority.
+- [ ] 31.1-06-PLAN.md - Guard MCP, the independent Agent tools Registry API, strict mutation DTOs, and the generic configured web-search Chain without depending on the later expected manifest.
+- [ ] 31.1-07-PLAN.md - Guard checkout, Admin refund, payout, and settlement while preserving signed reconciliation-only completion.
+
+**Wave 3** *(blocked on Plans 01 and 06)*
+
+- [ ] 31.1-10-PLAN.md - Build authority-required web-search packages and guard the live Agent ToolExecutor builtin/custom HTTP/local Python/sandbox/MCP paths.
+
+**Wave 4** *(blocked on all Wave 2 consumers and Plan 10; sole server.go composition owner)*
+
+- [ ] 31.1-02-PLAN.md - Resolve immutable preflight inputs once, wire group-one roots, compose all completed consumers, and enforce listener-before-background lifecycle.
+
+**Wave 5** *(blocked on Wave 4 shared preflight)*
+
+- [ ] 31.1-09-PLAN.md - Apply the same immutable source-authored entrypoint handoff to the remaining eight standalone composition roots.
+
+**Wave 6** *(blocked on all runtime consumers and standalone roots)*
+
+- [ ] 31.1-03-PLAN.md - Expose control-plane views, create the expected manifest, and exact-join static/runtime coverage including real ToolExecutor seams.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 31.1-08-PLAN.md - Wire canonical deployment assets and run mandatory Docker/DB plus deterministic structural-refresh Stage A/Stage B proof.
+
+Cross-cutting constraints:
+
+- Every authorization verdict comes from the current in-process `ReadinessManager`; audit/report files are write-only runtime evidence.
+- Every new effect rechecks the current generation through the shared guard, and all runtime descriptors must exact-join the independent expected inventory.
+- Every process supplies a source-authored entrypoint ID; generic profile resolution, environment, argv and executable name cannot authorize standalone startup.
+- `RunEntrypoint` resolves one complete validated contract, resolver-returned profile and trusted identity into immutable `ResolvedEntrypointInputs`; callbacks cannot reload or replace them through environment, globals, cwd or disk.
+- Consumer packages complete against Plan 01 authority types before Plan 02 constructs one immutable `RuntimeAuthorities{CatalogAuthorizer,CapabilityBindings}` value and hands it to router, workers, Provider/tool/web-search, live ToolExecutor and finance consumers.
+- Plan 06 descriptor tests are manifest-independent; Plan 03 alone creates `readiness-effect-surface.v1.json` and joins expected/static/runtime sets after every producer is complete.
+- Authored monolith timing remains exactly 30s refresh, 120s max age, and 30s future skew with no runtime fallback.
+- Phase completion is capped at E1/E2 repository-local evidence; non-empty skips and unavailable Docker/DB fail the committed gate.
+
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
 ### Phase 31.2: 契约表面一致性与聚合门禁 (INSERTED)
@@ -226,7 +272,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 0/6 | Not started | - |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 0/TBD | Not started | - |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 0/10 | Not started | - |
 | 31.2 契约表面一致性与聚合门禁 | 0/TBD | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
