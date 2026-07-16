@@ -2,7 +2,9 @@ package releasecontract
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -186,6 +188,282 @@ func TestReleaseProfileOperationScriptRejectsExcludedProfiles(t *testing.T) {
 	}
 }
 
+func TestLoadBytesRejectsNegativeFamilies(t *testing.T) {
+	validContract := readTestFile(t, "config/release/contract.v1.json")
+	validSchema := readTestFile(t, "config/release/contract.schema.json")
+	repoRoot := testRepoRoot(t)
+
+	tests := []struct {
+		name     string
+		root     func(*testing.T) string
+		contract func(*testing.T) []byte
+		wantCode ErrorCode
+	}{
+		{
+			name: "invalid UTF-8",
+			contract: func(*testing.T) []byte {
+				return append(append([]byte{}, validContract...), 0xff)
+			},
+			wantCode: ErrorContractDecodeInvalid,
+		},
+		{
+			name: "duplicate object key",
+			contract: func(*testing.T) []byte {
+				return bytes.Replace(validContract, []byte(`"schemaVersion": "contract/v1",`), []byte(`"schemaVersion": "contract/v1", "schemaVersion": "contract/v1",`), 1)
+			},
+			wantCode: ErrorContractDecodeInvalid,
+		},
+		{
+			name: "trailing JSON value",
+			contract: func(*testing.T) []byte {
+				return append(append([]byte{}, validContract...), []byte("\n{}")...)
+			},
+			wantCode: ErrorContractDecodeInvalid,
+		},
+		{
+			name: "unknown enum",
+			contract: func(*testing.T) []byte {
+				return bytes.Replace(validContract, []byte(`"commitment": "committed"`), []byte(`"commitment": "advertised"`), 1)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "unknown nested field",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				profiles := document["profiles"].([]any)
+				profiles[0].(map[string]any)["availability"] = "enabled"
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "multiple committed profiles",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.Profiles[0].Commitment = CommitmentCommitted
+					contract.Profiles[0].ReasonCode = ""
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "broken capability reference",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.SurfaceReferences[0].CapabilityIDs[0] = "unknown.capability"
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "duplicate capability ID",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.Capabilities[1].ID = contract.Capabilities[0].ID
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name:     "absolute operation path",
+			contract: operationPathMutation(t, "/tmp/release-profile-operation.sh"),
+			wantCode: ErrorContractPathInvalid,
+		},
+		{
+			name:     "traversal operation path",
+			contract: operationPathMutation(t, "scripts/../outside.sh"),
+			wantCode: ErrorContractPathInvalid,
+		},
+		{
+			name:     "NUL operation path",
+			contract: operationPathMutation(t, "scripts/unsafe\x00.sh"),
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name:     "missing operation path",
+			root:     func(t *testing.T) string { return prepareOperationRoot(t) },
+			contract: operationPathMutation(t, "scripts/missing.sh"),
+			wantCode: ErrorContractPathInvalid,
+		},
+		{
+			name: "non-executable operation path",
+			root: func(t *testing.T) string {
+				root := prepareOperationRoot(t)
+				if err := os.WriteFile(filepath.Join(root, "scripts/nonexec.sh"), []byte("#!/usr/bin/env bash\nexit 0\n"), 0o644); err != nil {
+					t.Fatalf("write non-executable script: %v", err)
+				}
+				return root
+			},
+			contract: operationPathMutation(t, "scripts/nonexec.sh"),
+			wantCode: ErrorContractPathInvalid,
+		},
+		{
+			name: "symlink escaping operation path",
+			root: func(t *testing.T) string {
+				root := prepareOperationRoot(t)
+				external := filepath.Join(t.TempDir(), "external.sh")
+				if err := os.WriteFile(external, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+					t.Fatalf("write external script: %v", err)
+				}
+				if err := os.Symlink(external, filepath.Join(root, "scripts/escape.sh")); err != nil {
+					t.Fatalf("create escaping symlink: %v", err)
+				}
+				return root
+			},
+			contract: operationPathMutation(t, "scripts/escape.sh"),
+			wantCode: ErrorContractPathInvalid,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := repoRoot
+			if tt.root != nil {
+				root = tt.root(t)
+			}
+			contractBytes := tt.contract(t)
+			contract, err := LoadBytes(context.Background(), root, contractBytes, validSchema)
+			if err == nil {
+				t.Fatalf("negative family returned usable contract: %+v", contract)
+			}
+			assertContractErrorCode(t, err, tt.wantCode)
+		})
+	}
+}
+
+func TestLoadBytesUsesExplicitRepoRootAndIgnoresCWD(t *testing.T) {
+	repoRoot := prepareOperationRoot(t)
+	contractBytes := readTestFile(t, "config/release/contract.v1.json")
+	schemaBytes := readTestFile(t, "config/release/contract.schema.json")
+	configDir := filepath.Join(repoRoot, "config/release")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("create release config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "contract.v1.json"), contractBytes, 0o644); err != nil {
+		t.Fatalf("write rooted contract: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "contract.schema.json"), schemaBytes, 0o644); err != nil {
+		t.Fatalf("write rooted schema: %v", err)
+	}
+	otherCWD := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(otherCWD, "scripts"), 0o755); err != nil {
+		t.Fatalf("create alternate cwd scripts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(otherCWD, "scripts/release-profile-operation.sh"), []byte("not executable\n"), 0o644); err != nil {
+		t.Fatalf("write alternate cwd script: %v", err)
+	}
+	originalCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(otherCWD); err != nil {
+		t.Fatalf("change cwd: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalCWD); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+
+	contract, err := LoadBytes(context.Background(), repoRoot, contractBytes, schemaBytes)
+	if err != nil {
+		t.Fatalf("load with explicit root from unrelated cwd: %v", err)
+	}
+	if contract.DefaultProfile != "monolith" {
+		t.Fatalf("default profile = %q", contract.DefaultProfile)
+	}
+	fileContract, err := Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("file load with explicit root from unrelated cwd: %v", err)
+	}
+	if fileContract.DefaultProfile != "monolith" {
+		t.Fatalf("file-loaded default profile = %q", fileContract.DefaultProfile)
+	}
+}
+
+func TestLoadBytesRejectsInvalidRepoRoots(t *testing.T) {
+	contractBytes := readTestFile(t, "config/release/contract.v1.json")
+	schemaBytes := readTestFile(t, "config/release/contract.schema.json")
+	filePath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("file"), 0o644); err != nil {
+		t.Fatalf("write root fixture: %v", err)
+	}
+	tests := []struct {
+		name string
+		root string
+	}{
+		{name: "empty", root: ""},
+		{name: "relative", root: "relative/root"},
+		{name: "missing", root: filepath.Join(t.TempDir(), "missing")},
+		{name: "not directory", root: filePath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadBytes(context.Background(), tt.root, contractBytes, schemaBytes)
+			if err == nil {
+				t.Fatalf("invalid root %q accepted", tt.root)
+			}
+			assertContractErrorCode(t, err, ErrorRepoRootInvalid)
+		})
+	}
+}
+
+func TestFileProfileResolverRequiresCommittedExplicitProfile(t *testing.T) {
+	resolver := NewFileProfileResolver()
+	repoRoot := testRepoRoot(t)
+	contractPath := "config/release/contract.v1.json"
+	schemaPath := "config/release/contract.schema.json"
+
+	tests := []struct {
+		name     string
+		profile  string
+		wantCode ErrorCode
+		wantOK   bool
+	}{
+		{name: "omitted", wantCode: ErrorProfileRequired},
+		{name: "unknown", profile: "unknown", wantCode: ErrorProfileUnknown},
+		{name: "dual excluded", profile: "dual", wantCode: ErrorProfileExcluded},
+		{name: "microservices excluded", profile: "microservices", wantCode: ErrorProfileExcluded},
+		{name: "split excluded", profile: "split", wantCode: ErrorProfileExcluded},
+		{name: "monolith committed", profile: "monolith", wantOK: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := resolver.ResolveCommittedProfile(context.Background(), repoRoot, contractPath, schemaPath, tt.profile)
+			if tt.wantOK {
+				if err != nil || profile.ID != "monolith" || profile.Commitment != CommitmentCommitted {
+					t.Fatalf("resolve committed monolith: profile=%+v err=%v", profile, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("profile %q unexpectedly resolved: %+v", tt.profile, profile)
+			}
+			assertContractErrorCode(t, err, tt.wantCode)
+		})
+	}
+}
+
+func TestLoadRejectsContractAndSchemaOutsideExplicitRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	contractPath := filepath.Join(externalRoot, "contract.v1.json")
+	schemaPath := filepath.Join(externalRoot, "contract.schema.json")
+	if err := os.WriteFile(contractPath, readTestFile(t, "config/release/contract.v1.json"), 0o644); err != nil {
+		t.Fatalf("write external contract: %v", err)
+	}
+	if err := os.WriteFile(schemaPath, readTestFile(t, "config/release/contract.schema.json"), 0o644); err != nil {
+		t.Fatalf("write external schema: %v", err)
+	}
+	_, err := Load(context.Background(), repoRoot, contractPath, schemaPath)
+	if err == nil {
+		t.Fatal("Load accepted contract files outside explicit repo root")
+	}
+	assertContractErrorCode(t, err, ErrorContractPathInvalid)
+}
+
 func validSchemaDocument() map[string]any {
 	return map[string]any{
 		"schemaVersion":  "contract/v1",
@@ -227,6 +505,74 @@ func decodeTestContract(t *testing.T, content []byte) AuthoredContractV1 {
 		t.Fatalf("expected contract EOF, got %v", err)
 	}
 	return contract
+}
+
+func mutateCheckedInContract(t *testing.T, mutate func(*AuthoredContractV1)) []byte {
+	t.Helper()
+	contract := decodeTestContract(t, readTestFile(t, "config/release/contract.v1.json"))
+	mutate(&contract)
+	content, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal mutated contract: %v", err)
+	}
+	return content
+}
+
+func operationPathMutation(t *testing.T, path string) func(*testing.T) []byte {
+	t.Helper()
+	return func(t *testing.T) []byte {
+		return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+			for i := range contract.Profiles {
+				if contract.Profiles[i].ID == "monolith" {
+					contract.Profiles[i].Operations.Migrate.Path = path
+					return
+				}
+			}
+		})
+	}
+}
+
+func prepareOperationRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	scriptsDir := filepath.Join(root, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatalf("create scripts dir: %v", err)
+	}
+	content := readTestFile(t, "scripts/release-profile-operation.sh")
+	if err := os.WriteFile(filepath.Join(scriptsDir, "release-profile-operation.sh"), content, 0o755); err != nil {
+		t.Fatalf("write operation script: %v", err)
+	}
+	return root
+}
+
+func decodeJSONDocument(t *testing.T, content []byte) map[string]any {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatalf("decode JSON document: %v", err)
+	}
+	return document
+}
+
+func marshalJSONDocument(t *testing.T, document map[string]any) []byte {
+	t.Helper()
+	content, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("marshal JSON document: %v", err)
+	}
+	return content
+}
+
+func assertContractErrorCode(t *testing.T, err error, want ErrorCode) {
+	t.Helper()
+	var contractErr *ContractError
+	if !errors.As(err, &contractErr) {
+		t.Fatalf("error %T %v is not ContractError", err, err)
+	}
+	if contractErr.Code != want {
+		t.Fatalf("error code = %q, want %q (error=%v)", contractErr.Code, want, err)
+	}
 }
 
 func modelTestProfile() DeploymentProfile {

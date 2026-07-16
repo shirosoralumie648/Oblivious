@@ -274,6 +274,9 @@ func (c AuthoredContractV1) Validate(repoRoot string) error {
 		if _, err := indexUnique(fmt.Sprintf("profiles[%d].stateStores", i), profile.StateStores, func(item StateStoreRef) string { return item.ID }); err != nil {
 			return err
 		}
+		if _, err := indexUnique(fmt.Sprintf("profiles[%d].capabilityOverrides", i), profile.CapabilityOverrides, func(item CapabilityOverride) string { return item.CapabilityID }); err != nil {
+			return err
+		}
 		for j, override := range profile.CapabilityOverrides {
 			if _, ok := capabilities[override.CapabilityID]; !ok {
 				return contractError(ErrorContractSemanticInvalid, fmt.Sprintf("profiles[%d].capabilityOverrides[%d].capabilityId", i, j), override.CapabilityID, nil)
