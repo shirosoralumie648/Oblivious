@@ -92,8 +92,8 @@ status: complete
 - Server inspection selector - 1 concrete test listed and passed.
 - Migrate inspection selector - 1 concrete test listed and passed.
 - grpc-smoke inspection selector - 1 concrete test listed and passed; full package also passed.
-- `bash -n scripts/build-release-image.sh scripts/verify-release-build-fixtures.sh` - passed.
-- `bash scripts/verify-release-build-fixtures.sh` - baseline and all dynamic mutations passed.
+- Shell syntax validation for both release-build scripts - passed.
+- Dynamic release-build fixture - baseline and all mutations passed.
 - Related six-package Go regression - passed; DB-backed migrate cases remain environment-skipped without `TEST_DATABASE_URL`.
 - `git diff --check` - passed while preserving unrelated working-tree changes.
 
