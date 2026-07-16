@@ -37,6 +37,11 @@ func TestSurfaceReportV1NestedValidation(t *testing.T) {
 	if err := Validate(report, registry); !IsCode(err, ErrorSurfaceSchemaInvalid) {
 		t.Fatalf("pass with skip error = %v", err)
 	}
+	report = validTestReport(t, registry)
+	report.Drift.Missing = nil
+	if err := Validate(report, registry); !IsCode(err, ErrorSurfaceSchemaInvalid) {
+		t.Fatalf("missing collection error = %v", err)
+	}
 }
 
 func TestSurfaceReportV1RejectsFlatAndMisplacedFields(t *testing.T) {
