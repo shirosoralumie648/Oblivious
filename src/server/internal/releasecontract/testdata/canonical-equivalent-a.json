@@ -1,0 +1,60 @@
+{
+  "reasonCodes": [
+    {
+      "description": "构建身份不匹配。",
+      "appliesTo": ["build", "report"],
+      "id": "build_identity_mismatch"
+    }
+  ],
+  "schemaVersion": "contract/v1",
+  "capabilities": [
+    { "commitment": "committed", "id": "release.contract_reporting" }
+  ],
+  "defaultProfile": "monolith",
+  "profiles": [
+    {
+      "operations": {
+        "rollback": { "argv": ["monolith", "rollback"], "path": "scripts/release-profile-operation.sh", "profileId": "monolith" },
+        "deploy": { "path": "scripts/release-profile-operation.sh", "profileId": "monolith", "argv": ["monolith", "deploy"] },
+        "migrate": { "profileId": "monolith", "argv": ["monolith", "migrate"], "path": "scripts/release-profile-operation.sh" }
+      },
+      "surfaceReferenceIds": ["build-identity"],
+      "id": "monolith",
+      "stateStores": [{ "kind": "postgres", "id": "primary" }],
+      "refreshIntervalSeconds": 30,
+      "topology": { "components": ["server"], "kind": "monolith" },
+      "maxAgeSeconds": 120,
+      "commitment": "committed",
+      "catalogBindingIds": ["runtime.release"],
+      "entrypoints": ["server"],
+      "dependencies": [{ "required": true, "id": "postgres" }],
+      "capabilityOverrides": [],
+      "readinessRequirementIds": ["core"],
+      "allowedFutureSkewSeconds": 30
+    }
+  ],
+  "catalogBindings": [
+    {
+      "runtimeClass": "builtin",
+      "capabilityId": "release.contract_reporting",
+      "subjectId": "release",
+      "id": "runtime.release",
+      "subjectKind": "runtime"
+    }
+  ],
+  "surfaceReferences": [
+    {
+      "consumer": "trusted-build-provider",
+      "capabilityIds": ["release.contract_reporting"],
+      "id": "build-identity",
+      "canonicalSource": "config/release/contract.v1.json"
+    }
+  ],
+  "readinessRequirements": [
+    {
+      "dependencyIds": ["postgres"],
+      "id": "core",
+      "capabilityIds": ["release.contract_reporting"]
+    }
+  ]
+}
