@@ -24,7 +24,7 @@
 | `src/server/cmd/release-contract/` | foundation CLI | `src/server/cmd/grpc-smoke/` | strong CLI shape | Thin command over internal packages; stable JSON/errors/nonzero exits. |
 | `src/server/cmd/server/main.go`, `src/server/cmd/migrate/main.go`, `src/server/cmd/grpc-smoke/main.go` | binary identity inspection | current entrypoints | direct integration | Add one shared early inspection path with zero DB/network side effects. |
 | `scripts/build-release-image.sh` | clean Git derivation/build orchestration | `scripts/assemble-target-release-evidence.sh` | partial | Git is available outside Docker; no mismatch escape hatch. |
-| `scripts/run-go-tests-matched.sh` | false-green prevention | none | none | Fail before execution when `go test -list` finds zero matches. |
+| `scripts/run-go-tests-matched.sh` | false-passing prevention | none | none | Fail before execution when `go test -list` finds zero matches. |
 | `scripts/verify-release-contract*.sh` | foundation verifier/fixtures | existing `verify-*-fixtures.sh` families | strong | Keep self-contained; aggregate ownership is Phase 31.2. |
 | `Dockerfile.server` | binary/package/OCI identity | current multi-binary build | direct integration | Inject one validated tuple, package canonical contract, expose labels for inspection. |
 

@@ -152,6 +152,7 @@ Oblivious 是一个面向组织工作区的 multi-tenant AI SaaS 平台。它在
 | 所有未证明能力默认 fail closed | 防止 demo、fixture、fake payment 或不完整生命周期进入商业默认路径 | Pending |
 | 只对外声明已完成 parity 的部署模式 | 不把 health-only 或 stub 微服务包装成生产拆分完成 | Pending |
 | 采用四级证据模型 | 防止仓库本地绿色测试被误报为 target commercial readiness | Pending |
+| 不采用 TDD 流程 | 按实现优先、实现后自动化验证推进；保留回归测试、fixture、静态检查和零匹配防假绿门禁，但不要求先写失败测试 | Active |
 | 业务增长指标后置 | MAU、GMV 和调用增长衡量发布后的市场结果，不替代工程和发布验收 | Pending |
 
 ## Evolution
