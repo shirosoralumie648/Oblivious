@@ -4,6 +4,11 @@ ARG ALPINE_IMAGE=alpine:3.21
 FROM ${GO_IMAGE} AS builder
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG GOSUMDB=sum.golang.org
+ARG RELEASE_COMMIT
+ARG SOURCE_TREE
+ARG CONTRACT_DIGEST
+ARG BUILD_DIRTY=false
+ARG EVIDENCE_CLASS=repository-local
 
 ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
@@ -18,15 +23,31 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY src/server/ ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-server ./cmd/server
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X oblivious/server/internal/buildinfo.linkedReleaseCommit=${RELEASE_COMMIT} -X oblivious/server/internal/buildinfo.linkedSourceTree=${SOURCE_TREE} -X oblivious/server/internal/buildinfo.linkedContractDigest=${CONTRACT_DIGEST} -X oblivious/server/internal/buildinfo.linkedDirty=${BUILD_DIRTY} -X oblivious/server/internal/buildinfo.linkedEvidenceClass=${EVIDENCE_CLASS}" \
+    -o /out/oblivious-server ./cmd/server
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-migrate ./cmd/migrate
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X oblivious/server/internal/buildinfo.linkedReleaseCommit=${RELEASE_COMMIT} -X oblivious/server/internal/buildinfo.linkedSourceTree=${SOURCE_TREE} -X oblivious/server/internal/buildinfo.linkedContractDigest=${CONTRACT_DIGEST} -X oblivious/server/internal/buildinfo.linkedDirty=${BUILD_DIRTY} -X oblivious/server/internal/buildinfo.linkedEvidenceClass=${EVIDENCE_CLASS}" \
+    -o /out/oblivious-migrate ./cmd/migrate
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-grpc-smoke ./cmd/grpc-smoke
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X oblivious/server/internal/buildinfo.linkedReleaseCommit=${RELEASE_COMMIT} -X oblivious/server/internal/buildinfo.linkedSourceTree=${SOURCE_TREE} -X oblivious/server/internal/buildinfo.linkedContractDigest=${CONTRACT_DIGEST} -X oblivious/server/internal/buildinfo.linkedDirty=${BUILD_DIRTY} -X oblivious/server/internal/buildinfo.linkedEvidenceClass=${EVIDENCE_CLASS}" \
+    -o /out/oblivious-grpc-smoke ./cmd/grpc-smoke
 
 FROM ${ALPINE_IMAGE} AS runtime
+ARG RELEASE_COMMIT
+ARG SOURCE_TREE
+ARG CONTRACT_DIGEST
+ARG EVIDENCE_CLASS=repository-local
+
+LABEL org.opencontainers.image.revision="${RELEASE_COMMIT}" \
+      io.oblivious.source-tree="${SOURCE_TREE}" \
+      io.oblivious.release-contract-digest="${CONTRACT_DIGEST}" \
+      io.oblivious.build-identity-schema="build-identity/v1" \
+      io.oblivious.evidence-class="${EVIDENCE_CLASS}"
 
 RUN apk add --no-cache ca-certificates
 
@@ -35,6 +56,9 @@ COPY --from=builder /out/oblivious-server /usr/local/bin/oblivious-server
 COPY --from=builder /out/oblivious-migrate /usr/local/bin/oblivious-migrate
 COPY --from=builder /out/oblivious-grpc-smoke /usr/local/bin/oblivious-grpc-smoke
 COPY src/server/migrations ./migrations
+COPY config/release/contract.v1.json ./config/release/contract.v1.json
+COPY config/release/contract.schema.json ./config/release/contract.schema.json
+COPY scripts/release-profile-operation.sh ./scripts/release-profile-operation.sh
 
 EXPOSE 8080
 
