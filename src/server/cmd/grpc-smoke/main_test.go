@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"oblivious/server/internal/buildinfo"
 	agentv1 "oblivious/server/internal/grpc/agentv1"
 	taskv1 "oblivious/server/internal/grpc/taskv1"
 	workflowv1 "oblivious/server/internal/grpc/workflowv1"
@@ -20,6 +21,71 @@ import (
 
 	"google.golang.org/grpc"
 )
+
+func TestIdentityInspectionPrecedesRuntimeSideEffects(t *testing.T) {
+	identity := smokeTestIdentity()
+	for _, test := range []struct {
+		name     string
+		args     []string
+		provider buildinfo.IdentityProvider
+		wantCode int
+		wantRuns int
+	}{
+		{name: "inspection success", args: []string{buildinfo.InspectionFlag}, provider: smokeInspectionProvider{identity: identity}},
+		{name: "inspection failure", args: []string{buildinfo.InspectionFlag}, provider: smokeInspectionProvider{err: &buildinfo.IdentityError{Code: buildinfo.ErrorBuildIdentityMissing, Field: "releaseCommit"}}, wantCode: 1},
+		{name: "normal smoke", args: []string{"--agent-addr", "127.0.0.1:1"}, provider: smokeInspectionProvider{identity: identity}, wantRuns: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			parseCalls, dialCalls, rpcCalls := 0, 0, 0
+			exitCode := runMain(context.Background(), test.args, inspectionDependencies{
+				provider: test.provider, stdout: &stdout, stderr: &stderr,
+				repoRoot: "/app", contract: packagedContractPath, schema: packagedSchemaPath,
+			}, func(context.Context, []string) int {
+				parseCalls++
+				dialCalls++
+				rpcCalls++
+				return 0
+			})
+			if exitCode != test.wantCode {
+				t.Fatalf("exit code = %d, want %d; stderr=%s", exitCode, test.wantCode, stderr.String())
+			}
+			for name, calls := range map[string]int{"parse": parseCalls, "dial": dialCalls, "rpc": rpcCalls} {
+				if calls != test.wantRuns {
+					t.Fatalf("%s calls = %d, want %d", name, calls, test.wantRuns)
+				}
+			}
+			switch test.name {
+			case "inspection success":
+				var got buildinfo.BuildIdentityV1
+				if err := json.Unmarshal(stdout.Bytes(), &got); err != nil || got != identity {
+					t.Fatalf("inspection output = %q, identity=%#v, error=%v", stdout.String(), got, err)
+				}
+			case "inspection failure":
+				if !strings.Contains(stderr.String(), string(buildinfo.ErrorBuildIdentityMissing)) {
+					t.Fatalf("inspection error = %q", stderr.String())
+				}
+			}
+		})
+	}
+}
+
+type smokeInspectionProvider struct {
+	identity buildinfo.BuildIdentityV1
+	err      error
+}
+
+func (p smokeInspectionProvider) Resolve(context.Context, string, string, string) (buildinfo.BuildIdentityV1, error) {
+	return p.identity, p.err
+}
+
+func smokeTestIdentity() buildinfo.BuildIdentityV1 {
+	return buildinfo.BuildIdentityV1{
+		SchemaVersion: buildinfo.BuildIdentitySchemaV1, ReleaseCommit: strings.Repeat("a", 40),
+		SourceTree: strings.Repeat("b", 40), ContractDigest: "sha256:" + strings.Repeat("c", 64),
+		Dirty: false, EvidenceClass: buildinfo.EvidenceRepositoryLocal,
+	}
+}
 
 func TestRunRequiresAllAddresses(t *testing.T) {
 	var output bytes.Buffer
