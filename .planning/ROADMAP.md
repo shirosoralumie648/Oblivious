@@ -89,14 +89,14 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion; consumer packages are file-disjoint and may run in parallel)*
 
-- [ ] 31.1-04-PLAN.md - Guard schedule, channel, batch, and archive worker claim/effect boundaries.
-- [ ] 31.1-05-PLAN.md - Guard Relay/Chat attempts and enforce server-derived model/routing authority.
+- [ ] 31.1-04-PLAN.md - Guard schedule, channel, batch, and archive worker boundaries and own the workflow ToolExecutor injection seam.
+- [ ] 31.1-05-PLAN.md - Guard Relay/Chat attempts and deliver exact server-derived `ModelOption.capabilityId` response/mutation contracts.
 - [ ] 31.1-06-PLAN.md - Guard MCP, the independent Agent tools Registry API, strict mutation DTOs, and the generic configured web-search Chain without depending on the later expected manifest.
 - [ ] 31.1-07-PLAN.md - Guard checkout, Admin refund, payout, and settlement while preserving signed reconciliation-only completion.
 
-**Wave 3** *(blocked on Plans 01 and 06)*
+**Wave 3** *(blocked on Plans 01, 04 and 06)*
 
-- [ ] 31.1-10-PLAN.md - Build authority-required web-search packages and guard the live Agent ToolExecutor builtin/custom HTTP/local Python/sandbox/MCP paths.
+- [ ] 31.1-10-PLAN.md - Build authority-required web-search/live ToolExecutor paths and exact read-only `ToolDefinition.capabilityId` frontend normalization/mutation omission.
 
 **Wave 4** *(blocked on all Wave 2 consumers and Plan 10; sole server.go composition owner)*
 
@@ -108,11 +108,11 @@ Plans:
 
 **Wave 6** *(blocked on all runtime consumers and standalone roots)*
 
-- [ ] 31.1-03-PLAN.md - Expose control-plane views, create the expected manifest, and exact-join static/runtime coverage including real ToolExecutor seams.
+- [ ] 31.1-03-PLAN.md - Expose control-plane views, exact-join effect coverage, and compile distinct typed readiness/deployment report CLI producers.
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 31.1-08-PLAN.md - Wire canonical deployment assets and run mandatory Docker/DB plus deterministic structural-refresh Stage A/Stage B proof.
+- [ ] 31.1-08-PLAN.md - Wire canonical deployment assets and prove standalone-build plus aggregate-consume immutable-image readiness/deployment harness modes.
 
 Cross-cutting constraints:
 
@@ -121,7 +121,9 @@ Cross-cutting constraints:
 - Every process supplies a source-authored entrypoint ID; generic profile resolution, environment, argv and executable name cannot authorize standalone startup.
 - `RunEntrypoint` resolves one complete validated contract, resolver-returned profile and trusted identity into immutable `ResolvedEntrypointInputs`; callbacks cannot reload or replace them through environment, globals, cwd or disk.
 - Consumer packages complete against Plan 01 authority types before Plan 02 constructs one immutable `RuntimeAuthorities{CatalogAuthorizer,CapabilityBindings}` value and hands it to router, workers, Provider/tool/web-search, live ToolExecutor and finance consumers.
+- Chat response JSON/TypeScript `ModelOption` and live Agent `ToolDefinition`/`AgentToolDefinition` expose exact server-derived read-only `capabilityId`; strict server mutations reject it and frontend mutations omit it.
 - Plan 06 descriptor tests are manifest-independent; Plan 03 alone creates `readiness-effect-surface.v1.json` and joins expected/static/runtime sets after every producer is complete.
+- Plan 03 owns `NewDeploymentReport` plus `report-readiness`/`report-deployment`; Plan 08 separately persists both reports and its aggregate mode consumes the Phase 31 foundation image bundle/tag/digest without rebuilding.
 - Authored monolith timing remains exactly 30s refresh, 120s max age, and 30s future skew with no runtime fallback.
 - Phase completion is capped at E1/E2 repository-local evidence; non-empty skips and unavailable Docker/DB fail the committed gate.
 
@@ -134,13 +136,64 @@ Cross-cutting constraints:
 **Requirements**: RELS-02
 **Success Criteria** (what must be TRUE):
 
-  1. OpenAPI operation、runtime registry 与 derived route manifest 在 method/path/security/capability/media/schema 上双向一致。
+  1. `/api/*`、`/v1/*` 与其余明确 disposition 的 public operations 在 OpenAPI、same-source runtime registrar 与 derived compare inputs 上双向一致。
   2. TypeScript AST inventory 覆盖全部 production HttpClient、fetch/SWR、upload、SSE/streamText、EventSource 与 WebSocket caller，并验证 request encoder 和 response decoder；text/markdown 不再走 JSON decoder。
   3. pinned protoc/tool plugins 在 CI 可复现安装，所有 canonical proto source 与 generated output 唯一归属并可确定性再生。
   4. numbered SQL/checksum、runtime ledger 与 committed monolith replay 分别产生 typed evidence；无 DB/Docker 不能被计为通过。
   5. verify-quality-gates.sh 是唯一 direct aggregate owner，聚合 trusted build/readiness/surface reports，拒绝 identity splice、drift、skip、重复 surface 和敏感公开输出。
 
-**Plans**: TBD
+**Plans**: 15 plans
+**Progress**: 0/15 plans complete
+
+Plans:
+**Wave 1** *(blocked on Phase 31.1 Plan 31.1-08 completion; file-disjoint foundations may run in parallel)*
+
+- [ ] 31.2-01-PLAN.md - Close public HTTP scope, emit typed projections, and provide the narrow exact-symbol caller preflight.
+- [ ] 31.2-06-PLAN.md - Pin protobuf tools, disposition every tracked source/output, and prove temp-only byte-clean regeneration.
+- [ ] 31.2-07-PLAN.md - Produce shared MigrationIdentity rows/digest plus separate static metadata and ledger reports.
+
+**Wave 2** *(blocked on the corresponding Wave 1 foundations; file-disjoint and parallel)*
+
+- [ ] 31.2-02-PLAN.md - Make Go runtime registrations the same source for dispatch/descriptors and compare them to OpenAPI.
+- [ ] 31.2-04-PLAN.md - Define shared operation-aware HttpClient/stream/upload/SWR contracts and migrate Chat/transport owners.
+- [ ] 31.2-08-PLAN.md - Run one fresh migration session deriving apply/no-op from ledger snapshots and emitting three reports once.
+
+**Wave 3** *(blocked on Plans 01, 02 and 04; caller groups and Group A route migration are file-disjoint and parallel)*
+
+- [ ] 31.2-11-PLAN.md - Close the fixed nine-file Group A expected-owner set with exact generated symbols or compiler-proven non-caller disposition.
+- [ ] 31.2-12-PLAN.md - Migrate the fixed eight-file Group B production caller owner set to exact generated operation symbols.
+- [ ] 31.2-13-PLAN.md - Migrate the first eight Go route helper owners to same-source runtime registration.
+
+**Wave 4** *(blocked on both caller migration groups and Group A route migration)*
+
+- [ ] 31.2-10-PLAN.md - Wire authenticated projection API/state/provider into router/nav/marketing and Chat/Agents selectors.
+- [ ] 31.2-14-PLAN.md - Migrate the remaining eight Go route helper owners and prove Group B dispatch/media parity.
+
+**Wave 5** *(blocked on the route groups and caller foundations)*
+
+- [ ] 31.2-15-PLAN.md - Complete the HTTP runtime producer and migrate the two public marketing auth callers.
+
+**Wave 6** *(blocked on complete caller and route ownership closure)*
+
+- [ ] 31.2-03-PLAN.md - Build the one-Program production sidecar, enforce exact 25-owner closure, and register frontend reports.
+
+**Wave 7** *(blocked on the full sidecar plus exposure/runtime/protobuf foundations)*
+
+- [ ] 31.2-05-PLAN.md - Exact-join one sidecar across transport/exposure and emit two reports over Plan 10 wiring.
+
+**Wave 8** *(blocked on all surface producers)*
+
+- [ ] 31.2-09-PLAN.md - Aggregate exact ten reports with one immutable image build, one migration session, sole quality parent and redaction.
+
+Cross-cutting constraints:
+
+- Phase 31.2 remains at 0/15 until execution; planning/checker language is not implementation or release approval.
+- Plan 01 `SchemaIdentityV1`/`OperationContractMetadataV1` is the exact schema identity used by Plans 03-05; TypeScript generics are diagnostics only.
+- Plans 04/10/11/12/15 explicitly migrate the exact 25 known production caller/transport owners; Plan 03 runs only after them and fails on a missing owner or newly discovered caller.
+- Plan 10 consumes exact Phase 31.1 `ModelOption.capabilityId`, `AgentToolDefinition.capabilityId`, and authenticated identity-bound app projection; caller projection JSON and client maps are forbidden.
+- Plan 09 creates one release session, builds the Phase 31 artifact bundle/tag/digest once, shares it with build/readiness/deployment, and invokes the migration session once without a separate static pre-run.
+- During tasks only disposable Stage-A callgraph/identity fixtures run. After the atomic commit, only `verify-quality-gates.sh` runs; it is the unique direct clean-head aggregate parent.
+
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
 ### Phase 32: 身份、租户与共享出站安全
@@ -273,7 +326,7 @@ Cross-cutting constraints:
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 0/6 | Not started | - |
 | 31.1 动态 Readiness 与持续 Fail-Closed | 0/10 | Not started | - |
-| 31.2 契约表面一致性与聚合门禁 | 0/TBD | Not started | - |
+| 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
 | 34. Relay、Chat 与证据主链 | 0/TBD | Not started | - |

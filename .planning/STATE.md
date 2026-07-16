@@ -58,6 +58,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Roadmap] Current milestone continues after historical Phase 30 and uses sequential Phase 31-39 IDs.
 - [Roadmap] Phases follow capability and evidence dependencies, not historical module counts or fixed service topology.
 - [Roadmap] Only deployment profiles that prove parity remain in the release contract.
+- [Workflow] TDD is disabled; implementation may precede tests, while implementation-complete automated verification and regression coverage remain mandatory.
 
 ### Pending Todos
 
