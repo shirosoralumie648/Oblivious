@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oblivious.local/schemas/release/contract/v1",
+  "title": "Oblivious AuthoredContractV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capabilities",
+    "reasonCodes",
+    "defaultProfile",
+    "profiles",
+    "catalogBindings",
+    "surfaceReferences",
+    "readinessRequirements"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "contract/v1" },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "reasonCodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/reasonCode" }
+    },
+    "defaultProfile": { "$ref": "#/$defs/id" },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/profile" }
+    },
+    "catalogBindings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/catalogBinding" }
+    },
+    "surfaceReferences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/surfaceReference" }
+    },
+    "readinessRequirements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/readinessRequirement" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\x00]+$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "commitment": {
+      "type": "string",
+      "enum": ["committed", "conditional", "excluded"]
+    },
+    "idSet": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "commitment"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "commitment": { "$ref": "#/$defs/commitment" },
+        "reasonCode": { "$ref": "#/$defs/id" }
+      }
+    },
+    "reasonCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "appliesTo", "description"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "appliesTo": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["build", "capability", "contract", "operation", "profile", "readiness", "report", "surface"]
+          }
+        },
+        "description": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "commitment",
+        "topology",
+        "entrypoints",
+        "dependencies",
+        "stateStores",
+        "capabilityOverrides",
+        "operations",
+        "catalogBindingIds",
+        "surfaceReferenceIds",
+        "readinessRequirementIds"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "commitment": { "$ref": "#/$defs/commitment" },
+        "reasonCode": { "$ref": "#/$defs/id" },
+        "topology": { "$ref": "#/$defs/topology" },
+        "entrypoints": { "$ref": "#/$defs/idSet" },
+        "dependencies": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/dependency" }
+        },
+        "stateStores": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/stateStore" }
+        },
+        "capabilityOverrides": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/capabilityOverride" }
+        },
+        "operations": { "$ref": "#/$defs/operations" },
+        "catalogBindingIds": { "$ref": "#/$defs/idSet" },
+        "surfaceReferenceIds": { "$ref": "#/$defs/idSet" },
+        "readinessRequirementIds": { "$ref": "#/$defs/idSet" }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "components"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["monolith", "microservices", "dual", "split"]
+        },
+        "components": { "$ref": "#/$defs/idSet" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "required"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "required": { "type": "boolean" }
+      }
+    },
+    "stateStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": {
+          "type": "string",
+          "enum": ["postgres", "redis", "qdrant", "clickhouse", "kafka", "object_store", "filesystem", "external"]
+        }
+      }
+    },
+    "capabilityOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "commitment"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/id" },
+        "commitment": { "$ref": "#/$defs/commitment" },
+        "reasonCode": { "$ref": "#/$defs/id" }
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["migrate", "deploy", "rollback"],
+      "properties": {
+        "migrate": { "$ref": "#/$defs/operationRef" },
+        "deploy": { "$ref": "#/$defs/operationRef" },
+        "rollback": { "$ref": "#/$defs/operationRef" }
+      }
+    },
+    "operationRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "path", "argv"],
+      "properties": {
+        "profileId": { "$ref": "#/$defs/id" },
+        "path": { "$ref": "#/$defs/path" },
+        "argv": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        }
+      }
+    },
+    "catalogBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subjectKind", "subjectId", "runtimeClass", "capabilityId"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "subjectKind": {
+          "type": "string",
+          "enum": ["model", "tool", "runtime"]
+        },
+        "subjectId": { "$ref": "#/$defs/id" },
+        "runtimeClass": {
+          "type": "string",
+          "enum": ["server_model", "builtin", "network", "custom", "mcp", "sandbox"]
+        },
+        "capabilityId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "surfaceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "canonicalSource", "consumer", "capabilityIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "canonicalSource": { "$ref": "#/$defs/path" },
+        "consumer": { "$ref": "#/$defs/id" },
+        "capabilityIds": { "$ref": "#/$defs/idSet" }
+      }
+    },
+    "readinessRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "capabilityIds", "dependencyIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "capabilityIds": { "$ref": "#/$defs/idSet" },
+        "dependencyIds": { "$ref": "#/$defs/idSet" }
+      }
+    }
+  }
+}
