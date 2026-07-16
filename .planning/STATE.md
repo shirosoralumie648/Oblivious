@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 31
-current_phase_name: "current milestone: 1 of 11 - 发布合同与可信构建身份"
+current_phase_name: release-contract-current-baseline
 status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-07-15T19:32:09.847Z"
-last_activity: 2026-07-15
-last_activity_desc: Phase 31 planning complete - 6 plans ready
+stopped_at: Completed 31-01-PLAN.md
+last_updated: "2026-07-16T06:33:59.784Z"
+last_activity: 2026-07-16
+last_activity_desc: Phase 31 execution resumed (wave continue)
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 31
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 **Core value:** 让组织客户能够可靠地构建、运行并商业化 AI 应用，同时让每一次 AI 操作都可隔离、可计费、可追踪、可审计、可恢复。
-**Current focus:** Phase 31 - 发布合同与可信构建身份
+**Current focus:** Phase 31 — release-contract-current-baseline
 
 ## Current Position
 
-Phase: 31 of 39 (current milestone: 1 of 11 - 发布合同与可信构建身份)
-Plan: 0 of 6
+Phase: 31 (release-contract-current-baseline) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-07-15 - Phase 31 planning complete - 6 plans ready
+Last activity: 2026-07-16 — Phase 31 execution resumed (wave continue)
 
 Progress: [----------] 0%
 
@@ -59,6 +59,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Roadmap] Phases follow capability and evidence dependencies, not historical module counts or fixed service topology.
 - [Roadmap] Only deployment profiles that prove parity remain in the release contract.
 - [Workflow] TDD is disabled; implementation may precede tests, while implementation-complete automated verification and regression coverage remain mandatory.
+- [Phase 31]: contract.v1.json is the sole authored authority; source identity, dynamic availability, observations, and contract digest remain derived or deferred. — Prevents documents, environment variables, assets, and derived reports from overriding release commitments.
+- [Phase 31]: monolith is the only committed/default profile; microservices, dual, and split remain excluded with profile_parity_unproven. — Repository assets do not prove profile parity or promote candidate deployment modes.
+- [Phase 31]: RELS-01 remains pending after plan 31-01. — This plan provides repository-local foundation only; runtime readiness and target/live evidence are owned by later phases.
 
 ### Pending Todos
 
@@ -81,6 +84,12 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-15T00:28:50.561Z
-Stopped at: Phase 31 context gathered
-Resume file: .planning/phases/31-release-contract-current-baseline/31-CONTEXT.md
+Last session: 2026-07-16T06:32:19.464Z
+Stopped at: Completed 31-01-PLAN.md
+Resume file: None
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 31-release-contract-current-baseline P01 | 47 min | 3 tasks | 8 files |
