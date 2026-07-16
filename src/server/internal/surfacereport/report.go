@@ -144,8 +144,14 @@ func Validate(report SurfaceReportV1, registry *DetailsRegistry) error {
 			return reportError(field, nil)
 		}
 	}
+	if !validDigest(report.SurfaceIdentity.SourceDigest) || !validDigest(report.SurfaceIdentity.ConsumerDigest) {
+		return reportError("surfaceIdentity.digest", nil)
+	}
 	if err := validateCheckedAt(report.Evidence.CheckedAt); err != nil {
 		return reportError("evidence.checkedAt", err)
+	}
+	if report.Evidence.ToolVersions == nil || report.Drift.Missing == nil || report.Drift.Extra == nil || report.Drift.Incompatible == nil || report.Outcome.ErrorCodes == nil || report.Outcome.SkippedChecks == nil {
+		return reportError("requiredCollections", nil)
 	}
 	for name, version := range report.Evidence.ToolVersions {
 		if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" {
