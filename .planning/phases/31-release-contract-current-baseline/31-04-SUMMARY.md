@@ -97,7 +97,7 @@ status: complete
 2. **Task 2: Register and construct the trusted build-identity surface** - `418b297` (`feat`)
 3. **Task 3: Write validated reports atomically and preserve producer failures** - `de53518` (`feat`)
 
-## Verification
+## Automated Evidence
 
 - Envelope/registry selector - 3 concrete tests listed and passed.
 - Build-report selector - 4 concrete tests listed and passed.
