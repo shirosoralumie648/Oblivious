@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 31
 current_phase_name: release-contract-current-baseline
 status: executing
-stopped_at: Completed 31-04-PLAN.md
-last_updated: "2026-07-16T11:23:39Z"
+stopped_at: Completed 31-05-PLAN.md
+last_updated: "2026-07-16T11:55:01Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 31
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31 (release-contract-current-baseline) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 31 execution started
 
@@ -68,6 +68,8 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31]: Foundation CLI source-bound commands require explicit repo, contract, and schema inputs. — Keeps validation, digest, identity, operation, and inspection on one explicit authority boundary.
 - [Phase 31]: Surface reports use one strict six-block envelope and typed details registry; build identity and committed profile remain resolver-owned. — Prevents producers from injecting release authority or inventing parallel report schemas.
 - [Phase 31]: Atomic report failures preserve and byte-verify prior destination bytes or absence before returning after rename. — Prevents partial or failed evidence writes from replacing last-known valid evidence.
+- [Phase 31]: Active binary identity inspection precedes server/migrate startup and grpc-smoke parsing/network effects. — Makes the shipped tuple observable without config, DB, migration, listener, dial, or RPC side effects.
+- [Phase 31]: One clean-Git tuple must agree across three image binaries, OCI labels, and strict packaged-contract digest. — Prevents build args or one artifact surface from becoming independent identity authority.
 
 ### Pending Todos
 
@@ -90,8 +92,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-16T11:23:39Z
-Stopped at: Completed 31-04-PLAN.md
+Last session: 2026-07-16T11:55:01Z
+Stopped at: Completed 31-05-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -102,3 +104,4 @@ Resume file: None
 | Phase 31 P02 | 9 min | 3 tasks | 9 files |
 | Phase 31 P03 | 19 min | 3 tasks | 9 files |
 | Phase 31 P04 | 50 min | 3 tasks | 7 files |
+| Phase 31 P05 | 31 min | 3 tasks | 9 files |
