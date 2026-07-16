@@ -20,7 +20,9 @@ type DetailsRegistry struct {
 }
 
 func NewDetailsRegistry() *DetailsRegistry {
-	return &DetailsRegistry{schemas: make(map[string]detailsSchema)}
+	registry := &DetailsRegistry{schemas: make(map[string]detailsSchema)}
+	registerFoundationDetails(registry)
+	return registry
 }
 
 func RegisterDetails[T any](registry *DetailsRegistry, surfaceID string, validate func(T) error) error {

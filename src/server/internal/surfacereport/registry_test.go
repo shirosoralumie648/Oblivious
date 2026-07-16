@@ -26,3 +26,18 @@ func TestDetailsRegistryRejectsDuplicateUnknownAndWrongType(t *testing.T) {
 		t.Fatalf("unknown details field error = %v", err)
 	}
 }
+
+func TestBuildIdentityDetailsRegistration(t *testing.T) {
+	registry := NewDetailsRegistry()
+	details := validBuildDetails(validBuildIdentity())
+	raw, err := registry.MarshalDetails(BuildIdentitySurfaceID, details)
+	if err != nil {
+		t.Fatalf("marshal registered build details: %v", err)
+	}
+	if err := registry.ValidateDetails(BuildIdentitySurfaceID, raw); err != nil {
+		t.Fatalf("validate registered build details: %v", err)
+	}
+	if err := RegisterDetails(registry, BuildIdentitySurfaceID, validateBuildIdentityDetails); !IsCode(err, ErrorSurfaceSchemaInvalid) {
+		t.Fatalf("replace foundation registration error = %v", err)
+	}
+}
