@@ -39,7 +39,7 @@
   3. 所有后续 surface producer 共用嵌套 SurfaceReportV1、trusted identity resolver 和原子输出合同，environment/mode 不会混入 drift 或 skipped checks。
   4. monolith 是唯一 committed/default profile；microservices、dual、split 具有 profile-bound、无副作用且稳定失败的 migrate/deploy/rollback refs，不会被资产存在隐式晋级。
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
@@ -48,7 +48,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 31-02-PLAN.md - Add canonical contract digest, non-vacuous Go test selection, and safe profile operations.
+- [x] 31-02-PLAN.md - Add canonical contract digest, non-vacuous Go test selection, and safe profile operations.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -324,7 +324,7 @@ Cross-cutting constraints:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 31. 发布合同与可信构建身份 | 1/6 | In Progress|  |
+| 31. 发布合同与可信构建身份 | 2/6 | In Progress|  |
 | 31.1 动态 Readiness 与持续 Fail-Closed | 0/10 | Not started | - |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
