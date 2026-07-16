@@ -187,6 +187,9 @@ func Validate(report SurfaceReportV1, registry *DetailsRegistry) error {
 	if err := registry.ValidateDetails(report.SurfaceIdentity.Surface, report.Evidence.Details); err != nil {
 		return err
 	}
+	if err := validateDetailsAgainstRelease(report); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -167,6 +167,35 @@ func validateBuildIdentityDetailsAgainst(details BuildIdentityDetails, expected 
 	return nil
 }
 
+func validateDetailsAgainstRelease(report SurfaceReportV1) error {
+	if report.SurfaceIdentity.Surface != BuildIdentitySurfaceID {
+		return nil
+	}
+	var details BuildIdentityDetails
+	if err := json.Unmarshal(report.Evidence.Details, &details); err != nil {
+		return reportError("evidence.details", err)
+	}
+	expected := buildinfo.BuildIdentityV1{
+		SchemaVersion:  buildinfo.BuildIdentitySchemaV1,
+		ReleaseCommit:  report.ReleaseIdentity.ReleaseCommit,
+		SourceTree:     report.ReleaseIdentity.SourceTree,
+		ContractDigest: report.ReleaseIdentity.ContractDigest,
+		Dirty:          report.ReleaseIdentity.Dirty,
+		EvidenceClass:  report.ReleaseIdentity.EvidenceClass,
+	}
+	if err := validateBuildIdentityDetailsAgainst(details, expected); err != nil {
+		return err
+	}
+	digest, err := detailsDigest(report.Evidence.Details)
+	if err != nil {
+		return err
+	}
+	if report.SurfaceIdentity.SourceDigest != expected.ContractDigest || report.SurfaceIdentity.ConsumerDigest != digest {
+		return reportError("surfaceIdentity.digest", nil)
+	}
+	return nil
+}
+
 func detailsDigest(details json.RawMessage) (string, error) {
 	var value any
 	if err := json.Unmarshal(details, &value); err != nil {
