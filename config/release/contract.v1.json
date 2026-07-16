@@ -1,0 +1,218 @@
+{
+  "schemaVersion": "contract/v1",
+  "capabilities": [
+    { "id": "admin.governance", "commitment": "committed" },
+    { "id": "agent.run", "commitment": "committed" },
+    { "id": "agent.tool_execution", "commitment": "committed" },
+    { "id": "billing.ledger_lifecycle", "commitment": "committed" },
+    { "id": "billing.payment_lifecycle", "commitment": "committed" },
+    { "id": "channel.delivery", "commitment": "committed" },
+    { "id": "chat.conversation_use", "commitment": "committed" },
+    { "id": "chat.export", "commitment": "committed" },
+    { "id": "deployment.operations", "commitment": "committed" },
+    { "id": "gateway.request_admission", "commitment": "committed" },
+    { "id": "identity.account_session", "commitment": "committed" },
+    { "id": "identity.organization_membership", "commitment": "committed" },
+    { "id": "knowledge.ingestion", "commitment": "committed" },
+    { "id": "knowledge.retrieval", "commitment": "committed" },
+    { "id": "marketplace.commerce", "commitment": "committed" },
+    { "id": "marketplace.governance", "commitment": "committed" },
+    { "id": "mcp.custom_execution", "commitment": "conditional", "reasonCode": "dependency_unproven" },
+    { "id": "mcp.network_execution", "commitment": "conditional", "reasonCode": "dependency_unproven" },
+    { "id": "mcp.tool_execution", "commitment": "committed" },
+    { "id": "observability.audit", "commitment": "committed" },
+    { "id": "observability.slo", "commitment": "committed" },
+    { "id": "relay.provider_inference", "commitment": "committed" },
+    { "id": "relay.stream_cancel", "commitment": "committed" },
+    { "id": "relay.usage_settlement", "commitment": "committed" },
+    { "id": "release.contract_reporting", "commitment": "committed" },
+    { "id": "sandbox.code_execution", "commitment": "excluded", "reasonCode": "capability_excluded" },
+    { "id": "task.scheduled_execution", "commitment": "committed" },
+    { "id": "workflow.graph_execution", "commitment": "committed" },
+    { "id": "workflow.replay", "commitment": "committed" }
+  ],
+  "reasonCodes": [
+    { "id": "build_identity_mismatch", "appliesTo": ["build", "report"], "description": "Build identity values do not match the trusted source identity." },
+    { "id": "build_identity_missing", "appliesTo": ["build", "report"], "description": "A required trusted build identity is absent." },
+    { "id": "capability_blocked", "appliesTo": ["capability", "readiness"], "description": "A committed capability is blocked by current readiness." },
+    { "id": "capability_disabled", "appliesTo": ["capability", "readiness"], "description": "A capability is disabled by policy." },
+    { "id": "capability_excluded", "appliesTo": ["capability"], "description": "The capability is intentionally outside the committed release contract." },
+    { "id": "capability_unknown", "appliesTo": ["capability"], "description": "The capability identifier is not authored by the release contract." },
+    { "id": "contract_digest_mismatch", "appliesTo": ["build", "contract", "report"], "description": "The canonical contract digest differs from the trusted identity." },
+    { "id": "dependency_unproven", "appliesTo": ["capability", "readiness"], "description": "A required external dependency has not been proven for the active environment." },
+    { "id": "migration_replay_unavailable", "appliesTo": ["readiness", "surface"], "description": "A required migration replay environment is unavailable." },
+    { "id": "profile_excluded", "appliesTo": ["operation", "profile"], "description": "The explicitly requested deployment profile is excluded." },
+    { "id": "profile_parity_unproven", "appliesTo": ["capability", "profile"], "description": "The deployment profile has not proven behavioral parity with monolith." },
+    { "id": "profile_required", "appliesTo": ["operation", "profile"], "description": "A deployment profile must be explicitly selected." },
+    { "id": "readiness_stale", "appliesTo": ["readiness"], "description": "The current readiness evaluation is older than its authored freshness bound." },
+    { "id": "readiness_unavailable", "appliesTo": ["readiness"], "description": "No valid readiness evaluation is available." },
+    { "id": "report_output_unwritable", "appliesTo": ["report"], "description": "A report could not be committed atomically to its destination." },
+    { "id": "source_worktree_dirty", "appliesTo": ["build"], "description": "The source worktree is not clean and cannot produce trusted build identity." },
+    { "id": "surface_drift", "appliesTo": ["surface"], "description": "A committed contract surface differs from its canonical source." },
+    { "id": "surface_schema_invalid", "appliesTo": ["report", "surface"], "description": "A surface report does not conform to its registered schema." },
+    { "id": "toolchain_mismatch", "appliesTo": ["build", "surface"], "description": "The observed generation toolchain differs from the pinned toolchain." }
+  ],
+  "defaultProfile": "monolith",
+  "profiles": [
+    {
+      "id": "dual",
+      "commitment": "excluded",
+      "reasonCode": "profile_parity_unproven",
+      "topology": { "kind": "dual", "components": ["gateway", "monolith", "services"] },
+      "entrypoints": ["gateway", "server"],
+      "dependencies": [
+        { "id": "clickhouse", "required": true },
+        { "id": "kafka", "required": true },
+        { "id": "postgres", "required": true },
+        { "id": "qdrant", "required": true },
+        { "id": "redis", "required": true }
+      ],
+      "stateStores": [
+        { "id": "analytics", "kind": "clickhouse" },
+        { "id": "events", "kind": "kafka" },
+        { "id": "primary", "kind": "postgres" },
+        { "id": "queue", "kind": "redis" },
+        { "id": "vectors", "kind": "qdrant" }
+      ],
+      "capabilityOverrides": [
+        { "capabilityId": "deployment.operations", "commitment": "excluded", "reasonCode": "profile_parity_unproven" }
+      ],
+      "operations": {
+        "migrate": { "profileId": "dual", "path": "scripts/release-profile-operation.sh", "argv": ["dual", "migrate"] },
+        "deploy": { "profileId": "dual", "path": "scripts/release-profile-operation.sh", "argv": ["dual", "deploy"] },
+        "rollback": { "profileId": "dual", "path": "scripts/release-profile-operation.sh", "argv": ["dual", "rollback"] }
+      },
+      "catalogBindingIds": ["model.gpt-3.5-turbo", "model.gpt-4-turbo", "model.gpt-4o", "model.gpt-4o-mini", "model.text-embedding-3-small", "runtime.custom", "runtime.mcp", "runtime.sandbox", "tool.calculator", "tool.datetime", "tool.http_request", "tool.json_formatter", "tool.text_transform", "tool.web_search"],
+      "surfaceReferenceIds": ["build-identity", "catalog", "deployment", "frontend", "http", "migrations", "protobuf", "readiness"],
+      "readinessRequirementIds": ["catalog-policy", "core-database", "provider-runtime", "request-logging", "retrieval", "sandbox-capacity", "scheduler"]
+    },
+    {
+      "id": "microservices",
+      "commitment": "excluded",
+      "reasonCode": "profile_parity_unproven",
+      "topology": { "kind": "microservices", "components": ["agent", "billing", "channel", "chat", "gateway", "marketplace", "observability", "rag", "relay", "task", "workflow"] },
+      "entrypoints": ["agent", "billing", "channel", "chat", "gateway", "marketplace", "observability", "rag", "relay", "task", "workflow"],
+      "dependencies": [
+        { "id": "clickhouse", "required": true },
+        { "id": "kafka", "required": true },
+        { "id": "postgres", "required": true },
+        { "id": "qdrant", "required": true },
+        { "id": "redis", "required": true }
+      ],
+      "stateStores": [
+        { "id": "analytics", "kind": "clickhouse" },
+        { "id": "events", "kind": "kafka" },
+        { "id": "primary", "kind": "postgres" },
+        { "id": "queue", "kind": "redis" },
+        { "id": "vectors", "kind": "qdrant" }
+      ],
+      "capabilityOverrides": [
+        { "capabilityId": "deployment.operations", "commitment": "excluded", "reasonCode": "profile_parity_unproven" }
+      ],
+      "operations": {
+        "migrate": { "profileId": "microservices", "path": "scripts/release-profile-operation.sh", "argv": ["microservices", "migrate"] },
+        "deploy": { "profileId": "microservices", "path": "scripts/release-profile-operation.sh", "argv": ["microservices", "deploy"] },
+        "rollback": { "profileId": "microservices", "path": "scripts/release-profile-operation.sh", "argv": ["microservices", "rollback"] }
+      },
+      "catalogBindingIds": ["model.gpt-3.5-turbo", "model.gpt-4-turbo", "model.gpt-4o", "model.gpt-4o-mini", "model.text-embedding-3-small", "runtime.custom", "runtime.mcp", "runtime.sandbox", "tool.calculator", "tool.datetime", "tool.http_request", "tool.json_formatter", "tool.text_transform", "tool.web_search"],
+      "surfaceReferenceIds": ["build-identity", "catalog", "deployment", "frontend", "http", "migrations", "protobuf", "readiness"],
+      "readinessRequirementIds": ["catalog-policy", "core-database", "provider-runtime", "request-logging", "retrieval", "sandbox-capacity", "scheduler"]
+    },
+    {
+      "id": "monolith",
+      "commitment": "committed",
+      "topology": { "kind": "monolith", "components": ["server"] },
+      "entrypoints": ["grpc-smoke", "migrate", "server"],
+      "dependencies": [
+        { "id": "clickhouse", "required": true },
+        { "id": "kafka", "required": false },
+        { "id": "postgres", "required": true },
+        { "id": "qdrant", "required": true },
+        { "id": "redis", "required": true }
+      ],
+      "stateStores": [
+        { "id": "analytics", "kind": "clickhouse" },
+        { "id": "events", "kind": "kafka" },
+        { "id": "primary", "kind": "postgres" },
+        { "id": "queue", "kind": "redis" },
+        { "id": "vectors", "kind": "qdrant" }
+      ],
+      "capabilityOverrides": [],
+      "operations": {
+        "migrate": { "profileId": "monolith", "path": "scripts/release-profile-operation.sh", "argv": ["monolith", "migrate"] },
+        "deploy": { "profileId": "monolith", "path": "scripts/release-profile-operation.sh", "argv": ["monolith", "deploy"] },
+        "rollback": { "profileId": "monolith", "path": "scripts/release-profile-operation.sh", "argv": ["monolith", "rollback"] }
+      },
+      "catalogBindingIds": ["model.gpt-3.5-turbo", "model.gpt-4-turbo", "model.gpt-4o", "model.gpt-4o-mini", "model.text-embedding-3-small", "runtime.custom", "runtime.mcp", "runtime.sandbox", "tool.calculator", "tool.datetime", "tool.http_request", "tool.json_formatter", "tool.text_transform", "tool.web_search"],
+      "surfaceReferenceIds": ["build-identity", "catalog", "deployment", "frontend", "http", "migrations", "protobuf", "readiness"],
+      "readinessRequirementIds": ["catalog-policy", "core-database", "provider-runtime", "request-logging", "retrieval", "sandbox-capacity", "scheduler"]
+    },
+    {
+      "id": "split",
+      "commitment": "excluded",
+      "reasonCode": "profile_parity_unproven",
+      "topology": { "kind": "split", "components": ["gateway", "server", "workers"] },
+      "entrypoints": ["gateway", "server", "workers"],
+      "dependencies": [
+        { "id": "clickhouse", "required": true },
+        { "id": "kafka", "required": true },
+        { "id": "postgres", "required": true },
+        { "id": "qdrant", "required": true },
+        { "id": "redis", "required": true }
+      ],
+      "stateStores": [
+        { "id": "analytics", "kind": "clickhouse" },
+        { "id": "events", "kind": "kafka" },
+        { "id": "primary", "kind": "postgres" },
+        { "id": "queue", "kind": "redis" },
+        { "id": "vectors", "kind": "qdrant" }
+      ],
+      "capabilityOverrides": [
+        { "capabilityId": "deployment.operations", "commitment": "excluded", "reasonCode": "profile_parity_unproven" }
+      ],
+      "operations": {
+        "migrate": { "profileId": "split", "path": "scripts/release-profile-operation.sh", "argv": ["split", "migrate"] },
+        "deploy": { "profileId": "split", "path": "scripts/release-profile-operation.sh", "argv": ["split", "deploy"] },
+        "rollback": { "profileId": "split", "path": "scripts/release-profile-operation.sh", "argv": ["split", "rollback"] }
+      },
+      "catalogBindingIds": ["model.gpt-3.5-turbo", "model.gpt-4-turbo", "model.gpt-4o", "model.gpt-4o-mini", "model.text-embedding-3-small", "runtime.custom", "runtime.mcp", "runtime.sandbox", "tool.calculator", "tool.datetime", "tool.http_request", "tool.json_formatter", "tool.text_transform", "tool.web_search"],
+      "surfaceReferenceIds": ["build-identity", "catalog", "deployment", "frontend", "http", "migrations", "protobuf", "readiness"],
+      "readinessRequirementIds": ["catalog-policy", "core-database", "provider-runtime", "request-logging", "retrieval", "sandbox-capacity", "scheduler"]
+    }
+  ],
+  "catalogBindings": [
+    { "id": "model.gpt-3.5-turbo", "subjectKind": "model", "subjectId": "gpt-3.5-turbo", "runtimeClass": "server_model", "capabilityId": "relay.provider_inference" },
+    { "id": "model.gpt-4-turbo", "subjectKind": "model", "subjectId": "gpt-4-turbo", "runtimeClass": "server_model", "capabilityId": "relay.provider_inference" },
+    { "id": "model.gpt-4o", "subjectKind": "model", "subjectId": "gpt-4o", "runtimeClass": "server_model", "capabilityId": "relay.provider_inference" },
+    { "id": "model.gpt-4o-mini", "subjectKind": "model", "subjectId": "gpt-4o-mini", "runtimeClass": "server_model", "capabilityId": "relay.provider_inference" },
+    { "id": "model.text-embedding-3-small", "subjectKind": "model", "subjectId": "text-embedding-3-small", "runtimeClass": "server_model", "capabilityId": "knowledge.ingestion" },
+    { "id": "runtime.custom", "subjectKind": "runtime", "subjectId": "custom", "runtimeClass": "custom", "capabilityId": "mcp.custom_execution" },
+    { "id": "runtime.mcp", "subjectKind": "runtime", "subjectId": "mcp", "runtimeClass": "mcp", "capabilityId": "mcp.tool_execution" },
+    { "id": "runtime.sandbox", "subjectKind": "runtime", "subjectId": "sandbox", "runtimeClass": "sandbox", "capabilityId": "sandbox.code_execution" },
+    { "id": "tool.calculator", "subjectKind": "tool", "subjectId": "calculator", "runtimeClass": "builtin", "capabilityId": "mcp.tool_execution" },
+    { "id": "tool.datetime", "subjectKind": "tool", "subjectId": "datetime", "runtimeClass": "builtin", "capabilityId": "mcp.tool_execution" },
+    { "id": "tool.http_request", "subjectKind": "tool", "subjectId": "http_request", "runtimeClass": "network", "capabilityId": "mcp.network_execution" },
+    { "id": "tool.json_formatter", "subjectKind": "tool", "subjectId": "json_formatter", "runtimeClass": "builtin", "capabilityId": "mcp.tool_execution" },
+    { "id": "tool.text_transform", "subjectKind": "tool", "subjectId": "text_transform", "runtimeClass": "builtin", "capabilityId": "mcp.tool_execution" },
+    { "id": "tool.web_search", "subjectKind": "tool", "subjectId": "web_search", "runtimeClass": "network", "capabilityId": "mcp.network_execution" }
+  ],
+  "surfaceReferences": [
+    { "id": "build-identity", "canonicalSource": "config/release/contract.v1.json", "consumer": "trusted-build-provider", "capabilityIds": ["release.contract_reporting"] },
+    { "id": "catalog", "canonicalSource": "config/release/contract.v1.json", "consumer": "server-catalog-resolver", "capabilityIds": ["agent.tool_execution", "knowledge.ingestion", "mcp.custom_execution", "mcp.network_execution", "mcp.tool_execution", "relay.provider_inference", "sandbox.code_execution"] },
+    { "id": "deployment", "canonicalSource": "docker-compose.yml", "consumer": "release-profile-operator", "capabilityIds": ["deployment.operations"] },
+    { "id": "frontend", "canonicalSource": "src/web/src", "consumer": "frontend-transport-inventory", "capabilityIds": ["chat.conversation_use", "chat.export", "gateway.request_admission"] },
+    { "id": "http", "canonicalSource": "docs/api/openapi.yaml", "consumer": "runtime-route-registry", "capabilityIds": ["admin.governance", "gateway.request_admission", "identity.account_session", "identity.organization_membership"] },
+    { "id": "migrations", "canonicalSource": "src/server/migrations", "consumer": "migration-ledger", "capabilityIds": ["billing.ledger_lifecycle", "deployment.operations"] },
+    { "id": "protobuf", "canonicalSource": "api/proto", "consumer": "generated-grpc", "capabilityIds": ["agent.run", "knowledge.retrieval", "relay.provider_inference", "task.scheduled_execution", "workflow.graph_execution"] },
+    { "id": "readiness", "canonicalSource": "config/release/contract.v1.json", "consumer": "readiness-manager", "capabilityIds": ["deployment.operations", "observability.audit", "observability.slo", "release.contract_reporting"] }
+  ],
+  "readinessRequirements": [
+    { "id": "catalog-policy", "capabilityIds": ["agent.tool_execution", "mcp.custom_execution", "mcp.network_execution", "mcp.tool_execution", "relay.provider_inference", "sandbox.code_execution"], "dependencyIds": ["postgres"] },
+    { "id": "core-database", "capabilityIds": ["admin.governance", "billing.ledger_lifecycle", "billing.payment_lifecycle", "chat.conversation_use", "chat.export", "gateway.request_admission", "identity.account_session", "identity.organization_membership", "knowledge.ingestion", "knowledge.retrieval", "marketplace.commerce", "marketplace.governance", "task.scheduled_execution", "workflow.graph_execution", "workflow.replay"], "dependencyIds": ["postgres"] },
+    { "id": "provider-runtime", "capabilityIds": ["agent.run", "relay.provider_inference", "relay.stream_cancel", "relay.usage_settlement"], "dependencyIds": ["postgres", "redis"] },
+    { "id": "request-logging", "capabilityIds": ["observability.audit", "observability.slo"], "dependencyIds": ["clickhouse", "postgres"] },
+    { "id": "retrieval", "capabilityIds": ["knowledge.ingestion", "knowledge.retrieval"], "dependencyIds": ["postgres", "qdrant"] },
+    { "id": "sandbox-capacity", "capabilityIds": ["sandbox.code_execution"], "dependencyIds": ["redis"] },
+    { "id": "scheduler", "capabilityIds": ["channel.delivery", "task.scheduled_execution", "workflow.graph_execution"], "dependencyIds": ["kafka", "postgres"] }
+  ]
+}
