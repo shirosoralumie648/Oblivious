@@ -3,10 +3,13 @@ package releasecontract
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -71,7 +74,7 @@ func TestAuthoredContractV1ModelsRequiredSections(t *testing.T) {
 		ReasonCodes:           []ReasonCode{{ID: "profile_parity_unproven", AppliesTo: []string{"profile"}, Description: "Profile parity has not been proven."}},
 		DefaultProfile:        "monolith",
 		Profiles:              []DeploymentProfile{modelTestProfile()},
-		CatalogBindings:       []CatalogBinding{{ID: "model.gpt-4o-mini", SubjectKind: CatalogSubjectModel, SubjectID: "gpt-4o-mini", RuntimeClass: CatalogRuntimeServerModel, CapabilityID: "relay.provider_inference"}},
+		CatalogBindings:       []CatalogBinding{{ID: "model.gpt-4o-mini", SubjectKind: CatalogSubjectModel, SubjectID: "gpt-4o-mini", RuntimeClass: CatalogRuntimeServerModel, CapabilityID: "identity.session"}},
 		SurfaceReferences:     []SurfaceReference{{ID: "http", CanonicalSource: "docs/api/openapi.yaml", Consumer: "runtime-route-registry", CapabilityIDs: []string{"identity.session"}}},
 		ReadinessRequirements: []ReadinessRequirement{{ID: "database", CapabilityIDs: []string{"identity.session"}, DependencyIDs: []string{"postgres"}}},
 	}
@@ -88,6 +91,98 @@ func TestAuthoredContractV1ModelsRequiredSections(t *testing.T) {
 	assertNoAuthorityMaps(t, reflect.TypeOf(contract))
 	if err := contract.Validate(testRepoRoot(t)); err != nil {
 		t.Fatalf("validate typed model: %v", err)
+	}
+}
+
+func TestCheckedInContractProfilePolicyAndReferenceClosure(t *testing.T) {
+	contractBytes := readTestFile(t, "config/release/contract.v1.json")
+	schema := compileTestSchema(t, readTestFile(t, "config/release/contract.schema.json"))
+	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(contractBytes))
+	if err != nil {
+		t.Fatalf("decode checked-in contract for schema: %v", err)
+	}
+	if err := schema.Validate(document); err != nil {
+		t.Fatalf("checked-in contract schema validation: %v", err)
+	}
+
+	contract := decodeTestContract(t, contractBytes)
+	if err := contract.Validate(testRepoRoot(t)); err != nil {
+		t.Fatalf("checked-in contract semantic validation: %v", err)
+	}
+	if contract.DefaultProfile != "monolith" {
+		t.Fatalf("default profile = %q, want monolith", contract.DefaultProfile)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			if profile.Commitment != CommitmentCommitted {
+				t.Fatalf("monolith commitment = %q", profile.Commitment)
+			}
+			continue
+		}
+		if profile.Commitment != CommitmentExcluded || profile.ReasonCode != "profile_parity_unproven" {
+			t.Fatalf("candidate profile %s was promoted: commitment=%s reason=%s", profile.ID, profile.Commitment, profile.ReasonCode)
+		}
+	}
+
+	wantBindings := map[string]Commitment{
+		"tool.calculator":     CommitmentCommitted,
+		"tool.datetime":       CommitmentCommitted,
+		"tool.http_request":   CommitmentConditional,
+		"tool.json_formatter": CommitmentCommitted,
+		"tool.text_transform": CommitmentCommitted,
+		"tool.web_search":     CommitmentConditional,
+		"runtime.custom":      CommitmentConditional,
+		"runtime.mcp":         CommitmentCommitted,
+		"runtime.sandbox":     CommitmentExcluded,
+	}
+	capabilityCommitments := map[string]Commitment{}
+	for _, capability := range contract.Capabilities {
+		capabilityCommitments[capability.ID] = capability.Commitment
+	}
+	for _, binding := range contract.CatalogBindings {
+		want, ok := wantBindings[binding.ID]
+		if !ok {
+			continue
+		}
+		if got := capabilityCommitments[binding.CapabilityID]; got != want {
+			t.Errorf("binding %s commitment = %s, want %s", binding.ID, got, want)
+		}
+		delete(wantBindings, binding.ID)
+	}
+	if len(wantBindings) != 0 {
+		t.Fatalf("missing expected catalog bindings: %v", wantBindings)
+	}
+}
+
+func TestReleaseProfileOperationScriptRejectsExcludedProfiles(t *testing.T) {
+	script := filepath.Join(testRepoRoot(t), "scripts/release-profile-operation.sh")
+	content := readTestFile(t, "scripts/release-profile-operation.sh")
+	for _, forbidden := range []string{"eval ", "bash -c", "sh -c", "$*"} {
+		if bytes.Contains(content, []byte(forbidden)) {
+			t.Fatalf("operation script contains command-string pattern %q", forbidden)
+		}
+	}
+	if !bytes.Contains(content, []byte("set -euo pipefail")) {
+		t.Fatal("operation script must use set -euo pipefail")
+	}
+
+	for _, profileID := range []string{"dual", "microservices", "split"} {
+		t.Run(profileID, func(t *testing.T) {
+			command := exec.Command("bash", script, profileID, "deploy")
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatalf("excluded profile %s unexpectedly succeeded", profileID)
+			}
+			if !strings.Contains(string(output), "profile_excluded") {
+				t.Fatalf("excluded profile output = %q", output)
+			}
+		})
+	}
+
+	command := exec.Command("bash", script, "monolith", "rollback")
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "operation_unproven") {
+		t.Fatalf("rollback must fail closed without effects: err=%v output=%q", err, output)
 	}
 }
 
@@ -117,6 +212,21 @@ func validSchemaDocument() map[string]any {
 		"surfaceReferences":     []any{map[string]any{"id": "http", "canonicalSource": "docs/api/openapi.yaml", "consumer": "runtime-route-registry", "capabilityIds": []any{"identity.session"}}},
 		"readinessRequirements": []any{map[string]any{"id": "database", "capabilityIds": []any{"identity.session"}, "dependencyIds": []any{"postgres"}}},
 	}
+}
+
+func decodeTestContract(t *testing.T, content []byte) AuthoredContractV1 {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	var contract AuthoredContractV1
+	if err := decoder.Decode(&contract); err != nil {
+		t.Fatalf("decode contract: %v", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		t.Fatalf("expected contract EOF, got %v", err)
+	}
+	return contract
 }
 
 func modelTestProfile() DeploymentProfile {
