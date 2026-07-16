@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"oblivious/server/internal/buildinfo"
 	agentv1 "oblivious/server/internal/grpc/agentv1"
 	taskv1 "oblivious/server/internal/grpc/taskv1"
 	workflowv1 "oblivious/server/internal/grpc/workflowv1"
@@ -21,6 +22,21 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
+
+const (
+	packagedRepoRoot     = "/app"
+	packagedContractPath = "config/release/contract.v1.json"
+	packagedSchemaPath   = "config/release/contract.schema.json"
+)
+
+type inspectionDependencies struct {
+	provider buildinfo.IdentityProvider
+	stdout   io.Writer
+	stderr   io.Writer
+	repoRoot string
+	contract string
+	schema   string
+}
 
 type config struct {
 	AgentAddr    string
@@ -44,18 +60,44 @@ type report struct {
 }
 
 func main() {
+	exitCode := runMain(context.Background(), os.Args[1:], inspectionDependencies{
+		provider: buildinfo.NewEmbeddedProvider(), stdout: os.Stdout, stderr: os.Stderr,
+		repoRoot: packagedRepoRoot, contract: packagedContractPath, schema: packagedSchemaPath,
+	}, runSmokeMain)
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+func runMain(ctx context.Context, args []string, deps inspectionDependencies, normalSmoke func(context.Context, []string) int) int {
+	handled, exitCode := buildinfo.HandleInspection(ctx, args, deps.stdout, deps.stderr, deps.provider, deps.repoRoot, deps.contract, deps.schema)
+	if handled {
+		return exitCode
+	}
+	if normalSmoke == nil {
+		return 0
+	}
+	return normalSmoke(ctx, args)
+}
+
+func runSmokeMain(ctx context.Context, args []string) int {
 	cfg := config{}
-	flag.StringVar(&cfg.AgentAddr, "agent-addr", firstNonEmpty(os.Getenv("AGENT_GRPC_ADDR"), os.Getenv("OBLIVIOUS_AGENT_GRPC_ADDR")), "Agent gRPC address")
-	flag.StringVar(&cfg.WorkflowAddr, "workflow-addr", firstNonEmpty(os.Getenv("WORKFLOW_GRPC_ADDR"), os.Getenv("OBLIVIOUS_WORKFLOW_GRPC_ADDR")), "Workflow gRPC address")
-	flag.StringVar(&cfg.TaskAddr, "task-addr", firstNonEmpty(os.Getenv("TASK_GRPC_ADDR"), os.Getenv("OBLIVIOUS_TASK_GRPC_ADDR")), "Task gRPC address")
-	timeout := flag.Duration("timeout", envDuration("GRPC_SMOKE_TIMEOUT", 10*time.Second), "per-service timeout")
-	flag.Parse()
+	flags := flag.NewFlagSet("oblivious-grpc-smoke", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	flags.StringVar(&cfg.AgentAddr, "agent-addr", firstNonEmpty(os.Getenv("AGENT_GRPC_ADDR"), os.Getenv("OBLIVIOUS_AGENT_GRPC_ADDR")), "Agent gRPC address")
+	flags.StringVar(&cfg.WorkflowAddr, "workflow-addr", firstNonEmpty(os.Getenv("WORKFLOW_GRPC_ADDR"), os.Getenv("OBLIVIOUS_WORKFLOW_GRPC_ADDR")), "Workflow gRPC address")
+	flags.StringVar(&cfg.TaskAddr, "task-addr", firstNonEmpty(os.Getenv("TASK_GRPC_ADDR"), os.Getenv("OBLIVIOUS_TASK_GRPC_ADDR")), "Task gRPC address")
+	timeout := flags.Duration("timeout", envDuration("GRPC_SMOKE_TIMEOUT", 10*time.Second), "per-service timeout")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return 2
+	}
 	cfg.Timeout = *timeout
 
-	if err := run(context.Background(), cfg, os.Stdout); err != nil {
+	if err := run(ctx, cfg, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run(ctx context.Context, cfg config, output io.Writer) error {
