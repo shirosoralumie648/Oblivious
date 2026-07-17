@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
-status: planned
-stopped_at: Phase 31 repository-local verification passed; Phase 31.1 ready for execution
-last_updated: "2026-07-17T14:25:55Z"
+status: in_progress
+stopped_at: Completed 31.1-01-PLAN.md
+last_updated: "2026-07-17T16:36:37.330Z"
 last_activity: 2026-07-17
-last_activity_desc: Completed quick task 260717-up4 repository ignore and cache cleanup
+last_activity_desc: Completed Phase 31.1 Plan 01 readiness authority foundation
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 7
-  percent: 9
+  completed_plans: 8
+  percent: 25
 ---
 
 # Project State
@@ -28,24 +28,24 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 ## Current Position
 
-Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — PLANNED
-Plan: 0 of 10
-Status: Phase 31 repository-local foundation complete; Phase 31.1 ready for execution
-Last activity: 2026-07-17 — Completed quick task 260717-up4 repository ignore and cache cleanup
+Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
+Plan: 1 of 10
+Status: Plan 31.1-01 complete; Wave 2 consumer guard plans are ready for execution
+Last activity: 2026-07-17 — Completed Phase 31.1 Plan 01 readiness authority foundation
 
-Progress: [#---------] 9%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 36 min
-- Total execution time: 4.2 hours
+- Total execution time: 4.8 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 1 plan in 37 minutes.
 
-**Recent Trend:** Plan 31-07 closed the verification gaps in 29 minutes.
+**Recent Trend:** Plan 31.1-01 established the runtime readiness authority foundation in 37 minutes.
 
 ## Accumulated Context
 
@@ -74,6 +74,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31]: RELS-01 remains pending after all six plans. — Phase 31 proves only the authored-contract and trusted-build foundation; dynamic readiness, surface parity, and target/live proof remain later phases.
 - [Phase 31]: The user transferred ownership of the four timing-contract files to the Phase 31 gap closure. — Allows the clean-HEAD defect to be fixed coherently without treating the former Phase 31.1 overlay as evidence.
 - [Phase 31]: Repository-local verification passes with Stage A, full Go regression, docs aggregate, 42/42 structural checks, clean review, Nyquist compliance, zero open threats, and a zero-skip pre-closeout Stage B tuple. — Completes the foundation without closing RELS-01 or claiming target/live readiness.
+- [Phase 31.1]: ReadinessManager is the sole runtime capability authority; audit snapshots remain write-only evidence. — Prevents disk state or offline inspection from authorizing runtime effects.
+- [Phase 31.1]: The evaluator accepts only the resolver-confirmed monolith profile and exact authored 30s/120s/30s timing. — Keeps every freshness and future-skew verdict on one UTC nanosecond contract.
+- [Phase 31.1]: RuntimeAuthorities compiles digest-bound catalog keys and profile-applicable typed effect mappings once at startup. — Prevents caller, persisted, global, or stale capability selection from becoming dispatch authority.
+- [Phase 31.1]: RELS-01 remains pending after Plan 31.1-01. — Consumer guards, lifecycle wiring, deployment proof, and the remaining Phase 31.1 plans are not complete.
 
 ### Pending Todos
 
@@ -102,8 +106,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-17T14:25:55Z
-Stopped at: Phase 31 repository-local verification passed; Phase 31.1 ready for execution
+Last session: 2026-07-17T16:36:37.324Z
+Stopped at: Completed 31.1-01-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -117,3 +121,4 @@ Resume file: None
 | Phase 31 P05 | 31 min | 3 tasks | 9 files |
 | Phase 31 P06 | 64 min | 3 tasks | 7 files |
 | Phase 31 P07 | 29 min | 3 tasks | 13 files |
+| Phase 31.1-readiness-fail-closed P01 | 37 min | 3 tasks | 10 files |
