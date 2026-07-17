@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 31
 current_phase_name: release-contract-current-baseline
-status: executing
-stopped_at: Completed 31-05-PLAN.md
-last_updated: "2026-07-16T11:55:01Z"
-last_activity: 2026-07-16
-last_activity_desc: Phase 31 execution started
+status: verifying
+stopped_at: Completed 31-06-PLAN.md; phase verification pending
+last_updated: "2026-07-17T09:50:49Z"
+last_activity: 2026-07-17
+last_activity_desc: Phase 31 implementation plans complete; verification in progress
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 31
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 ## Current Position
 
-Phase: 31 (release-contract-current-baseline) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute
-Last activity: 2026-07-16 — Phase 31 execution started
+Phase: 31 (release-contract-current-baseline) — VERIFYING
+Plan: 6 of 6
+Status: Phase verification in progress
+Last activity: 2026-07-17 — Phase 31 implementation plans complete
 
 Progress: [----------] 0%
 
@@ -70,6 +70,8 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31]: Atomic report failures preserve and byte-verify prior destination bytes or absence before returning after rename. — Prevents partial or failed evidence writes from replacing last-known valid evidence.
 - [Phase 31]: Active binary identity inspection precedes server/migrate startup and grpc-smoke parsing/network effects. — Makes the shipped tuple observable without config, DB, migration, listener, dial, or RPC side effects.
 - [Phase 31]: One clean-Git tuple must agree across three image binaries, OCI labels, and strict packaged-contract digest. — Prevents build args or one artifact surface from becoming independent identity authority.
+- [Phase 31]: Stage A uses disposable clean fixtures; Stage B requires an exact clean real commit, explicit monolith, real Docker artifacts, typed report read-back, and zero skips. — Separates development proof from push-eligible repository-local identity evidence.
+- [Phase 31]: RELS-01 remains pending after all six plans. — Phase 31 proves only the authored-contract and trusted-build foundation; dynamic readiness, surface parity, and target/live proof remain later phases.
 
 ### Pending Todos
 
@@ -92,8 +94,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-16T11:55:01Z
-Stopped at: Completed 31-05-PLAN.md
+Last session: 2026-07-17T09:50:49Z
+Stopped at: Completed 31-06-PLAN.md; phase verification pending
 Resume file: None
 
 ## Performance Metrics
@@ -105,3 +107,4 @@ Resume file: None
 | Phase 31 P03 | 19 min | 3 tasks | 9 files |
 | Phase 31 P04 | 50 min | 3 tasks | 7 files |
 | Phase 31 P05 | 31 min | 3 tasks | 9 files |
+| Phase 31 P06 | 64 min | 3 tasks | 7 files |
