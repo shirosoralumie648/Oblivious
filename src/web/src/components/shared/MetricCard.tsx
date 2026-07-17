@@ -15,6 +15,9 @@ export type MetricCardProps = {
   className?: string;
 };
 
+// ⚡ Bolt: Cache Intl instance to avoid expensive recreation on every render
+const USD_FORMATTER = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
 function formatValue(value: string | number, format: MetricCardProps['format'] = 'number') {
   if (typeof value === 'string') {
     return value;
@@ -22,7 +25,7 @@ function formatValue(value: string | number, format: MetricCardProps['format'] =
 
   switch (format) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+      return USD_FORMATTER.format(value);
     case 'percentage':
       return `${value}%`;
     case 'duration':
