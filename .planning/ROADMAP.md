@@ -69,7 +69,7 @@ Plans:
 
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
-**Verification**: `gaps_found` on 2026-07-17. Plan 31-07 owns the timing-contract and structural-metadata repairs plus the fresh Stage A, regression, hook, and exact-final-HEAD Stage B closure sequence. See `31-VERIFICATION.md`; Phase 31 remains unchecked and `RELS-01` remains pending.
+**Verification**: `passed` on 2026-07-17 for the E1/E2 repository-local foundation. Fresh Stage A, full Go regression, docs aggregate, 42/42 structural checks, clean review, Nyquist validation, security review, and the zero-skip pre-closeout Stage B tuple pass. Push eligibility additionally requires a zero-skip Stage B run at the exact final clean tracking HEAD with no later commit. See `31-VERIFICATION.md`; `RELS-01` remains pending and no target/live or commercial-readiness claim is made.
 
 ### Phase 31.1: 动态 Readiness 与持续 Fail-Closed (INSERTED)
 
