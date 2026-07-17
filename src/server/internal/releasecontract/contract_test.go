@@ -20,6 +20,9 @@ import (
 func TestContractSchemaRejectsUnknownAndAuthoredIdentityFields(t *testing.T) {
 	schemaBytes := readTestFile(t, "config/release/contract.schema.json")
 	schema := compileTestSchema(t, schemaBytes)
+	if err := schema.Validate(validSchemaDocument()); err != nil {
+		t.Fatalf("valid authored contract baseline: %v", err)
+	}
 
 	tests := []struct {
 		name   string
@@ -91,6 +94,11 @@ func TestAuthoredContractV1ModelsRequiredSections(t *testing.T) {
 		}
 	}
 	assertNoAuthorityMaps(t, reflect.TypeOf(contract))
+	for _, key := range []string{"refreshIntervalSeconds", "maxAgeSeconds", "allowedFutureSkewSeconds"} {
+		if !bytes.Contains(encoded, []byte(`"`+key+`"`)) {
+			t.Errorf("required profile field %q missing from JSON", key)
+		}
+	}
 	if err := contract.Validate(testRepoRoot(t)); err != nil {
 		t.Fatalf("validate typed model: %v", err)
 	}
@@ -115,6 +123,7 @@ func TestCheckedInContractProfilePolicyAndReferenceClosure(t *testing.T) {
 		t.Fatalf("default profile = %q, want monolith", contract.DefaultProfile)
 	}
 	for _, profile := range contract.Profiles {
+		assertDeploymentProfileTiming(t, profile)
 		if profile.ID == "monolith" {
 			if profile.Commitment != CommitmentCommitted {
 				t.Fatalf("monolith commitment = %q", profile.Commitment)
@@ -264,6 +273,87 @@ func TestLoadBytesRejectsNegativeFamilies(t *testing.T) {
 				})
 			},
 			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "duplicate profile ID",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.Profiles[1].ID = contract.Profiles[0].ID
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "unknown default profile",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.DefaultProfile = "unknown"
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "excluded default profile",
+			contract: func(t *testing.T) []byte {
+				return mutateCheckedInContract(t, func(contract *AuthoredContractV1) {
+					contract.DefaultProfile = "dual"
+				})
+			},
+			wantCode: ErrorContractSemanticInvalid,
+		},
+		{
+			name: "missing refresh interval",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				delete(document["profiles"].([]any)[0].(map[string]any), "refreshIntervalSeconds")
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "missing max age",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				delete(document["profiles"].([]any)[0].(map[string]any), "maxAgeSeconds")
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "missing allowed future skew",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				delete(document["profiles"].([]any)[0].(map[string]any), "allowedFutureSkewSeconds")
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "zero refresh interval",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				document["profiles"].([]any)[0].(map[string]any)["refreshIntervalSeconds"] = 0
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "zero max age",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				document["profiles"].([]any)[0].(map[string]any)["maxAgeSeconds"] = 0
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
+		},
+		{
+			name: "negative allowed future skew",
+			contract: func(t *testing.T) []byte {
+				document := decodeJSONDocument(t, validContract)
+				document["profiles"].([]any)[0].(map[string]any)["allowedFutureSkewSeconds"] = -1
+				return marshalJSONDocument(t, document)
+			},
+			wantCode: ErrorContractSchemaInvalid,
 		},
 		{
 			name:     "absolute operation path",
@@ -472,11 +562,14 @@ func validSchemaDocument() map[string]any {
 		"defaultProfile": "monolith",
 		"profiles": []any{map[string]any{
 			"id": "monolith", "commitment": "committed",
-			"topology":            map[string]any{"kind": "monolith", "components": []any{"server"}},
-			"entrypoints":         []any{"server"},
-			"dependencies":        []any{map[string]any{"id": "postgres", "required": true}},
-			"stateStores":         []any{map[string]any{"id": "primary", "kind": "postgres"}},
-			"capabilityOverrides": []any{},
+			"refreshIntervalSeconds":   30,
+			"maxAgeSeconds":            120,
+			"allowedFutureSkewSeconds": 30,
+			"topology":                 map[string]any{"kind": "monolith", "components": []any{"server"}},
+			"entrypoints":              []any{"server"},
+			"dependencies":             []any{map[string]any{"id": "postgres", "required": true}},
+			"stateStores":              []any{map[string]any{"id": "primary", "kind": "postgres"}},
+			"capabilityOverrides":      []any{},
 			"operations": map[string]any{
 				"migrate":  map[string]any{"profileId": "monolith", "path": "scripts/release-profile-operation.sh", "argv": []any{"monolith", "migrate"}},
 				"deploy":   map[string]any{"profileId": "monolith", "path": "scripts/release-profile-operation.sh", "argv": []any{"monolith", "deploy"}},
@@ -489,6 +582,19 @@ func validSchemaDocument() map[string]any {
 		"catalogBindings":       []any{map[string]any{"id": "model.gpt-4o-mini", "subjectKind": "model", "subjectId": "gpt-4o-mini", "runtimeClass": "server_model", "capabilityId": "identity.session"}},
 		"surfaceReferences":     []any{map[string]any{"id": "http", "canonicalSource": "docs/api/openapi.yaml", "consumer": "runtime-route-registry", "capabilityIds": []any{"identity.session"}}},
 		"readinessRequirements": []any{map[string]any{"id": "database", "capabilityIds": []any{"identity.session"}, "dependencyIds": []any{"postgres"}}},
+	}
+}
+
+func assertDeploymentProfileTiming(t *testing.T, profile DeploymentProfile) {
+	t.Helper()
+	if profile.RefreshIntervalSeconds != 30 || profile.MaxAgeSeconds != 120 || profile.AllowedFutureSkewSeconds != 30 {
+		t.Errorf(
+			"profile %s timing = %d/%d/%d, want 30/120/30",
+			profile.ID,
+			profile.RefreshIntervalSeconds,
+			profile.MaxAgeSeconds,
+			profile.AllowedFutureSkewSeconds,
+		)
 	}
 }
 
@@ -581,15 +687,18 @@ func modelTestProfile() DeploymentProfile {
 	}
 	return DeploymentProfile{
 		ID: "monolith", Commitment: CommitmentCommitted,
-		Topology:                Topology{Kind: TopologyMonolith, Components: []string{"server"}},
-		Entrypoints:             []string{"server"},
-		Dependencies:            []DependencyRef{{ID: "postgres", Required: true}},
-		StateStores:             []StateStoreRef{{ID: "primary", Kind: "postgres"}},
-		CapabilityOverrides:     []CapabilityOverride{},
-		Operations:              ProfileOperations{Migrate: operation(OperationMigrate), Deploy: operation(OperationDeploy), Rollback: operation(OperationRollback)},
-		CatalogBindingIDs:       []string{"model.gpt-4o-mini"},
-		SurfaceReferenceIDs:     []string{"http"},
-		ReadinessRequirementIDs: []string{"database"},
+		RefreshIntervalSeconds:   30,
+		MaxAgeSeconds:            120,
+		AllowedFutureSkewSeconds: 30,
+		Topology:                 Topology{Kind: TopologyMonolith, Components: []string{"server"}},
+		Entrypoints:              []string{"server"},
+		Dependencies:             []DependencyRef{{ID: "postgres", Required: true}},
+		StateStores:              []StateStoreRef{{ID: "primary", Kind: "postgres"}},
+		CapabilityOverrides:      []CapabilityOverride{},
+		Operations:               ProfileOperations{Migrate: operation(OperationMigrate), Deploy: operation(OperationDeploy), Rollback: operation(OperationRollback)},
+		CatalogBindingIDs:        []string{"model.gpt-4o-mini"},
+		SurfaceReferenceIDs:      []string{"http"},
+		ReadinessRequirementIDs:  []string{"database"},
 	}
 }
 

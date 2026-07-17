@@ -78,18 +78,21 @@ type ReasonCode struct {
 }
 
 type DeploymentProfile struct {
-	ID                      string               `json:"id"`
-	Commitment              Commitment           `json:"commitment"`
-	ReasonCode              string               `json:"reasonCode,omitempty"`
-	Topology                Topology             `json:"topology"`
-	Entrypoints             []string             `json:"entrypoints"`
-	Dependencies            []DependencyRef      `json:"dependencies"`
-	StateStores             []StateStoreRef      `json:"stateStores"`
-	CapabilityOverrides     []CapabilityOverride `json:"capabilityOverrides"`
-	Operations              ProfileOperations    `json:"operations"`
-	CatalogBindingIDs       []string             `json:"catalogBindingIds"`
-	SurfaceReferenceIDs     []string             `json:"surfaceReferenceIds"`
-	ReadinessRequirementIDs []string             `json:"readinessRequirementIds"`
+	ID                       string               `json:"id"`
+	Commitment               Commitment           `json:"commitment"`
+	ReasonCode               string               `json:"reasonCode,omitempty"`
+	RefreshIntervalSeconds   int64                `json:"refreshIntervalSeconds"`
+	MaxAgeSeconds            int64                `json:"maxAgeSeconds"`
+	AllowedFutureSkewSeconds int64                `json:"allowedFutureSkewSeconds"`
+	Topology                 Topology             `json:"topology"`
+	Entrypoints              []string             `json:"entrypoints"`
+	Dependencies             []DependencyRef      `json:"dependencies"`
+	StateStores              []StateStoreRef      `json:"stateStores"`
+	CapabilityOverrides      []CapabilityOverride `json:"capabilityOverrides"`
+	Operations               ProfileOperations    `json:"operations"`
+	CatalogBindingIDs        []string             `json:"catalogBindingIds"`
+	SurfaceReferenceIDs      []string             `json:"surfaceReferenceIds"`
+	ReadinessRequirementIDs  []string             `json:"readinessRequirementIds"`
 }
 
 type Topology struct {

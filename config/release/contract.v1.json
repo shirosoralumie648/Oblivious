@@ -58,6 +58,9 @@
       "id": "dual",
       "commitment": "excluded",
       "reasonCode": "profile_parity_unproven",
+      "refreshIntervalSeconds": 30,
+      "maxAgeSeconds": 120,
+      "allowedFutureSkewSeconds": 30,
       "topology": { "kind": "dual", "components": ["gateway", "monolith", "services"] },
       "entrypoints": ["gateway", "server"],
       "dependencies": [
@@ -90,6 +93,9 @@
       "id": "microservices",
       "commitment": "excluded",
       "reasonCode": "profile_parity_unproven",
+      "refreshIntervalSeconds": 30,
+      "maxAgeSeconds": 120,
+      "allowedFutureSkewSeconds": 30,
       "topology": { "kind": "microservices", "components": ["agent", "billing", "channel", "chat", "gateway", "marketplace", "observability", "rag", "relay", "task", "workflow"] },
       "entrypoints": ["agent", "billing", "channel", "chat", "gateway", "marketplace", "observability", "rag", "relay", "task", "workflow"],
       "dependencies": [
@@ -121,6 +127,9 @@
     {
       "id": "monolith",
       "commitment": "committed",
+      "refreshIntervalSeconds": 30,
+      "maxAgeSeconds": 120,
+      "allowedFutureSkewSeconds": 30,
       "topology": { "kind": "monolith", "components": ["server"] },
       "entrypoints": ["grpc-smoke", "migrate", "server"],
       "dependencies": [
@@ -151,6 +160,9 @@
       "id": "split",
       "commitment": "excluded",
       "reasonCode": "profile_parity_unproven",
+      "refreshIntervalSeconds": 30,
+      "maxAgeSeconds": 120,
+      "allowedFutureSkewSeconds": 30,
       "topology": { "kind": "split", "components": ["gateway", "server", "workers"] },
       "entrypoints": ["gateway", "server", "workers"],
       "dependencies": [
