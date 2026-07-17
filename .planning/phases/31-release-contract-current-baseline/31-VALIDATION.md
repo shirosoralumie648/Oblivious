@@ -1,11 +1,11 @@
 ---
 phase: 31
 slug: release-contract-current-baseline
-status: planned
-nyquist_compliant: true
+status: partial
+nyquist_compliant: false
 wave_0_complete: false
 created: 2026-07-15
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Phase 31 - Foundation Validation Strategy
@@ -16,7 +16,7 @@ updated: 2026-07-16
 
 This validation contract covers only the Phase 31 foundation contribution to `RELS-01`. It does not validate dynamic readiness/runtime enforcement (31.1), surface parity/aggregate gates (31.2), deployment-mode parity (38), or target/supply-chain proof (39).
 
-Six `31-*-PLAN.md` files now define 18 executable tasks across five waves. The map below records every real task ID, owning plan/wave, non-vacuous command, validation behaviors, and current artifact state. `nyquist_compliant: true` means the revised plan set has complete automated feedback coverage; it does not claim that the still-missing implementation artifacts or post-commit Stage B proof already exist.
+Six `31-*-PLAN.md` files define 18 executable tasks across five waves. Planning-time sampling coverage is complete, but the 2026-07-17 implementation audit found that clean `HEAD` fails Stage A and the full Go suite. `nyquist_compliant: false` therefore reflects implementation evidence, not a lack of planned commands.
 
 ## Plan Shape Constraints
 
@@ -31,14 +31,14 @@ Six `31-*-PLAN.md` files now define 18 executable tasks across five waves. The m
 
 | Capability | Planned entrypoint | Current state |
 |---|---|---|
-| Non-vacuous targeted Go tests | `scripts/run-go-tests-matched.sh` | Missing; created by 31-02-01 before any focused selector |
-| Contract/schema/digest fixtures | `scripts/verify-release-contract-fixtures.sh` | Missing; created by 31-06-02 after contract/identity/report APIs |
-| Foundation aggregate | `scripts/verify-release-contract.sh` | Missing; created by 31-06-03 |
-| Go package tests | `go test` through the matched-test helper | Missing packages; created incrementally by 31-01 through 31-04 |
-| Temporary Git identity fixtures | `src/server/internal/buildinfo/*_test.go` | Missing; created by 31-03-01/02 |
-| Atomic writer failure injection and post-rename rollback | `src/server/internal/surfacereport/writer_test.go` | Missing; created by 31-04-03 |
-| Entry-point inspection ordering | three `src/server/cmd/*/main_test.go` files | server test missing and migrate/grpc tests need the named case; all owned by 31-05-01/02 |
-| Binary/OCI/package inspection | `scripts/build-release-image.sh` plus `scripts/verify-release-build-fixtures.sh` | Missing; both created and dynamically exercised by 31-05-03 |
+| Non-vacuous targeted Go tests | `scripts/run-go-tests-matched.sh` | Exists; self-fixtures pass |
+| Contract/schema/digest fixtures | `scripts/verify-release-contract-fixtures.sh` | Exists; blocked by canonical fixture/schema drift |
+| Foundation aggregate | `scripts/verify-release-contract.sh` | Exists; Stage A fails at the digest test group |
+| Go package tests | `go test` through the matched-test helper | Exists; full suite has four clean-HEAD failures in two packages |
+| Temporary Git identity fixtures | `src/server/internal/buildinfo/*_test.go` | Exists; one mutation test references an absent contract field |
+| Atomic writer failure injection and post-rename rollback | `src/server/internal/surfacereport/writer_test.go` | Exists and passes |
+| Entry-point inspection ordering | three `src/server/cmd/*/main_test.go` files | Exists and passes |
+| Binary/OCI/package inspection | `scripts/build-release-image.sh` plus `scripts/verify-release-build-fixtures.sh` | Exists; dynamic fixture passes |
 
 Existing `scripts/check.sh`, `scripts/verify-quality-gates.sh` and `scripts/verify-commercial-completion.sh` are not direct Phase 31 verification entrypoints. The unique aggregate wiring belongs to Phase 31.2.
 
@@ -240,6 +240,40 @@ None. Every Phase 31 foundation claim must have automated repository-local proof
 
 The planner population gate is complete: all real task IDs, plans, waves, commands, V31 mappings, missing-artifact owners, sampling continuity, and file-overlap results are recorded above. Nyquist compliance is a planning result only; implementation checkboxes and Stage B remain open until execution.
 
+## Validation Audit 2026-07-17
+
+Environment: detached clean worktree at `e64ead7c858202b8f48a05784871a4e58d1925eb`; no `TEST_DATABASE_URL`; no target/live evidence used.
+
+| Validation ID | Status | Evidence |
+|---|---|---|
+| V31-F01 | COVERED | Strict loader/schema/semantic tests pass against the checked-in contract. |
+| V31-F02 | PARTIAL | All three canonical digest tests fail because their fixtures contain timing fields absent from the committed schema/model. |
+| V31-F03 | COVERED | Resolver, dispatcher, path, literal argv, and minimal environment tests pass. |
+| V31-F04 | PARTIAL | Clean/dirty Git identity tests pass, but the embedded digest mutation test fails before applying its mutation. |
+| V31-F05 | PARTIAL | Entry-point/report/build fixtures pass independently, but the aggregate Stage A gate is red and final-HEAD Stage B is therefore not eligible to close the phase. |
+| V31-F06 | COVERED | Nested envelope, typed registry, identity-splice, and report CLI tests pass. |
+| V31-F07 | COVERED | Atomic writer and rollback failure-injection tests pass, including post-rename parent sync rollback. |
+| V31-F08 | COVERED | Match/list helper positive, zero-match, invalid-regex, missing-package, and failing-test fixtures pass. |
+| V31-F09 | COVERED | Reports and scripts retain `repository-local`, explicit residual risks, and no target/live claim. |
+
+Commands and results:
+
+| Command | Result |
+|---|---|
+| `bash scripts/verify-release-contract.sh --stage-a` | FAIL: three digest tests reject `/profiles/0` against the committed schema. |
+| `go test ./... -count=1` | FAIL: the same three digest tests plus `TestEmbeddedProviderRecomputesContractDigest`. |
+| `go vet` on the affected packages | PASS. |
+| `bash scripts/verify-release-build-fixtures.sh` | PASS. |
+| Six `verify artifacts` plus six `verify key-links` commands | Files exist; eight pattern checks require metadata repair or manual interpretation. |
+
+| Metric | Count |
+|---|---:|
+| Gaps found | 2 |
+| Resolved | 0 |
+| Escalated | 2 |
+
+Gap 1 is the cross-phase timing-field ownership drift documented in `31-REVIEW.md`. Gap 2 is the resulting absence of an exact final-HEAD Stage B tuple. No missing test file should be generated: the existing tests already reproduce the defect, and implementation/fixture ownership must be reconciled first.
+
 ## Validation Sign-Off
 
 - [x] Foundation scope is separated from Phases 31.1, 31.2 and 39.
@@ -248,6 +282,8 @@ The planner population gate is complete: all real task IDs, plans, waves, comman
 - [x] Negative matrices cover contract, operations, identity, report and atomic output.
 - [x] Plan/task/file-count and no-overlap constraints are recorded.
 - [x] Every represented plan/task row exists in `31-01-PLAN.md` through `31-06-PLAN.md`.
-- [ ] Wave 0 dependencies exist and pass.
+- [ ] Wave 0 dependencies exist and pass; digest and embedded-provider fixtures are currently red.
 - [x] Planner has populated real task mappings and every V31-F01..F09 behavior has executable coverage.
 - [ ] Stage B has passed against the exact Phase 31 implementation commit.
+
+**Approval:** blocked 2026-07-17 pending clean-HEAD fixture/contract convergence and a fresh Stage A -> full regression -> Stage B sequence.

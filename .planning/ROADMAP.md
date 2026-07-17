@@ -65,6 +65,8 @@ Plans:
 
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
+**Verification**: `gaps_found` on 2026-07-17. Clean `HEAD` fails Stage A and the full Go regression suite because canonical digest/provider tests depend on timing fields that only exist in an uncommitted Phase 31.1 overlay. Structural artifact/key-link patterns also require repair. See `31-VERIFICATION.md`; Phase 31 remains unchecked and `RELS-01` remains pending.
+
 ### Phase 31.1: 动态 Readiness 与持续 Fail-Closed (INSERTED)
 
 **Goal**: 当前 runtime 使用一个进程内动态 ReadinessManager 持续计算 availability，并在所有新副作用前 fail closed。
