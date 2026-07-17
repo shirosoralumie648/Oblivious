@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 31
 current_phase_name: release-contract-current-baseline
 status: verifying
-stopped_at: Completed 31-06-PLAN.md; phase verification pending
-last_updated: "2026-07-17T09:50:49Z"
+stopped_at: Phase 31 verification gaps_found; contract/fixture ownership and structural verifier patterns require gap closure
+last_updated: "2026-07-17T10:22:19Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 31 implementation plans complete; verification in progress
+last_activity_desc: Phase 31 verification found blocking clean-HEAD gaps
 progress:
   total_phases: 11
   completed_phases: 0
@@ -30,8 +30,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 Phase: 31 (release-contract-current-baseline) — VERIFYING
 Plan: 6 of 6
-Status: Phase verification in progress
-Last activity: 2026-07-17 — Phase 31 implementation plans complete
+Status: Phase verification gaps found; gap planning required
+Last activity: 2026-07-17 — Clean HEAD Stage A and Go regression failed
 
 Progress: [----------] 0%
 
@@ -79,6 +79,9 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Phase 31] `31-VERIFICATION.md` is `gaps_found`: canonical digest fixtures and the embedded-provider mutation test depend on timing fields absent from the committed Phase 31 schema/model/contract.
+- [Phase 31] Four overlapping timing files belong to protected Phase 31.1 work and cannot be staged or committed by this verification pass without explicit ownership transfer.
+- [Phase 31] Eight artifact/key-link metadata patterns need gap-closure repair before the structural verifier is fully green.
 - [Phase 31] Advertised deployment profiles, authoritative writers and exact capability manifest require live confirmation.
 - [Phase 33] Target object storage and Sandbox capacity/deployment model are not selected.
 - [Phases 34, 36, 37, 39] Provider, payment/payout, observability, cluster and signing details require target credentials and fresh external evidence.
@@ -94,8 +97,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-17T09:50:49Z
-Stopped at: Completed 31-06-PLAN.md; phase verification pending
+Last session: 2026-07-17T10:22:19Z
+Stopped at: Phase 31 verification gaps_found; next route is `$gsd-plan-phase 31 --gaps`
 Resume file: None
 
 ## Performance Metrics
