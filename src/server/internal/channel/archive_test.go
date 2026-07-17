@@ -20,16 +20,20 @@ type fakeMessageLogArchiveStore struct {
 	listed    []*ChannelMessageLog
 	listErr   error
 
-	deleteIDs []string
-	deleteErr error
+	deleteIDs   []string
+	deleteErr   error
+	listCalls   int
+	deleteCalls int
 }
 
 func (f *fakeMessageLogArchiveStore) ListExpiredMessageLogsForArchive(ctx context.Context, input ArchiveExpiredMessageLogsInput) ([]*ChannelMessageLog, error) {
+	f.listCalls++
 	f.listInput = input
 	return f.listed, f.listErr
 }
 
 func (f *fakeMessageLogArchiveStore) DeleteArchivedMessageLogs(ctx context.Context, ids []string) (ArchiveExpiredMessageLogsResult, error) {
+	f.deleteCalls++
 	f.deleteIDs = append([]string(nil), ids...)
 	if f.deleteErr != nil {
 		return ArchiveExpiredMessageLogsResult{}, f.deleteErr

@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"oblivious/server/internal/releasecontract"
 )
 
 type fakeRetryMessageStore struct {
@@ -19,14 +24,18 @@ type fakeRetryMessageStore struct {
 	claimInput ClaimDueRetryMessagesInput
 	claimed    []*ChannelMessageLog
 	claimErr   error
+	listCalls  int
+	claimCalls int
 }
 
 func (f *fakeRetryMessageStore) ListDueRetryMessages(ctx context.Context, input ClaimDueRetryMessagesInput) ([]*ChannelMessageLog, error) {
+	f.listCalls++
 	f.listInput = input
 	return f.listed, f.listErr
 }
 
 func (f *fakeRetryMessageStore) ClaimDueRetryMessages(ctx context.Context, input ClaimDueRetryMessagesInput) ([]*ChannelMessageLog, error) {
+	f.claimCalls++
 	f.claimInput = input
 	return f.claimed, f.claimErr
 }
@@ -45,9 +54,12 @@ type fakeRetryWorkerStore struct {
 	failureCountID    string
 	failureCountLimit int
 	updateErr         error
+	getConfigCalls    int
+	updateCalls       int
 }
 
 func (f *fakeRetryWorkerStore) GetConfigByID(ctx context.Context, id string) (*ChannelConfig, error) {
+	f.getConfigCalls++
 	if f.getConfigErr != nil {
 		return nil, f.getConfigErr
 	}
@@ -55,6 +67,7 @@ func (f *fakeRetryWorkerStore) GetConfigByID(ctx context.Context, id string) (*C
 }
 
 func (f *fakeRetryWorkerStore) UpdateRetryMessageLog(ctx context.Context, log *ChannelMessageLog) (*ChannelMessageLog, error) {
+	f.updateCalls++
 	if f.updateErr != nil {
 		return nil, f.updateErr
 	}
@@ -91,6 +104,157 @@ type retryTestAdapter struct {
 	configs     []map[string]any
 	messages    []InternalMessage
 	payloads    []json.RawMessage
+}
+
+func TestChannelRetryAndArchiveReadinessGuardContract(t *testing.T) {
+	now := time.Date(2026, time.July, 18, 2, 0, 0, 0, time.UTC)
+	denialCodes := []releasecontract.ReadinessCode{
+		releasecontract.CodeCapabilityDisabled,
+		releasecontract.CodeCapabilityBlocked,
+		releasecontract.CodeReadinessStale,
+		releasecontract.CodeCapabilityUnknown,
+		releasecontract.CodeReadinessUnavailable,
+		releasecontract.CodeBuildIdentityMismatch,
+	}
+	for _, code := range denialCodes {
+		t.Run("retry claim denial "+string(code), func(t *testing.T) {
+			guard := &channelGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: code}}
+			adapter := &retryTestAdapter{channelType: ChannelType("guarded_retry")}
+			service := newChannelReadinessService(t, guard, adapter)
+			store := retryReadinessStore(now, adapter.channelType, 1)
+
+			_, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 1})
+			if !releasecontract.IsReadinessCode(err, code) {
+				t.Fatalf("claim denial error = %v", err)
+			}
+			if store.claimCalls != 0 || store.getConfigCalls != 0 || store.updateCalls != 0 || len(adapter.payloads) != 0 {
+				t.Fatalf("denied retry claim reached downstream work: claim=%d reads=%d updates=%d sends=%d", store.claimCalls, store.getConfigCalls, store.updateCalls, len(adapter.payloads))
+			}
+		})
+	}
+
+	t.Run("nil retry guard fails construction", func(t *testing.T) {
+		contract, profile := loadChannelReadinessAuthority(t)
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, &channelGuardSpy{})
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		_, err = NewReadinessServiceWithOptions(nil, nil, authorities, &channelEffectRegistrar{})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("nil guard error = %v", err)
+		}
+	})
+
+	t.Run("initial send uses the same current delivery guard", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked}}
+		adapter := &retryTestAdapter{channelType: ChannelType("guarded_initial")}
+		service := newChannelReadinessService(t, guard, adapter)
+
+		_, err := service.Send(context.Background(), SendRequest{
+			ChannelID: "channel_initial", Type: adapter.channelType,
+			Message: InternalMessage{
+				ID: "message_initial", ConversationID: "conversation_initial", Role: RoleAssistant,
+				Content: []ContentPart{{Type: ContentTypeText, Text: "initial send"}},
+			},
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityBlocked) || len(adapter.payloads) != 0 {
+			t.Fatalf("initial delivery denial err=%v sends=%d", err, len(adapter.payloads))
+		}
+		if len(guard.calls) != 1 || guard.calls[0].boundary != releasecontract.BoundaryOutbound || guard.calls[0].capabilityID != "channel.delivery" {
+			t.Fatalf("initial delivery guard calls = %#v", guard.calls)
+		}
+	})
+
+	t.Run("expiry after retry claim blocks delivery and channel health remediation", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		adapter := &retryTestAdapter{channelType: ChannelType("guarded_retry")}
+		service := newChannelReadinessService(t, guard, adapter)
+		store := retryReadinessStore(now, adapter.channelType, 1)
+		store.failureCount = ChannelHealthThreshold
+
+		result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 1})
+		if err != nil {
+			t.Fatalf("readiness denial should use bounded retry bookkeeping: %v", err)
+		}
+		if result.Claimed != 1 || result.Failed != 1 || len(adapter.payloads) != 0 {
+			t.Fatalf("unexpected denied retry result=%+v sends=%d", result, len(adapter.payloads))
+		}
+		if store.updateCalls != 1 || len(store.statusUpdates) != 0 || store.failureCountID != "" {
+			t.Fatalf("expected retry metadata only: updates=%d status=%+v healthRead=%q", store.updateCalls, store.statusUpdates, store.failureCountID)
+		}
+		if len(store.updated) != 1 || store.updated[0].FailureReason != string(releasecontract.CodeReadinessStale) {
+			t.Fatalf("stable denial was not recorded: %+v", store.updated)
+		}
+	})
+
+	t.Run("each retry send rechecks current generation", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		adapter := &retryTestAdapter{channelType: ChannelType("guarded_retry")}
+		service := newChannelReadinessService(t, guard, adapter)
+		store := retryReadinessStore(now, adapter.channelType, 2)
+
+		result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 2})
+		if err != nil {
+			t.Fatalf("process retries: %v", err)
+		}
+		if result.Succeeded != 1 || result.Failed != 1 || len(adapter.payloads) != 1 {
+			t.Fatalf("later retry reused earlier authorization: result=%+v sends=%d", result, len(adapter.payloads))
+		}
+	})
+
+	t.Run("fallback retry dispatch uses the current delivery guard", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		adapter := &retryTestAdapter{channelType: ChannelType("guarded_fallback")}
+		service := newChannelReadinessService(t, guard, adapter)
+		store := retryReadinessStore(now, adapter.channelType, 1)
+		store.configs["channel_fallback"] = &ChannelConfig{ID: "channel_fallback", OrganizationID: "org_1", Type: adapter.channelType, Status: ChannelStatusActive}
+
+		result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{
+			FallbackChannelID: "channel_fallback", Now: now, Limit: 1,
+		})
+		if err != nil || result.Failed != 1 || len(adapter.payloads) != 0 {
+			t.Fatalf("fallback delivery denial result=%+v err=%v sends=%d", result, err, len(adapter.payloads))
+		}
+		if len(store.updated) != 1 || store.updated[0].ChannelID != "channel_fallback" {
+			t.Fatalf("fallback denial bookkeeping = %+v", store.updated)
+		}
+	})
+
+	t.Run("archive claim denial blocks list write and delete", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked}}
+		store, sink, worker := newArchiveReadinessFixture(t, guard, now)
+		worker.runOnce(context.Background())
+		if store.listCalls != 0 || len(sink.objects) != 0 || store.deleteCalls != 0 {
+			t.Fatalf("archive claim denial reached effects: list=%d write=%d delete=%d", store.listCalls, len(sink.objects), store.deleteCalls)
+		}
+	})
+
+	t.Run("expiry after archive list blocks sink", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		store, sink, worker := newArchiveReadinessFixture(t, guard, now)
+		worker.runOnce(context.Background())
+		if store.listCalls != 1 || len(sink.objects) != 0 || store.deleteCalls != 0 {
+			t.Fatalf("archive write reused claim authorization: list=%d write=%d delete=%d", store.listCalls, len(sink.objects), store.deleteCalls)
+		}
+	})
+
+	t.Run("expiry after archive sink blocks source delete", func(t *testing.T) {
+		guard := &channelGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		store, sink, worker := newArchiveReadinessFixture(t, guard, now)
+		worker.runOnce(context.Background())
+		if store.listCalls != 1 || len(sink.objects) != 1 || store.deleteCalls != 0 {
+			t.Fatalf("archive delete reused sink authorization: list=%d write=%d delete=%d", store.listCalls, len(sink.objects), store.deleteCalls)
+		}
+	})
+
+	t.Run("authorizing archive guard preserves list write delete order", func(t *testing.T) {
+		guard := &channelGuardSpy{}
+		store, sink, worker := newArchiveReadinessFixture(t, guard, now)
+		worker.runOnce(context.Background())
+		if store.listCalls != 1 || len(sink.objects) != 1 || store.deleteCalls != 1 {
+			t.Fatalf("authorized archive changed: list=%d write=%d delete=%d", store.listCalls, len(sink.objects), store.deleteCalls)
+		}
+	})
 }
 
 func (a *retryTestAdapter) Type() ChannelType {
@@ -995,4 +1159,119 @@ func TestServiceTestReturnsErrorWhenAdapterMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("expected missing adapter error, got %v", err)
 	}
+}
+
+type channelGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type channelGuardSpy struct {
+	denyAtCall int
+	denial     error
+	calls      []channelGuardCall
+}
+
+func (g *channelGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, channelGuardCall{capabilityID: capabilityID, boundary: boundary})
+	if g.denyAtCall > 0 && len(g.calls) >= g.denyAtCall {
+		return g.denial
+	}
+	return nil
+}
+
+type channelEffectRegistrar struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *channelEffectRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+func newChannelReadinessService(t *testing.T, guard *channelGuardSpy, adapter *retryTestAdapter) *Service {
+	t.Helper()
+	contract, profile := loadChannelReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	service, err := NewReadinessServiceWithOptions(
+		NewAdapterRegistry(map[ChannelType]ChannelAdapter{adapter.channelType: adapter}),
+		guard,
+		authorities,
+		&channelEffectRegistrar{},
+	)
+	if err != nil {
+		t.Fatalf("construct readiness channel service: %v", err)
+	}
+	return service
+}
+
+func retryReadinessStore(now time.Time, channelType ChannelType, count int) *fakeRetryWorkerStore {
+	claimed := make([]*ChannelMessageLog, 0, count)
+	configs := make(map[string]*ChannelConfig, count)
+	for index := 0; index < count; index++ {
+		channelID := fmt.Sprintf("channel_guarded_%d", index)
+		claimed = append(claimed, &ChannelMessageLog{
+			ID: fmt.Sprintf("message_guarded_%d", index), ChannelID: channelID,
+			ConversationID: "conversation_guarded", Direction: DirectionOutbound,
+			TransformedMessage: InternalMessage{
+				ID: fmt.Sprintf("internal_guarded_%d", index), ConversationID: "conversation_guarded",
+				Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "guarded retry"}},
+			},
+			Status: MessageStatusSending, RetryCount: 1, CreatedAt: now.Add(-time.Minute),
+		})
+		configs[channelID] = &ChannelConfig{ID: channelID, OrganizationID: "org_1", Type: channelType, Status: ChannelStatusActive}
+	}
+	return &fakeRetryWorkerStore{
+		fakeRetryMessageStore: fakeRetryMessageStore{claimed: claimed},
+		configs:               configs,
+	}
+}
+
+func newArchiveReadinessFixture(t *testing.T, guard *channelGuardSpy, now time.Time) (*fakeMessageLogArchiveStore, *fakeMessageLogArchiveSink, *ArchiveWorker) {
+	t.Helper()
+	contract, profile := loadChannelReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	store := &fakeMessageLogArchiveStore{listed: []*ChannelMessageLog{{
+		ID: "archive_guarded", ChannelID: "channel_guarded", Direction: DirectionOutbound,
+		Status: MessageStatusRecorded, CreatedAt: now.Add(-8 * 24 * time.Hour),
+	}}}
+	sink := &fakeMessageLogArchiveSink{}
+	worker, err := NewReadinessArchiveWorker(NewService(nil), store, sink, ArchiveWorkerConfig{
+		Retention:   7 * 24 * time.Hour,
+		Limit:       10,
+		Now:         func() time.Time { return now },
+		Guard:       guard,
+		Authorities: authorities,
+		Effects:     &channelEffectRegistrar{},
+	})
+	if err != nil {
+		t.Fatalf("construct readiness archive worker: %v", err)
+	}
+	return store, sink, worker
+}
+
+func loadChannelReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve channel readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
 }

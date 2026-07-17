@@ -73,6 +73,7 @@ const (
 	EffectRelayBatchProvider     EffectID = "worker.relay_batch.provider"
 	EffectArchiveClaim           EffectID = "worker.archive.claim"
 	EffectArchiveWrite           EffectID = "worker.archive.write"
+	EffectArchiveDelete          EffectID = "worker.archive.delete"
 	EffectRelayProvider          EffectID = "relay.provider.dispatch"
 	EffectChatProvider           EffectID = "chat.provider.dispatch"
 	EffectMCPDispatch            EffectID = "mcp.dispatch"
@@ -100,6 +101,7 @@ var authoredEffectCapabilities = map[EffectID]CapabilityID{
 	EffectRelayBatchProvider:     "relay.provider_inference",
 	EffectArchiveClaim:           "observability.audit",
 	EffectArchiveWrite:           "observability.audit",
+	EffectArchiveDelete:          "observability.audit",
 	EffectRelayProvider:          "relay.provider_inference",
 	EffectChatProvider:           "relay.provider_inference",
 	EffectMCPDispatch:            "mcp.tool_execution",
