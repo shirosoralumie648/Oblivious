@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"oblivious/server/internal/releasecontract"
 )
 
 const (
@@ -41,14 +43,7 @@ func IsCode(err error, code ErrorCode) bool {
 	return errors.As(err, &identityErr) && identityErr.Code == code
 }
 
-type BuildIdentityV1 struct {
-	SchemaVersion  string `json:"schemaVersion"`
-	ReleaseCommit  string `json:"releaseCommit"`
-	SourceTree     string `json:"sourceTree"`
-	ContractDigest string `json:"contractDigest"`
-	Dirty          bool   `json:"dirty"`
-	EvidenceClass  string `json:"evidenceClass"`
-}
+type BuildIdentityV1 = releasecontract.BuildIdentityV1
 
 var (
 	gitObjectPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
