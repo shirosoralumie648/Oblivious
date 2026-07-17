@@ -57,7 +57,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$image_tag" && -d "$authority_root/.git" ]] || fail invalid_arguments
+[[ -n "$image_tag" ]] || fail invalid_arguments
+git -C "$authority_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail invalid_arguments
 for command_name in git go docker jq; do
   command -v "$command_name" >/dev/null 2>&1 || fail build_tool_missing
 done
