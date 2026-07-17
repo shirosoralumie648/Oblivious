@@ -216,14 +216,6 @@ func readinessTestObservations(t *testing.T, contract AuthoredContractV1, profil
 	return observations
 }
 
-func cloneObservations(source []Observation) []Observation {
-	result := make([]Observation, len(source))
-	for i := range source {
-		result[i] = cloneObservation(source[i])
-	}
-	return result
-}
-
 func assertReadinessCode(t *testing.T, err error, code ReadinessCode) {
 	t.Helper()
 	if !IsReadinessCode(err, code) {

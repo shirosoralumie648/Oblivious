@@ -119,6 +119,7 @@ type Evaluation struct {
 	ValidUntil   time.Time                       `json:"validUntil"`
 	Capabilities map[string]CapabilityEvaluation `json:"capabilities"`
 	ErrorCode    ReadinessCode                   `json:"errorCode,omitempty"`
+	observations []Observation
 }
 
 type ReadinessSnapshotV1 struct {
@@ -204,7 +205,21 @@ func (contractEvaluator) Evaluate(contract AuthoredContractV1, identity BuildIde
 		CheckedAt:    now,
 		ValidUntil:   validUntil,
 		Capabilities: cloneCapabilityEvaluations(result),
+		observations: cloneObservations(observations),
 	}, nil
+}
+
+func (e Evaluation) Snapshot() ReadinessSnapshotV1 {
+	return ReadinessSnapshotV1{
+		SchemaVersion: ReadinessSnapshotSchemaV1,
+		Identity:      e.Identity,
+		Profile:       e.Profile,
+		Generation:    e.Generation,
+		CheckedAt:     normalizeTime(e.CheckedAt),
+		ValidUntil:    normalizeTime(e.ValidUntil),
+		Observations:  cloneObservations(e.observations),
+		Capabilities:  cloneCapabilityEvaluations(e.Capabilities),
+	}
 }
 
 type capabilityPolicy struct {
@@ -417,6 +432,15 @@ func cloneEvaluation(source Evaluation) Evaluation {
 	result.CheckedAt = normalizeTime(source.CheckedAt)
 	result.ValidUntil = normalizeTime(source.ValidUntil)
 	result.Capabilities = cloneCapabilityEvaluations(source.Capabilities)
+	result.observations = cloneObservations(source.observations)
+	return result
+}
+
+func cloneObservations(source []Observation) []Observation {
+	result := make([]Observation, len(source))
+	for i := range source {
+		result[i] = cloneObservation(source[i])
+	}
 	return result
 }
 

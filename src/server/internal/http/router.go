@@ -25,6 +25,7 @@ import (
 	"oblivious/server/internal/payment"
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/relay"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/schedule"
 	stripebilling "oblivious/server/internal/stripe"
 	"oblivious/server/internal/task"
@@ -62,6 +63,10 @@ func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 }
 
 type RouterOptions struct {
+	Readiness                   releasecontract.ReadinessManager
+	Guard                       releasecontract.Guard
+	Effects                     releasecontract.EffectRegistrar
+	Authorities                 releasecontract.RuntimeAuthorities
 	CheckoutCreator             stripebilling.CheckoutCreator
 	CheckoutCreators            map[string]stripebilling.CheckoutCreator
 	PaymentProviderRegistry     *payment.Registry
@@ -80,6 +85,13 @@ type RouterOptions struct {
 	AlertProviderConfigStore    observability.AlertProviderConfigStore
 	AuthStore                   auth.Store
 	AdminQuotaSettingsService   adminQuotaSettingsService
+}
+
+func (o RouterOptions) ValidateReadinessAuthorities() error {
+	if o.Readiness == nil || o.Guard == nil || o.Effects == nil || !o.Authorities.Valid() {
+		return fmt.Errorf("readiness runtime authorities are incomplete")
+	}
+	return nil
 }
 
 type stripeMarketplaceSettlementAdapter struct {
