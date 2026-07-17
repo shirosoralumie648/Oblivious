@@ -39,7 +39,7 @@
   3. 所有后续 surface producer 共用嵌套 SurfaceReportV1、trusted identity resolver 和原子输出合同，environment/mode 不会混入 drift 或 skipped checks。
   4. monolith 是唯一 committed/default profile；microservices、dual、split 具有 profile-bound、无副作用且稳定失败的 migrate/deploy/rollback refs，不会被资产存在隐式晋级。
 
-**Plans**: 6/6 plans executed
+**Plans**: 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -63,9 +63,13 @@ Plans:
 
 - [x] 31-06-PLAN.md - Emit the foundation build report and enforce Stage A plus post-commit clean HEAD Stage B gates.
 
+**Wave 6** *(gap closure; blocked on verification of Plans 31-01 through 31-06)*
+
+- [ ] 31-07-PLAN.md - Reconcile deployment-profile timing fields, repair structural proof metadata, and rerun exact clean-HEAD verification.
+
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
-**Verification**: `gaps_found` on 2026-07-17. Clean `HEAD` fails Stage A and the full Go regression suite because canonical digest/provider tests depend on timing fields that only exist in an uncommitted Phase 31.1 overlay. Structural artifact/key-link patterns also require repair. See `31-VERIFICATION.md`; Phase 31 remains unchecked and `RELS-01` remains pending.
+**Verification**: `gaps_found` on 2026-07-17. Plan 31-07 owns the timing-contract and structural-metadata repairs plus the fresh Stage A, regression, hook, and exact-final-HEAD Stage B closure sequence. See `31-VERIFICATION.md`; Phase 31 remains unchecked and `RELS-01` remains pending.
 
 ### Phase 31.1: 动态 Readiness 与持续 Fail-Closed (INSERTED)
 
@@ -326,7 +330,7 @@ Cross-cutting constraints:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 31. 发布合同与可信构建身份 | 6/6 | Verifying |  |
+| 31. 发布合同与可信构建身份 | 6/7 | Gap closure planned |  |
 | 31.1 动态 Readiness 与持续 Fail-Closed | 0/10 | Not started | - |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |

@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 31
 current_phase_name: release-contract-current-baseline
-status: verifying
-stopped_at: Phase 31 verification gaps_found; contract/fixture ownership and structural verifier patterns require gap closure
-last_updated: "2026-07-17T10:22:19Z"
+status: planned
+stopped_at: Phase 31 gap plan 31-07 ready for execution
+last_updated: "2026-07-17T11:46:45Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 31 verification found blocking clean-HEAD gaps
+last_activity_desc: Planned Phase 31 clean-HEAD gap closure
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 31
+  total_plans: 32
   completed_plans: 6
   percent: 0
 ---
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 ## Current Position
 
-Phase: 31 (release-contract-current-baseline) — VERIFYING
-Plan: 6 of 6
-Status: Phase verification gaps found; gap planning required
-Last activity: 2026-07-17 — Clean HEAD Stage A and Go regression failed
+Phase: 31 (release-contract-current-baseline) — PLANNED
+Plan: 6 of 7
+Status: Gap plan 31-07 ready for execution
+Last activity: 2026-07-17 — Planned timing-contract and structural-verifier gap closure
 
 Progress: [----------] 0%
 
@@ -72,6 +72,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31]: One clean-Git tuple must agree across three image binaries, OCI labels, and strict packaged-contract digest. — Prevents build args or one artifact surface from becoming independent identity authority.
 - [Phase 31]: Stage A uses disposable clean fixtures; Stage B requires an exact clean real commit, explicit monolith, real Docker artifacts, typed report read-back, and zero skips. — Separates development proof from push-eligible repository-local identity evidence.
 - [Phase 31]: RELS-01 remains pending after all six plans. — Phase 31 proves only the authored-contract and trusted-build foundation; dynamic readiness, surface parity, and target/live proof remain later phases.
+- [Phase 31]: The user transferred ownership of the four timing-contract files to the Phase 31 gap closure. — Allows the clean-HEAD defect to be fixed coherently without treating the former Phase 31.1 overlay as evidence.
 
 ### Pending Todos
 
@@ -80,7 +81,6 @@ None yet.
 ### Blockers/Concerns
 
 - [Phase 31] `31-VERIFICATION.md` is `gaps_found`: canonical digest fixtures and the embedded-provider mutation test depend on timing fields absent from the committed Phase 31 schema/model/contract.
-- [Phase 31] Four overlapping timing files belong to protected Phase 31.1 work and cannot be staged or committed by this verification pass without explicit ownership transfer.
 - [Phase 31] Eight artifact/key-link metadata patterns need gap-closure repair before the structural verifier is fully green.
 - [Phase 31] Advertised deployment profiles, authoritative writers and exact capability manifest require live confirmation.
 - [Phase 33] Target object storage and Sandbox capacity/deployment model are not selected.
@@ -97,8 +97,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-17T10:22:19Z
-Stopped at: Phase 31 verification gaps_found; next route is `$gsd-plan-phase 31 --gaps`
+Last session: 2026-07-17T11:46:45Z
+Stopped at: Phase 31 gap plan 31-07 ready; next route is `$gsd-execute-phase 31`
 Resume file: None
 
 ## Performance Metrics
