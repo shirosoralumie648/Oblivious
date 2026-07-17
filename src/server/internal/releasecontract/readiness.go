@@ -118,6 +118,7 @@ type Evaluation struct {
 	CheckedAt    time.Time                       `json:"checkedAt"`
 	ValidUntil   time.Time                       `json:"validUntil"`
 	Capabilities map[string]CapabilityEvaluation `json:"capabilities"`
+	ErrorCode    ReadinessCode                   `json:"errorCode,omitempty"`
 }
 
 type ReadinessSnapshotV1 struct {
