@@ -1,1 +1,0 @@
-{"content":"ClickHouse 26.3.17.4 is the current LTS. Official guidance keeps mixed versions within one year or two LTS lines and advises an intermediate or downtime beyond that; move 24.12 through 25.8 LTS before 26.3 LTS.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.703Z","ttl":86400000,"kind":"docs"}

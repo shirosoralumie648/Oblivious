@@ -1,1 +1,0 @@
-{"content":"Redis 7.4.9 includes current security fixes; Kafka 4.3.1 is current while 3.7.1 is archived. Retain Redis 7.4.9 for closure and treat Kafka upgrade as required only for a declared microservices profile.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.813Z","ttl":86400000,"kind":"web"}

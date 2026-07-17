@@ -1,18 +1,64 @@
-.worktrees/
-.superpowers/
+# Local worktrees and agent runtime state
+/.worktrees/
+/.superpowers/
+/.claude/
+.claude-flow/
+/.codex
+/.mcp.json
+
+# Dependencies and frontend build/test output
 node_modules/
+.pnpm-store/
+.npm/
 dist/
 coverage/
 playwright-report/
 test-results/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# Go build and profiling output
+/bin/
+/.build/
+*.test
+*.prof
+coverage.out
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local configuration and secrets
 .env
 .env.*
 !.env.example
 deploy/kubernetes/secret.yaml
-bin/
-.build/
+
+# Runtime output and renewable research cache
 .tmp/
-reference/
 *.log
-__pycache__/
-*.py[cod]
+*.pid
+*.sock
+/.planning/research/.cache/
+/reference/
+
+# Editor and operating-system metadata
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.rej

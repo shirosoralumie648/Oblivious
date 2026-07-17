@@ -1,1 +1,0 @@
-{"content":"Current versions observed: Playwright 1.61.1, Vitest 4.1.10, govulncheck 1.6.0, golangci-lint 2.12.2, kubeconform 0.8.0 and k6 2.1.0. Add race, vet, lint, manifest, load and no-skip target gates.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.839Z","ttl":86400000,"kind":"web"}
