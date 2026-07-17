@@ -13,7 +13,7 @@
 - Integer phases (1, 2, 3): planned milestone work
 - Decimal phases (2.1, 2.2): urgent insertions marked `INSERTED`
 
-- [ ] **Phase 31: 发布合同与可信构建身份** - 固定能力承诺、显式 profile、clean source identity 和统一报告协议。
+- [x] **Phase 31: 发布合同与可信构建身份** - 固定能力承诺、显式 profile、clean source identity 和统一报告协议。 (completed 2026-07-17)
 - [ ] **Phase 31.1: 动态 Readiness 与持续 Fail-Closed** (INSERTED) - 用进程内动态授权源约束所有新副作用。
 - [ ] **Phase 31.2: 契约表面一致性与聚合门禁** (INSERTED) - 让所有 canonical surface 与 runtime 双向一致并阻断漂移。
 - [ ] **Phase 32: 身份、租户与共享出站安全** - 建立可信组织边界和统一 fail-closed 集成安全。
@@ -39,7 +39,7 @@
   3. 所有后续 surface producer 共用嵌套 SurfaceReportV1、trusted identity resolver 和原子输出合同，environment/mode 不会混入 drift 或 skipped checks。
   4. monolith 是唯一 committed/default profile；microservices、dual、split 具有 profile-bound、无副作用且稳定失败的 migrate/deploy/rollback refs，不会被资产存在隐式晋级。
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -65,7 +65,7 @@ Plans:
 
 **Wave 6** *(gap closure; blocked on verification of Plans 31-01 through 31-06)*
 
-- [ ] 31-07-PLAN.md - Reconcile deployment-profile timing fields, repair structural proof metadata, and rerun exact clean-HEAD verification.
+- [x] 31-07-PLAN.md - Reconcile deployment-profile timing fields, repair structural proof metadata, and rerun exact clean-HEAD verification.
 
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
 
@@ -330,7 +330,7 @@ Cross-cutting constraints:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 31. 发布合同与可信构建身份 | 6/7 | Gap closure planned |  |
+| 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
 | 31.1 动态 Readiness 与持续 Fail-Closed | 0/10 | Not started | - |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
