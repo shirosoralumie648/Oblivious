@@ -1,1 +1,0 @@
-{"content":"Current tool releases observed: cosign 3.1.1, Syft 1.46.0, Trivy 0.72.0, and actions attest-build-provenance 4.1.1. Generate SPDX SBOM, provenance and signatures by image digest, verify them, and pin Actions to full SHAs.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.866Z","ttl":86400000,"kind":"web"}

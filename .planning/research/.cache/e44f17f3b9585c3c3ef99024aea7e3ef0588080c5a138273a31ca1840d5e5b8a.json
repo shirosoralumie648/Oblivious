@@ -1,1 +1,0 @@
-{"content":"PostgreSQL official support data lists 14.23 supported only until 2026-11-12, while 16.14 is supported through 2028-11-09. Raise the production floor to the repository-observed PostgreSQL 16 line.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.649Z","ttl":86400000,"kind":"docs"}

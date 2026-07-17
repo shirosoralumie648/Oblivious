@@ -1,1 +1,0 @@
-{"content":"React 19.2.7 is current, but Oblivious is on React 18.3.1. A React 19 migration is a separate behavior-changing effort, so retain 18.3.1 for release closure and defer the major upgrade.","source":"web","provider":"webfetch","confidence":"LOW","fetched_at":"2026-07-14T14:25:29.621Z","ttl":86400000,"kind":"docs"}
