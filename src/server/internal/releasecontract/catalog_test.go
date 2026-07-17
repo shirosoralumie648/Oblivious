@@ -136,6 +136,7 @@ func TestRuntimeAuthoritiesContract(t *testing.T) {
 		{releasecontract.EffectRelayBatchProvider, "relay.provider_inference"},
 		{releasecontract.EffectArchiveClaim, "observability.audit"},
 		{releasecontract.EffectArchiveWrite, "observability.audit"},
+		{releasecontract.EffectArchiveDelete, "observability.audit"},
 		{releasecontract.EffectRelayProvider, "relay.provider_inference"},
 		{releasecontract.EffectChatProvider, "relay.provider_inference"},
 		{releasecontract.EffectMCPDispatch, "mcp.tool_execution"},

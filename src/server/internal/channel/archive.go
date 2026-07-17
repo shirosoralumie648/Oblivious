@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"oblivious/server/internal/releasecontract"
 )
 
 const defaultArchiveWorkerInterval = time.Hour
@@ -38,6 +40,10 @@ type MessageLogArchiveRequest struct {
 }
 
 func (s *Service) ArchiveExpiredMessageLogs(ctx context.Context, store MessageLogArchiveStore, sink MessageLogArchiveSink, request MessageLogArchiveRequest) (ArchiveExpiredMessageLogsResult, error) {
+	return s.archiveExpiredMessageLogs(ctx, store, sink, request, nil)
+}
+
+func (s *Service) archiveExpiredMessageLogs(ctx context.Context, store MessageLogArchiveStore, sink MessageLogArchiveSink, request MessageLogArchiveRequest, readiness *archiveReadiness) (ArchiveExpiredMessageLogsResult, error) {
 	if store == nil {
 		return ArchiveExpiredMessageLogsResult{}, fmt.Errorf("message log archive store is required")
 	}
@@ -48,6 +54,9 @@ func (s *Service) ArchiveExpiredMessageLogs(ctx context.Context, store MessageLo
 	result := ArchiveExpiredMessageLogsResult{Before: before}
 	if before.IsZero() {
 		return result, fmt.Errorf("archive cutoff is required")
+	}
+	if err := readiness.requireClaim(ctx); err != nil {
+		return result, err
 	}
 
 	logs, err := store.ListExpiredMessageLogsForArchive(ctx, ArchiveExpiredMessageLogsInput{Before: before, Limit: limit})
@@ -70,6 +79,9 @@ func (s *Service) ArchiveExpiredMessageLogs(ctx context.Context, store MessageLo
 		CreatedAt: now,
 		Logs:      cloneChannelMessageLogs(logs),
 	}
+	if err := readiness.requireWrite(ctx); err != nil {
+		return result, err
+	}
 	if err := sink.ArchiveMessageLogs(ctx, object); err != nil {
 		return result, fmt.Errorf("archive channel message logs object: %w", err)
 	}
@@ -79,6 +91,9 @@ func (s *Service) ArchiveExpiredMessageLogs(ctx context.Context, store MessageLo
 		if log != nil && log.ID != "" {
 			ids = append(ids, log.ID)
 		}
+	}
+	if err := readiness.requireDelete(ctx); err != nil {
+		return result, err
 	}
 	result, err = store.DeleteArchivedMessageLogs(ctx, ids)
 	if err != nil {
@@ -296,12 +311,15 @@ func hmacSHA256(key []byte, data string) []byte {
 }
 
 type ArchiveWorkerConfig struct {
-	Interval  time.Duration
-	Retention time.Duration
-	Limit     int
-	Now       func() time.Time
-	Ticks     <-chan time.Time
-	OnError   func(error)
+	Interval    time.Duration
+	Retention   time.Duration
+	Limit       int
+	Now         func() time.Time
+	Ticks       <-chan time.Time
+	OnError     func(error)
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
 }
 
 type ArchiveWorker struct {
@@ -314,9 +332,19 @@ type ArchiveWorker struct {
 	now       func() time.Time
 	ticks     <-chan time.Time
 	onError   func(error)
+	readiness *archiveReadiness
 }
 
 func NewArchiveWorker(service *Service, store MessageLogArchiveStore, sink MessageLogArchiveSink, config ArchiveWorkerConfig) *ArchiveWorker {
+	worker, _ := newArchiveWorker(service, store, sink, config, false)
+	return worker
+}
+
+func NewReadinessArchiveWorker(service *Service, store MessageLogArchiveStore, sink MessageLogArchiveSink, config ArchiveWorkerConfig) (*ArchiveWorker, error) {
+	return newArchiveWorker(service, store, sink, config, true)
+}
+
+func newArchiveWorker(service *Service, store MessageLogArchiveStore, sink MessageLogArchiveSink, config ArchiveWorkerConfig, requireReadiness bool) (*ArchiveWorker, error) {
 	if service == nil {
 		service = NewService(nil)
 	}
@@ -332,6 +360,14 @@ func NewArchiveWorker(service *Service, store MessageLogArchiveStore, sink Messa
 	if retention <= 0 {
 		retention = defaultMessageLogRetention
 	}
+	var readiness *archiveReadiness
+	if requireReadiness {
+		var err error
+		readiness, err = newArchiveReadiness(config.Guard, config.Authorities, config.Effects)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &ArchiveWorker{
 		service:   service,
 		store:     store,
@@ -342,7 +378,64 @@ func NewArchiveWorker(service *Service, store MessageLogArchiveStore, sink Messa
 		now:       now,
 		ticks:     config.Ticks,
 		onError:   config.OnError,
+		readiness: readiness,
+	}, nil
+}
+
+type archiveReadiness struct {
+	guard            releasecontract.Guard
+	claimCapability  releasecontract.CapabilityID
+	writeCapability  releasecontract.CapabilityID
+	deleteCapability releasecontract.CapabilityID
+}
+
+func newArchiveReadiness(guard releasecontract.Guard, authorities releasecontract.RuntimeAuthorities, effects releasecontract.EffectRegistrar) (*archiveReadiness, error) {
+	if guard == nil || effects == nil || !authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "channel.archive.readiness"}
 	}
+	claim, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectArchiveClaim)
+	if err != nil {
+		return nil, err
+	}
+	write, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectArchiveWrite)
+	if err != nil {
+		return nil, err
+	}
+	deleteCapability, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectArchiveDelete)
+	if err != nil {
+		return nil, err
+	}
+	for _, descriptor := range []releasecontract.EffectDescriptor{
+		{ID: "worker.archive.claim", CapabilityID: string(claim), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "channel.ArchiveWorker"},
+		{ID: "worker.archive.write", CapabilityID: string(write), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "channel.Service"},
+		{ID: "worker.archive.delete", CapabilityID: string(deleteCapability), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "channel.Service"},
+	} {
+		if err := effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	return &archiveReadiness{guard: guard, claimCapability: claim, writeCapability: write, deleteCapability: deleteCapability}, nil
+}
+
+func (r *archiveReadiness) requireClaim(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.claimCapability), releasecontract.BoundaryWorkerClaim)
+}
+
+func (r *archiveReadiness) requireWrite(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.writeCapability), releasecontract.BoundaryWorkerEffect)
+}
+
+func (r *archiveReadiness) requireDelete(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.deleteCapability), releasecontract.BoundaryWorkerEffect)
 }
 
 func (w *ArchiveWorker) Run(ctx context.Context) {
@@ -371,11 +464,11 @@ func (w *ArchiveWorker) runOnce(ctx context.Context) {
 		return
 	}
 	now := w.now().UTC()
-	_, err := w.service.ArchiveExpiredMessageLogs(ctx, w.store, w.sink, MessageLogArchiveRequest{
+	_, err := w.service.archiveExpiredMessageLogs(ctx, w.store, w.sink, MessageLogArchiveRequest{
 		Before: now.Add(-w.retention),
 		Limit:  w.limit,
 		Now:    now,
-	})
+	}, w.readiness)
 	if err != nil && w.onError != nil {
 		w.onError(err)
 	}

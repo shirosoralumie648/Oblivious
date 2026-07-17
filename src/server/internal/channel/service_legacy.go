@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"oblivious/server/internal/releasecontract"
 )
 
 var ErrRetryMessageStoreRequired = errors.New("retry message store is required")
@@ -53,6 +55,7 @@ type ChannelHealthNotifier func(ctx context.Context, event ChannelHealthEvent)
 type Service struct {
 	registry       *AdapterRegistry
 	healthNotifier ChannelHealthNotifier
+	readiness      *channelReadiness
 }
 
 type outboundDeliverer interface {
@@ -72,16 +75,74 @@ func NewService(registry *AdapterRegistry) *Service {
 }
 
 func NewServiceWithOptions(registry *AdapterRegistry, options ...ServiceOption) *Service {
+	return newService(registry, nil, options...)
+}
+
+// NewReadinessServiceWithOptions constructs the channel service used by
+// runtime delivery and retry workers once Plan 31.1-02 supplies the shared
+// startup authorities.
+func NewReadinessServiceWithOptions(registry *AdapterRegistry, guard releasecontract.Guard, authorities releasecontract.RuntimeAuthorities, effects releasecontract.EffectRegistrar, options ...ServiceOption) (*Service, error) {
+	readiness, err := newChannelReadiness(guard, authorities, effects)
+	if err != nil {
+		return nil, err
+	}
+	return newService(registry, readiness, options...), nil
+}
+
+func newService(registry *AdapterRegistry, readiness *channelReadiness, options ...ServiceOption) *Service {
 	if registry == nil {
 		registry = NewAdapterRegistry(nil)
 	}
-	service := &Service{registry: registry}
+	service := &Service{registry: registry, readiness: readiness}
 	for _, option := range options {
 		if option != nil {
 			option(service)
 		}
 	}
 	return service
+}
+
+type channelReadiness struct {
+	guard           releasecontract.Guard
+	retryClaim      releasecontract.CapabilityID
+	channelDelivery releasecontract.CapabilityID
+}
+
+func newChannelReadiness(guard releasecontract.Guard, authorities releasecontract.RuntimeAuthorities, effects releasecontract.EffectRegistrar) (*channelReadiness, error) {
+	if guard == nil || effects == nil || !authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "channel.readiness"}
+	}
+	retryClaim, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectChannelRetryClaim)
+	if err != nil {
+		return nil, err
+	}
+	delivery, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectChannelDelivery)
+	if err != nil {
+		return nil, err
+	}
+	for _, descriptor := range []releasecontract.EffectDescriptor{
+		{ID: "worker.channel_retry.claim", CapabilityID: string(retryClaim), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "channel.Service"},
+		{ID: "channel.delivery.send", CapabilityID: string(delivery), Boundary: releasecontract.BoundaryOutbound, Owner: "channel.Service"},
+	} {
+		if err := effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	return &channelReadiness{guard: guard, retryClaim: retryClaim, channelDelivery: delivery}, nil
+}
+
+func (r *channelReadiness) requireRetryClaim(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.retryClaim), releasecontract.BoundaryWorkerClaim)
+}
+
+func (r *channelReadiness) requireDelivery(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.channelDelivery), releasecontract.BoundaryOutbound)
 }
 
 func (s *Service) Receive(ctx context.Context, req ReceiveRequest) (ChannelMessageLog, error) {
@@ -133,6 +194,9 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (ChannelMessageLog,
 	}
 	log.RawMessage = append(json.RawMessage(nil), raw...)
 	if deliverer, ok := adapter.(outboundDeliverer); ok {
+		if err := s.readiness.requireDelivery(ctx); err != nil {
+			return log, err
+		}
 		if err := deliverer.DeliverOutbound(ctx, req.Config, raw); err != nil {
 			failed := s.MarkDeliveryFailed(log, err.Error(), now)
 			return failed, nil
@@ -163,6 +227,14 @@ func (s *Service) Test(ctx context.Context, config ChannelConfig) (TestConnectio
 			}, nil
 		}
 		raw := json.RawMessage(`{"test":true}`)
+		if err := s.readiness.requireDelivery(ctx); err != nil {
+			return TestConnectionResult{
+				ChannelID: config.ID,
+				Type:      string(config.Type),
+				Status:    "failed",
+				Message:   err.Error(),
+			}, nil
+		}
 		if err := deliverer.DeliverOutbound(ctx, config.Config, raw); err != nil {
 			return TestConnectionResult{
 				ChannelID: config.ID,
@@ -221,6 +293,9 @@ func (s *Service) ClaimDueRetryMessages(ctx context.Context, store RetryMessageS
 	if store == nil {
 		return nil, ErrRetryMessageStoreRequired
 	}
+	if err := s.readiness.requireRetryClaim(ctx); err != nil {
+		return nil, err
+	}
 	return store.ClaimDueRetryMessages(ctx, input)
 }
 
@@ -229,7 +304,7 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 		return ProcessDueRetryMessagesResult{}, ErrRetryMessageStoreRequired
 	}
 	now := channelRequestTime(input.Now)
-	claimed, err := store.ClaimDueRetryMessages(ctx, input)
+	claimed, err := s.ClaimDueRetryMessages(ctx, store, input)
 	if err != nil {
 		return ProcessDueRetryMessagesResult{}, err
 	}
@@ -244,6 +319,7 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 			targetChannelID = input.FallbackChannelID
 		}
 		config, err := store.GetConfigByID(ctx, targetChannelID)
+		readinessDenied := false
 		if err == nil && config != nil {
 			updated.ChannelID = config.ID
 			sendLog, sendErr := s.Send(ctx, SendRequest{
@@ -270,6 +346,7 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 			}
 			if sendErr != nil {
 				err = sendErr
+				readinessDenied = isChannelReadinessDenial(sendErr)
 			} else {
 				err = errors.New(sendLog.FailureReason)
 			}
@@ -284,11 +361,16 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 		if _, err := store.UpdateRetryMessageLog(ctx, &failed); err != nil {
 			return result, err
 		}
-		if config != nil {
+		if config != nil && !readinessDenied {
 			s.updateRetryChannelHealth(ctx, store, config, &failed, now)
 		}
 	}
 	return result, nil
+}
+
+func isChannelReadinessDenial(err error) bool {
+	var readinessErr *releasecontract.ReadinessError
+	return errors.As(err, &readinessErr)
 }
 
 func (s *Service) updateRetryChannelHealth(ctx context.Context, store RetryWorkerStore, config *ChannelConfig, logEntry *ChannelMessageLog, occurredAt time.Time) {
