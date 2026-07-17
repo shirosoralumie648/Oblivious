@@ -118,6 +118,9 @@
       "required": [
         "id",
         "commitment",
+        "refreshIntervalSeconds",
+        "maxAgeSeconds",
+        "allowedFutureSkewSeconds",
         "topology",
         "entrypoints",
         "dependencies",
@@ -132,6 +135,9 @@
         "id": { "$ref": "#/$defs/id" },
         "commitment": { "$ref": "#/$defs/commitment" },
         "reasonCode": { "$ref": "#/$defs/id" },
+        "refreshIntervalSeconds": { "type": "integer", "minimum": 1 },
+        "maxAgeSeconds": { "type": "integer", "minimum": 1 },
+        "allowedFutureSkewSeconds": { "type": "integer", "minimum": 0 },
         "topology": { "$ref": "#/$defs/topology" },
         "entrypoints": { "$ref": "#/$defs/idSet" },
         "dependencies": {
