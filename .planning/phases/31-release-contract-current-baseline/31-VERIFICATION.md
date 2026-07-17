@@ -52,6 +52,8 @@ Fully verified: 9/9.
 | `git diff --check` | PASS |
 | `bash scripts/verify-release-contract.sh --clean-head --profile monolith` | PASS at `ad24612`, zero skips |
 
+Stage A, the full Go regression, the docs aggregate, all 42 structural checks, and the diff check were refreshed after `31-07-SUMMARY.md` at tracking parent `8b9e6d039afd0f3ec7bb0f64251de25134b2b7c7`. No implementation files changed after those checks.
+
 `TEST_DATABASE_URL` was unset. Phase 31 owns no DB migration behavior, so this is reported but not counted as a pass or as a skip in the foundation gate.
 
 ## Stage B Tuple

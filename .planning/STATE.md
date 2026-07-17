@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 31
-current_phase_name: release-contract-current-baseline
+current_phase: 31.1
+current_phase_name: dynamic-readiness-continuous-fail-closed
 status: planned
-stopped_at: Completed 31-07-PLAN.md
-last_updated: "2026-07-17T12:16:56.635Z"
+stopped_at: Phase 31 repository-local verification passed; Phase 31.1 ready for execution
+last_updated: "2026-07-17T12:30:49Z"
 last_activity: 2026-07-17
-last_activity_desc: Planned timing-contract and structural-verifier gap closure
+last_activity_desc: Closed Phase 31 timing-contract and structural-verifier gaps
 progress:
   total_phases: 11
   completed_phases: 1
@@ -24,28 +24,28 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 **Core value:** 让组织客户能够可靠地构建、运行并商业化 AI 应用，同时让每一次 AI 操作都可隔离、可计费、可追踪、可审计、可恢复。
-**Current focus:** Phase 31 — release-contract-current-baseline
+**Current focus:** Phase 31.1 — dynamic-readiness-continuous-fail-closed
 
 ## Current Position
 
-Phase: 31 (release-contract-current-baseline) — PLANNED
-Plan: 7 of 7
-Status: Gap plan 31-07 ready for execution
-Last activity: 2026-07-17 — Planned timing-contract and structural-verifier gap closure
+Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — PLANNED
+Plan: 0 of 10
+Status: Phase 31 repository-local foundation complete; Phase 31.1 ready for execution
+Last activity: 2026-07-17 — Closed Phase 31 timing-contract and structural-verifier gaps
 
-Progress: [----------] 0%
+Progress: [#---------] 9%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 7
+- Average duration: 36 min
+- Total execution time: 4.2 hours
 
-**By Phase:** No completed plans yet.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes.
 
-**Recent Trend:** No execution history yet.
+**Recent Trend:** Plan 31-07 closed the verification gaps in 29 minutes.
 
 ## Accumulated Context
 
@@ -73,6 +73,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31]: Stage A uses disposable clean fixtures; Stage B requires an exact clean real commit, explicit monolith, real Docker artifacts, typed report read-back, and zero skips. — Separates development proof from push-eligible repository-local identity evidence.
 - [Phase 31]: RELS-01 remains pending after all six plans. — Phase 31 proves only the authored-contract and trusted-build foundation; dynamic readiness, surface parity, and target/live proof remain later phases.
 - [Phase 31]: The user transferred ownership of the four timing-contract files to the Phase 31 gap closure. — Allows the clean-HEAD defect to be fixed coherently without treating the former Phase 31.1 overlay as evidence.
+- [Phase 31]: Repository-local verification passes with Stage A, full Go regression, docs aggregate, 42/42 structural checks, clean review, Nyquist compliance, zero open threats, and a zero-skip pre-closeout Stage B tuple. — Completes the foundation without closing RELS-01 or claiming target/live readiness.
 
 ### Pending Todos
 
@@ -80,9 +81,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 31] `31-VERIFICATION.md` is `gaps_found`: canonical digest fixtures and the embedded-provider mutation test depend on timing fields absent from the committed Phase 31 schema/model/contract.
-- [Phase 31] Eight artifact/key-link metadata patterns need gap-closure repair before the structural verifier is fully green.
-- [Phase 31] Advertised deployment profiles, authoritative writers and exact capability manifest require live confirmation.
+- [Phase 31] `RELS-01` remains pending: dynamic readiness, surface parity, deployment-mode parity, supply-chain attestations, and target/live proof belong to later phases.
 - [Phase 33] Target object storage and Sandbox capacity/deployment model are not selected.
 - [Phases 34, 36, 37, 39] Provider, payment/payout, observability, cluster and signing details require target credentials and fresh external evidence.
 
@@ -97,8 +96,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-17T12:16:56.616Z
-Stopped at: Completed 31-07-PLAN.md
+Last session: 2026-07-17T12:30:49Z
+Stopped at: Phase 31 repository-local verification passed; Phase 31.1 ready for execution
 Resume file: None
 
 ## Performance Metrics
