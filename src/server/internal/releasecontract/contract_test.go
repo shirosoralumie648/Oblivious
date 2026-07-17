@@ -104,6 +104,25 @@ func TestAuthoredContractV1ModelsRequiredSections(t *testing.T) {
 	}
 }
 
+func TestAuthoredContractV1RejectsInvalidTypedProfileTiming(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*DeploymentProfile)
+	}{
+		{name: "zero refresh interval", mutate: func(profile *DeploymentProfile) { profile.RefreshIntervalSeconds = 0 }},
+		{name: "zero max age", mutate: func(profile *DeploymentProfile) { profile.MaxAgeSeconds = 0 }},
+		{name: "negative allowed future skew", mutate: func(profile *DeploymentProfile) { profile.AllowedFutureSkewSeconds = -1 }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contract := decodeTestContract(t, readTestFile(t, "config/release/contract.v1.json"))
+			test.mutate(&contract.Profiles[0])
+			assertContractErrorCode(t, contract.Validate(testRepoRoot(t)), ErrorContractSemanticInvalid)
+		})
+	}
+}
+
 func TestCheckedInContractProfilePolicyAndReferenceClosure(t *testing.T) {
 	contractBytes := readTestFile(t, "config/release/contract.v1.json")
 	schema := compileTestSchema(t, readTestFile(t, "config/release/contract.schema.json"))

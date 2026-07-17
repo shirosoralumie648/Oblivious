@@ -245,6 +245,15 @@ func (c AuthoredContractV1) Validate(repoRoot string) error {
 	}
 	committedProfiles := 0
 	for i, profile := range c.Profiles {
+		if profile.RefreshIntervalSeconds <= 0 {
+			return contractError(ErrorContractSemanticInvalid, fmt.Sprintf("profiles[%d].refreshIntervalSeconds", i), fmt.Sprint(profile.RefreshIntervalSeconds), nil)
+		}
+		if profile.MaxAgeSeconds <= 0 {
+			return contractError(ErrorContractSemanticInvalid, fmt.Sprintf("profiles[%d].maxAgeSeconds", i), fmt.Sprint(profile.MaxAgeSeconds), nil)
+		}
+		if profile.AllowedFutureSkewSeconds < 0 {
+			return contractError(ErrorContractSemanticInvalid, fmt.Sprintf("profiles[%d].allowedFutureSkewSeconds", i), fmt.Sprint(profile.AllowedFutureSkewSeconds), nil)
+		}
 		if !validCommitment(profile.Commitment) {
 			return contractError(ErrorContractSemanticInvalid, fmt.Sprintf("profiles[%d].commitment", i), string(profile.Commitment), nil)
 		}
