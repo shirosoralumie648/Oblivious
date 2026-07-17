@@ -8,6 +8,7 @@ import (
 
 	"oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/workflow"
 )
 
@@ -16,21 +17,37 @@ const defaultDueTaskClaimLimit = 50
 const defaultWorkerInterval = time.Minute
 
 type WorkerConfig struct {
-	Interval time.Duration
-	Limit    int
-	Now      func() time.Time
-	OnError  func(error)
+	Interval    time.Duration
+	Limit       int
+	Now         func() time.Time
+	OnError     func(error)
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
 }
 
 type Worker struct {
-	service  *Service
-	interval time.Duration
-	limit    int
-	now      func() time.Time
-	onError  func(error)
+	service   *Service
+	interval  time.Duration
+	limit     int
+	now       func() time.Time
+	onError   func(error)
+	readiness *scheduledReadiness
 }
 
 func NewWorker(service *Service, config WorkerConfig) *Worker {
+	worker, _ := newWorker(service, config, false)
+	return worker
+}
+
+// NewReadinessWorker is the production constructor for scheduled background
+// work. Plan 31.1-02 owns switching runtime composition to this fail-closed
+// constructor once the shared startup authorities are available.
+func NewReadinessWorker(service *Service, config WorkerConfig) (*Worker, error) {
+	return newWorker(service, config, true)
+}
+
+func newWorker(service *Service, config WorkerConfig, requireReadiness bool) (*Worker, error) {
 	interval := config.Interval
 	if interval <= 0 {
 		interval = defaultWorkerInterval
@@ -43,13 +60,22 @@ func NewWorker(service *Service, config WorkerConfig) *Worker {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Worker{
-		service:  service,
-		interval: interval,
-		limit:    limit,
-		now:      now,
-		onError:  config.OnError,
+	var readiness *scheduledReadiness
+	if requireReadiness {
+		var err error
+		readiness, err = newScheduledReadiness(config.Guard, config.Authorities, config.Effects)
+		if err != nil {
+			return nil, err
+		}
 	}
+	return &Worker{
+		service:   service,
+		interval:  interval,
+		limit:     limit,
+		now:       now,
+		onError:   config.OnError,
+		readiness: readiness,
+	}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -74,9 +100,72 @@ func (w *Worker) runOnce(ctx context.Context) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
-	if _, err := w.service.RunDueTasks(ctx, w.now(), w.limit); err != nil && w.onError != nil {
+	if _, err := w.service.runDueTasks(ctx, w.now(), w.limit, w.readiness); err != nil && w.onError != nil {
 		w.onError(err)
 	}
+}
+
+type scheduledReadiness struct {
+	guard              releasecontract.Guard
+	claimCapability    releasecontract.CapabilityID
+	workflowCapability releasecontract.CapabilityID
+	agentCapability    releasecontract.CapabilityID
+}
+
+func newScheduledReadiness(guard releasecontract.Guard, authorities releasecontract.RuntimeAuthorities, effects releasecontract.EffectRegistrar) (*scheduledReadiness, error) {
+	if guard == nil || effects == nil || !authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "schedule.readiness"}
+	}
+	claimCapability, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectScheduleClaim)
+	if err != nil {
+		return nil, err
+	}
+	workflowCapability, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectScheduleWorkflow)
+	if err != nil {
+		return nil, err
+	}
+	agentCapability, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectScheduleAgent)
+	if err != nil {
+		return nil, err
+	}
+	descriptors := []releasecontract.EffectDescriptor{
+		{ID: "worker.schedule.claim", CapabilityID: string(claimCapability), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "schedule.Worker"},
+		{ID: "worker.schedule.workflow.start", CapabilityID: string(workflowCapability), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "schedule.Service"},
+		{ID: "worker.schedule.workflow.continue", CapabilityID: string(workflowCapability), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "schedule.Service"},
+		{ID: "worker.schedule.agent.start", CapabilityID: string(agentCapability), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "schedule.Service"},
+	}
+	for _, descriptor := range descriptors {
+		if err := effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	return &scheduledReadiness{
+		guard:              guard,
+		claimCapability:    claimCapability,
+		workflowCapability: workflowCapability,
+		agentCapability:    agentCapability,
+	}, nil
+}
+
+func (r *scheduledReadiness) requireClaim(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.claimCapability), releasecontract.BoundaryWorkerClaim)
+}
+
+func (r *scheduledReadiness) requireWorkflowEffect(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.workflowCapability), releasecontract.BoundaryWorkerEffect)
+}
+
+func (r *scheduledReadiness) requireAgentEffect(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.agentCapability), releasecontract.BoundaryWorkerEffect)
 }
 
 type DueTaskRunResult struct {
@@ -88,6 +177,10 @@ type DueTaskRunResult struct {
 }
 
 func (s *Service) RunDueTasks(ctx context.Context, now time.Time, limit int) ([]DueTaskRunResult, error) {
+	return s.runDueTasks(ctx, now, limit, nil)
+}
+
+func (s *Service) runDueTasks(ctx context.Context, now time.Time, limit int, readiness *scheduledReadiness) ([]DueTaskRunResult, error) {
 	if s.workflowStarter == nil && s.agentStarter == nil {
 		return nil, workflow.ErrInvalidInput
 	}
@@ -103,6 +196,9 @@ func (s *Service) RunDueTasks(ctx context.Context, now time.Time, limit int) ([]
 	if limit <= 0 {
 		limit = defaultDueTaskClaimLimit
 	}
+	if err := readiness.requireClaim(ctx); err != nil {
+		return nil, err
+	}
 
 	claimedRuns, err := dueStore.ClaimDueScheduledTaskRuns(ctx, ClaimDueScheduledTaskRunsInput{
 		Now:   now,
@@ -116,27 +212,34 @@ func (s *Service) RunDueTasks(ctx context.Context, now time.Time, limit int) ([]
 	for _, claimed := range claimedRuns {
 		targetType := strings.ToLower(strings.TrimSpace(claimed.Task.TargetType))
 		if targetType == TargetTypeAgent {
-			results = append(results, s.runClaimedAgentTask(ctx, dueStore, claimed, now))
+			results = append(results, s.runClaimedAgentTask(ctx, dueStore, claimed, now, readiness))
 			continue
 		}
-		results = append(results, s.runClaimedWorkflowTask(ctx, dueStore, claimed, now))
+		results = append(results, s.runClaimedWorkflowTask(ctx, dueStore, claimed, now, readiness))
 	}
 
 	return results, nil
 }
 
-func (s *Service) runClaimedWorkflowTask(ctx context.Context, dueStore DueTaskStore, claimed ClaimedScheduledTaskRun, now time.Time) DueTaskRunResult {
+func (s *Service) runClaimedWorkflowTask(ctx context.Context, dueStore DueTaskStore, claimed ClaimedScheduledTaskRun, now time.Time, readiness *scheduledReadiness) DueTaskRunResult {
 	result := DueTaskRunResult{Task: claimed.Task, Run: claimed.Run}
 	session := auth.Session{OrganizationID: claimed.Task.OrganizationID}
 
 	if s.workflowStarter == nil {
 		return s.failClaimedRun(ctx, dueStore, result, session, errors.New("workflow starter is not configured"), now)
 	}
+	if err := readiness.requireWorkflowEffect(ctx); err != nil {
+		return s.failClaimedRun(ctx, dueStore, result, session, err, now)
+	}
 
 	execution, err := s.startClaimedWorkflow(ctx, claimed.Task, claimed.Run, nil)
 	finishedAt := time.Now().UTC()
 	if err != nil {
 		return s.failClaimedRunAt(ctx, dueStore, result, session, err, now, finishedAt)
+	}
+	if err := readiness.requireWorkflowEffect(ctx); err != nil {
+		result.Execution = execution
+		return s.failClaimedRunAt(ctx, dueStore, result, session, err, now, time.Now().UTC())
 	}
 
 	execution, err = s.workflowStarter.RunExecutionUntilBlocked(ctx, claimed.Task.OrganizationID, execution.ID)
@@ -164,7 +267,7 @@ func (s *Service) runClaimedWorkflowTask(ctx context.Context, dueStore DueTaskSt
 	return s.completeClaimedRun(ctx, dueStore, result, now, finishedAt)
 }
 
-func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore, claimed ClaimedScheduledTaskRun, now time.Time) DueTaskRunResult {
+func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore, claimed ClaimedScheduledTaskRun, now time.Time, readiness *scheduledReadiness) DueTaskRunResult {
 	result := DueTaskRunResult{Task: claimed.Task, Run: claimed.Run}
 	session := auth.Session{
 		OrganizationID: claimed.Task.OrganizationID,
@@ -174,6 +277,9 @@ func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore
 	}
 	if s.agentStarter == nil {
 		return s.failClaimedRun(ctx, dueStore, result, session, errors.New("agent starter is not configured"), now)
+	}
+	if err := readiness.requireAgentEffect(ctx); err != nil {
+		return s.failClaimedRun(ctx, dueStore, result, session, err, now)
 	}
 
 	agentRun, err := s.agentStarter.StartRun(ctx, session, agent.StartRunRequest{

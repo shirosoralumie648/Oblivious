@@ -322,7 +322,7 @@ func workflowDatabaseValue(value any) any {
 func (a workflowToolExecutorAdapter) RunWorkflowTool(ctx context.Context, req workflow.WorkflowToolRequest) (*workflow.WorkflowToolResult, error) {
 	executor := a.executor
 	if executor == nil {
-		executor = agent.NewToolExecutor(nil)
+		return nil, fmt.Errorf("%w: workflow tool executor is not configured", workflow.ErrInvalidInput)
 	}
 	toolType := req.ToolType
 	if toolType == "" {

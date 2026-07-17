@@ -3,13 +3,117 @@ package schedule
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"oblivious/server/internal/agent"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/workflow"
 )
+
+func TestScheduledTaskReadinessGuardContract(t *testing.T) {
+	now := time.Date(2026, time.July, 18, 1, 0, 0, 0, time.UTC)
+	denialCodes := []releasecontract.ReadinessCode{
+		releasecontract.CodeCapabilityDisabled,
+		releasecontract.CodeCapabilityBlocked,
+		releasecontract.CodeReadinessStale,
+		releasecontract.CodeCapabilityUnknown,
+		releasecontract.CodeReadinessUnavailable,
+		releasecontract.CodeBuildIdentityMismatch,
+	}
+	for _, code := range denialCodes {
+		t.Run("claim denial "+string(code), func(t *testing.T) {
+			store, workflowStarter, agentStarter := scheduledReadinessFixture(now, TargetTypeWorkflow)
+			guard := &scheduledGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: code}}
+			worker := newScheduledReadinessWorker(t, store, workflowStarter, agentStarter, guard, now)
+
+			worker.runOnce(context.Background())
+
+			if store.claimDueCalls != 0 || workflowStarter.calls != 0 || workflowStarter.runCalls != 0 || agentStarter.calls != 0 {
+				t.Fatalf("denied claim reached downstream effects: claim=%d workflowStart=%d workflowContinue=%d agent=%d", store.claimDueCalls, workflowStarter.calls, workflowStarter.runCalls, agentStarter.calls)
+			}
+			guard.assertCall(t, 0, "task.scheduled_execution", releasecontract.BoundaryWorkerClaim)
+		})
+	}
+
+	t.Run("nil guard fails before loop construction", func(t *testing.T) {
+		contract, profile := loadScheduledReadinessAuthority(t)
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, &scheduledGuardSpy{})
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		_, err = NewReadinessWorker(NewService(&fakeStore{}), WorkerConfig{
+			Guard: nil, Authorities: authorities, Effects: &scheduledEffectRegistrar{},
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("nil guard error = %v", err)
+		}
+	})
+
+	t.Run("expiry after claim blocks workflow start and records only failure bookkeeping", func(t *testing.T) {
+		store, workflowStarter, agentStarter := scheduledReadinessFixture(now, TargetTypeWorkflow)
+		guard := &scheduledGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newScheduledReadinessWorker(t, store, workflowStarter, agentStarter, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimDueCalls != 1 || workflowStarter.calls != 0 || workflowStarter.runCalls != 0 || agentStarter.calls != 0 {
+			t.Fatalf("expiry after claim reached target: claim=%d workflowStart=%d workflowContinue=%d agent=%d", store.claimDueCalls, workflowStarter.calls, workflowStarter.runCalls, agentStarter.calls)
+		}
+		if store.failRunCalls != 1 || store.failedRunInput.Error != string(releasecontract.CodeReadinessStale) {
+			t.Fatalf("expected stable failure bookkeeping, calls=%d input=%+v", store.failRunCalls, store.failedRunInput)
+		}
+	})
+
+	t.Run("expiry after workflow creation blocks continuation independently", func(t *testing.T) {
+		store, workflowStarter, agentStarter := scheduledReadinessFixture(now, TargetTypeWorkflow)
+		guard := &scheduledGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newScheduledReadinessWorker(t, store, workflowStarter, agentStarter, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimDueCalls != 1 || workflowStarter.calls != 1 || workflowStarter.runCalls != 0 || agentStarter.calls != 0 {
+			t.Fatalf("expiry before continuation reached target: claim=%d workflowStart=%d workflowContinue=%d agent=%d", store.claimDueCalls, workflowStarter.calls, workflowStarter.runCalls, agentStarter.calls)
+		}
+		if store.failRunCalls != 1 || store.completeRunCalls != 0 {
+			t.Fatalf("expected bounded failure bookkeeping only: failed=%d completed=%d", store.failRunCalls, store.completeRunCalls)
+		}
+	})
+
+	t.Run("expiry after agent claim blocks agent start independently", func(t *testing.T) {
+		store, workflowStarter, agentStarter := scheduledReadinessFixture(now, TargetTypeAgent)
+		guard := &scheduledGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newScheduledReadinessWorker(t, store, workflowStarter, agentStarter, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimDueCalls != 1 || workflowStarter.calls != 0 || workflowStarter.runCalls != 0 || agentStarter.calls != 0 {
+			t.Fatalf("expiry before agent start reached target: claim=%d workflowStart=%d workflowContinue=%d agent=%d", store.claimDueCalls, workflowStarter.calls, workflowStarter.runCalls, agentStarter.calls)
+		}
+		if store.failRunCalls != 1 || store.completeRunCalls != 0 {
+			t.Fatalf("expected bounded failure bookkeeping only: failed=%d completed=%d", store.failRunCalls, store.completeRunCalls)
+		}
+	})
+
+	t.Run("authorizing guard preserves success and registers stable descriptors", func(t *testing.T) {
+		store, workflowStarter, agentStarter := scheduledReadinessFixture(now, TargetTypeWorkflow)
+		guard := &scheduledGuardSpy{}
+		registrar := &scheduledEffectRegistrar{}
+		worker := newScheduledReadinessWorkerWithRegistrar(t, store, workflowStarter, agentStarter, guard, registrar, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimDueCalls != 1 || workflowStarter.calls != 1 || workflowStarter.runCalls != 1 || store.completeRunCalls != 1 {
+			t.Fatalf("authorized behavior changed: claim=%d start=%d continue=%d complete=%d", store.claimDueCalls, workflowStarter.calls, workflowStarter.runCalls, store.completeRunCalls)
+		}
+		if len(registrar.descriptors) != 4 {
+			t.Fatalf("registered descriptors = %#v", registrar.descriptors)
+		}
+	})
+}
 
 func TestRunDueTasksClaimsDueWorkflowRunAndAdvancesScheduleOnSuccess(t *testing.T) {
 	now := time.Date(2026, time.June, 5, 9, 0, 0, 0, time.UTC)
@@ -318,4 +422,111 @@ func TestWorkerPollsDueTasksUntilContextCancelled(t *testing.T) {
 	if store.claimedInput.Limit != 7 || !store.claimedInput.Now.Equal(now) {
 		t.Fatalf("expected worker to pass configured now/limit, got %+v", store.claimedInput)
 	}
+}
+
+type scheduledGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type scheduledGuardSpy struct {
+	denyAtCall int
+	denial     error
+	calls      []scheduledGuardCall
+}
+
+func (g *scheduledGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, scheduledGuardCall{capabilityID: capabilityID, boundary: boundary})
+	if g.denyAtCall > 0 && len(g.calls) >= g.denyAtCall {
+		return g.denial
+	}
+	return nil
+}
+
+func (g *scheduledGuardSpy) assertCall(t *testing.T, index int, capabilityID string, boundary releasecontract.Boundary) {
+	t.Helper()
+	if len(g.calls) <= index || g.calls[index].capabilityID != capabilityID || g.calls[index].boundary != boundary {
+		t.Fatalf("guard call %d = %#v, all calls=%#v", index, func() any {
+			if len(g.calls) <= index {
+				return nil
+			}
+			return g.calls[index]
+		}(), g.calls)
+	}
+}
+
+type scheduledEffectRegistrar struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *scheduledEffectRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+func newScheduledReadinessWorker(t *testing.T, store *fakeStore, workflowStarter *fakeWorkflowStarter, agentStarter *fakeAgentStarter, guard *scheduledGuardSpy, now time.Time) *Worker {
+	t.Helper()
+	return newScheduledReadinessWorkerWithRegistrar(t, store, workflowStarter, agentStarter, guard, &scheduledEffectRegistrar{}, now)
+}
+
+func newScheduledReadinessWorkerWithRegistrar(t *testing.T, store *fakeStore, workflowStarter *fakeWorkflowStarter, agentStarter *fakeAgentStarter, guard *scheduledGuardSpy, registrar *scheduledEffectRegistrar, now time.Time) *Worker {
+	t.Helper()
+	contract, profile := loadScheduledReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	worker, err := NewReadinessWorker(
+		NewService(store, WithWorkflowStarter(workflowStarter), WithAgentStarter(agentStarter)),
+		WorkerConfig{
+			Now: nowFunc(now), Limit: 5, Guard: guard, Authorities: authorities, Effects: registrar,
+		},
+	)
+	if err != nil {
+		t.Fatalf("construct readiness worker: %v", err)
+	}
+	return worker
+}
+
+func scheduledReadinessFixture(now time.Time, targetType string) (*fakeStore, *fakeWorkflowStarter, *fakeAgentStarter) {
+	store := &fakeStore{claimedRuns: []ClaimedScheduledTaskRun{{
+		Task: ScheduledTask{
+			ID: "sched_guarded", OrganizationID: "org_1", TargetType: targetType,
+			TargetID: "target_1", CronExpression: "0 * * * *", Enabled: true, NextRunAt: &now,
+		},
+		Run: ScheduledTaskRun{
+			ID: "schedrun_guarded", OrganizationID: "org_1", ScheduledTaskID: "sched_guarded",
+			Status: RunStatusRunning, StartedAt: &now,
+		},
+	}}}
+	workflowStarter := &fakeWorkflowStarter{
+		result:    &workflow.WorkflowExecution{ID: "wexec_guarded", OrganizationID: "org_1", WorkflowID: "target_1", Status: workflow.ExecutionStatusRunning},
+		runResult: &workflow.WorkflowExecution{ID: "wexec_guarded", OrganizationID: "org_1", WorkflowID: "target_1", Status: workflow.ExecutionStatusSucceeded},
+	}
+	agentStarter := &fakeAgentStarter{result: &agent.RunWithMessages{Run: &agent.Run{ID: "run_guarded", Status: agent.RunStatusCompleted}}}
+	return store, workflowStarter, agentStarter
+}
+
+func nowFunc(now time.Time) func() time.Time {
+	return func() time.Time { return now }
+}
+
+func loadScheduledReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve schedule readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
 }
