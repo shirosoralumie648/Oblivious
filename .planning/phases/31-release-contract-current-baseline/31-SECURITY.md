@@ -1,8 +1,8 @@
 ---
 phase: 31
 slug: release-contract-current-baseline
-status: blocked
-threats_open: 2
+status: verified
+threats_open: 0
 asvs_level: 1
 block_on: high
 created: 2026-07-17
@@ -30,13 +30,13 @@ created: 2026-07-17
 | T-31-01-03 | Tampering | operation path/argv | high | mitigate | Realpath under `scripts/`, executable check, fixed argv, symlink/traversal tests | closed |
 | T-31-01-04 | Information Disclosure | validation errors | medium | mitigate | Stable codes and sanitized field/value output; no raw file bodies | closed |
 | T-31-01-05 | Tampering | JSON Schema dependency | medium | mitigate | v6.0.2 pinned in `go.mod`/`go.sum`; local behavior tests and module verification | closed |
-| T-31-02-01 | Tampering | canonical digest | high | mitigate | Canonicalizer exists, but all three clean-HEAD golden tests are red due schema/fixture drift | open |
+| T-31-02-01 | Tampering | canonical digest | high | mitigate | Schema/model/authored timing convergence plus passing canonical golden/equivalent/semantic tests and Stage A | closed |
 | T-31-02-02 | Elevation of Privilege | operation dispatcher | high | mitigate | Commitment-first resolution, literal argv, minimal PATH-only environment, zero-call tests | closed |
 | T-31-02-03 | Spoofing | targeted test evidence | high | mitigate | Concrete test listing precedes execution; zero/invalid/failing selectors fail | closed |
 | T-31-02-04 | Repudiation | operation failures | medium | mitigate | Stable required/unknown/excluded/mismatch/path/runner codes | closed |
 | T-31-02-05 | Denial of Service | bounded inputs | low | accept | Contract/schema byte limits and developer-controlled test selector | closed |
 | T-31-03-01 | Spoofing | Git/build identity | high | mitigate | Clean porcelain check, explicit-root commit/tree, canonical digest, shape validation | closed |
-| T-31-03-02 | Tampering | embedded linker tuple | high | mitigate | Runtime recomputation exists, but its required mutation test fails before mutation at clean HEAD | open |
+| T-31-03-02 | Tampering | embedded linker tuple | high | mitigate | `TestEmbeddedProviderRecomputesContractDigest` mutates authored max age and passes from committed source | closed |
 | T-31-03-03 | Elevation of Privilege | CLI operation profile | high | mitigate | Explicit profile required; excluded/unknown inputs stop before runner | closed |
 | T-31-03-04 | Repudiation | identity failures | medium | mitigate | Structured missing/mismatch/dirty/digest codes | closed |
 | T-31-03-05 | Information Disclosure | Git/CLI errors | medium | mitigate | Git stderr is not emitted through public errors; CLI serializes stable code/field only | closed |
@@ -55,6 +55,11 @@ created: 2026-07-17
 | T-31-06-03 | Repudiation | skipped/failed checks | high | mitigate | Empty committed skip invariant and nonzero structured failures | closed |
 | T-31-06-04 | Tampering | report output | high | mitigate | Atomic writer plus strict typed read-back before pass | closed |
 | T-31-06-05 | Information Disclosure | fixture/report logs | medium | mitigate | Temporary/ignored outputs and stable errors; no secret or target-evidence inputs | closed |
+| T-31-07-01 | Tampering | profile timing authority | high | mitigate | Required schema fields, typed semantic bounds, checked-in 30/120/30 values, negative tests | closed |
+| T-31-07-02 | Spoofing | structural verification | medium | mitigate | Canonical artifact/key-link checks pass 42/42 without waiver | closed |
+| T-31-07-03 | Tampering | final release tuple | high | mitigate | Clean porcelain, exact Git/tree/digest derivation, real Stage B, mandatory rerun after tracking commit | closed |
+| T-31-07-04 | Repudiation | skipped checks | high | mitigate | Stage B report has `skippedChecks: []`; failures preserve nonzero status | closed |
+| T-31-07-05 | Information Disclosure | evidence output | medium | mitigate | Ignored repository-local reports contain no credentials or target artifact bodies | closed |
 
 ## Accepted Risks Log
 
@@ -68,16 +73,17 @@ created: 2026-07-17
 | Audit Date | Threats Total | Closed | Open | Run By |
 |---|---:|---:|---:|---|
 | 2026-07-17 | 30 | 28 | 2 | Codex inline audit |
+| 2026-07-17 | 35 | 35 | 0 | Codex inline gap-closure audit |
 
 ## Blocking Decision
 
-The two open high-severity threats share one root cause: clean `HEAD` does not provide working canonical-digest and embedded-digest mutation evidence. The implementation cannot advance until the contract/fixture version split is repaired and both tests pass from the exact committed tuple.
+No blocking threat remains. The previously open canonical-digest and embedded-linker threats are closed by committed timing convergence, typed semantic bounds, Stage A, full regression, and clean-HEAD Stage B evidence. Target/live and supply-chain risks remain explicitly deferred to later phases rather than accepted as Phase 31 proof.
 
 ## Sign-Off
 
 - [x] All threats have a disposition.
 - [x] Accepted risks are documented.
-- [ ] `threats_open: 0` confirmed.
-- [ ] `status: verified` set in frontmatter.
+- [x] `threats_open: 0` confirmed.
+- [x] `status: verified` set in frontmatter.
 
-**Approval:** blocked 2026-07-17.
+**Approval:** verified 2026-07-17 for repository-local Phase 31 scope.
