@@ -51,8 +51,8 @@ done
 
 if [[ "$mode" == "--stage-a" ]]; then
   [[ -z "$profile" && -z "$image_tag" ]] || fail invalid_arguments
-  if [[ -n "$fixture_repo" && ! -d "$fixture_repo/.git" ]]; then
-    fail invalid_arguments
+  if [[ -n "$fixture_repo" ]]; then
+    git -C "$fixture_repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail invalid_arguments
   fi
   mkdir -p "$output_dir"
   output_dir=$(cd "$output_dir" && pwd -P)
@@ -70,7 +70,7 @@ if [[ "$mode" == "--stage-a" ]]; then
         --schema config/release/contract.schema.json
     ) >"$output_dir/fixture-identity.json"
   fi
-  TMPDIR="$output_dir" bash "$repo_root/scripts/verify-release-contract-fixtures.sh"
+  bash "$repo_root/scripts/verify-release-contract-fixtures.sh"
   git -C "$repo_root" diff --check
   printf '{"schemaVersion":"release-contract-verification/v1","stage":"A","result":"pass","evidenceClass":"repository-local","targetEvidence":false}\n'
   exit 0
