@@ -9,7 +9,18 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"oblivious/server/internal/releasecontract"
 )
+
+// WebSearchRuntimeOptions is the startup-owned authority carrier for a
+// web-search provider. A provider may not reconstruct release state or accept
+// capability authority from request/config data.
+type WebSearchRuntimeOptions struct {
+	Authorities releasecontract.RuntimeAuthorities
+	Guard       releasecontract.Guard
+	Effects     releasecontract.EffectRegistrar
+}
 
 type TavilyWebSearchProviderConfig struct {
 	Endpoint    string
@@ -23,13 +34,66 @@ type tavilyWebSearchProvider struct {
 	apiKey      string
 	resultLimit int
 	client      *http.Client
+	readiness   *webSearchReadiness
+}
+
+type webSearchReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+	capability  releasecontract.CapabilityID
+}
+
+func newWebSearchReadiness(options WebSearchRuntimeOptions, descriptorID, owner string) (*webSearchReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "mcp.webSearch"}
+	}
+	capability, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectToolWebSearch)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID: descriptorID, CapabilityID: string(capability), Boundary: releasecontract.BoundaryOutbound, Owner: owner,
+	}); err != nil {
+		return nil, err
+	}
+	return &webSearchReadiness{authorities: options.Authorities, capability: capability}, nil
+}
+
+func (r *webSearchReadiness) authorize(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	capability, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind: releasecontract.CatalogSubjectTool, ID: "web_search", Runtime: releasecontract.CatalogRuntimeNetwork,
+	}, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if capability != r.capability {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "mcp.webSearchCapability"}
+	}
+	return nil
 }
 
 func NewTavilyWebSearchProvider(config TavilyWebSearchProviderConfig) WebSearchProvider {
+	provider, _ := newTavilyWebSearchProvider(config, nil)
+	return provider
+}
+
+// NewAuthorizedTavilyWebSearchProvider constructs a Tavily provider bound to
+// the immutable startup authority. It registers its stable descriptor exactly
+// once and fails closed before constructing the provider on missing authority.
+func NewAuthorizedTavilyWebSearchProvider(config TavilyWebSearchProviderConfig, options WebSearchRuntimeOptions) (WebSearchProvider, error) {
+	return newTavilyWebSearchProvider(config, &options)
+}
+
+func newTavilyWebSearchProvider(config TavilyWebSearchProviderConfig, options *WebSearchRuntimeOptions) (WebSearchProvider, error) {
 	endpoint := strings.TrimSpace(config.Endpoint)
 	apiKey := strings.TrimSpace(config.APIKey)
 	if endpoint == "" || apiKey == "" {
-		return nil
+		if options != nil {
+			return nil, fmt.Errorf("mcp: tavily endpoint and api key are required")
+		}
+		return nil, nil
 	}
 	resultLimit := config.ResultLimit
 	if resultLimit < 1 {
@@ -39,18 +103,30 @@ func NewTavilyWebSearchProvider(config TavilyWebSearchProviderConfig) WebSearchP
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &tavilyWebSearchProvider{
+	provider := &tavilyWebSearchProvider{
 		endpoint:    endpoint,
 		apiKey:      apiKey,
 		resultLimit: resultLimit,
 		client:      client,
 	}
+	if options == nil {
+		return provider, nil
+	}
+	readiness, err := newWebSearchReadiness(*options, "mcp.websearch.tavily", "mcp.TavilyWebSearchProvider")
+	if err != nil {
+		return nil, err
+	}
+	provider.readiness = readiness
+	return provider, nil
 }
 
 func (p *tavilyWebSearchProvider) Search(ctx context.Context, query string) ([]WebSearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
+	}
+	if err := p.readiness.authorize(ctx); err != nil {
+		return nil, err
 	}
 
 	payload := map[string]any{
