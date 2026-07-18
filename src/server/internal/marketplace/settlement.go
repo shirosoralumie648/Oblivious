@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"oblivious/server/internal/metrics"
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/releasecontract"
 )
 
 const (
@@ -71,6 +72,21 @@ type MarketplacePayoutProvider interface {
 
 type SettlementServiceOption func(*SettlementService)
 
+// FinancialReadiness is the startup-owned financial authorization carrier.
+// Consumers may retain immutable bindings, but never a readiness generation.
+type FinancialReadiness struct {
+	Guard       releasecontract.Guard
+	Effects     releasecontract.EffectRegistrar
+	Authorities releasecontract.RuntimeAuthorities
+}
+
+type settlementReadiness struct {
+	guard              releasecontract.Guard
+	settlement         releasecontract.CapabilityID
+	payout             releasecontract.CapabilityID
+	configurationError error
+}
+
 type SettlementService struct {
 	store                   *SQLStore
 	platformFeeTierBasis    MarketplaceFeeTierBasis
@@ -78,6 +94,7 @@ type SettlementService struct {
 	minimumSettlementAmount float64
 	minimumSettlementCycle  time.Duration
 	payoutProvider          MarketplacePayoutProvider
+	readiness               *settlementReadiness
 }
 
 func NewSettlementService(store *SQLStore, opts ...SettlementServiceOption) *SettlementService {
@@ -97,6 +114,18 @@ func NewSettlementService(store *SQLStore, opts ...SettlementServiceOption) *Set
 		service.platformFeeTiers = []MarketplacePlatformFeeTier{{MinimumAmount: 0, FeeBPS: defaultPlatformFeeBPS}}
 	}
 	return service
+}
+
+// NewSettlementServiceWithFinancialReadiness is the fail-closed constructor
+// used by production composition. It reports invalid startup wiring instead
+// of deferring the error to a later payout attempt.
+func NewSettlementServiceWithFinancialReadiness(store *SQLStore, financial FinancialReadiness, opts ...SettlementServiceOption) (*SettlementService, error) {
+	service := NewSettlementService(store, opts...)
+	WithMarketplaceFinancialReadiness(financial)(service)
+	if service.readiness != nil && service.readiness.configurationError != nil {
+		return nil, service.readiness.configurationError
+	}
+	return service, nil
 }
 
 func WithMarketplacePlatformFeeTiers(basis MarketplaceFeeTierBasis, tiers []MarketplacePlatformFeeTier) SettlementServiceOption {
@@ -119,6 +148,59 @@ func WithMarketplacePayoutProvider(provider MarketplacePayoutProvider) Settlemen
 	}
 }
 
+// WithMarketplaceFinancialReadiness binds the shared startup authority to all
+// marketplace financial seams. Descriptor registration is construction-time
+// only; each operation rechecks the current guard immediately before effects.
+func WithMarketplaceFinancialReadiness(financial FinancialReadiness) SettlementServiceOption {
+	return func(service *SettlementService) {
+		readiness := &settlementReadiness{guard: financial.Guard}
+		if financial.Guard == nil || financial.Effects == nil || !financial.Authorities.Valid() {
+			readiness.configurationError = &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "marketplace.financial"}
+			service.readiness = readiness
+			return
+		}
+		var err error
+		readiness.settlement, err = financial.Authorities.CapabilityBindings.Resolve(releasecontract.EffectMarketplaceSettlement)
+		if err == nil {
+			readiness.payout, err = financial.Authorities.CapabilityBindings.Resolve(releasecontract.EffectMarketplacePayout)
+		}
+		if err == nil {
+			err = financial.Effects.Register(releasecontract.EffectDescriptor{
+				ID: "marketplace.settlement.intent", CapabilityID: string(readiness.settlement),
+				Boundary: releasecontract.BoundaryFinancial, Owner: "marketplace.SettlementService",
+			})
+		}
+		if err == nil {
+			err = financial.Effects.Register(releasecontract.EffectDescriptor{
+				ID: "marketplace.payout.dispatch", CapabilityID: string(readiness.payout),
+				Boundary: releasecontract.BoundaryFinancial, Owner: "marketplace.SettlementService",
+			})
+		}
+		readiness.configurationError = err
+		service.readiness = readiness
+	}
+}
+
+func (s *SettlementService) requireSettlement(ctx context.Context) error {
+	if s == nil || s.readiness == nil {
+		return nil
+	}
+	if s.readiness.configurationError != nil {
+		return s.readiness.configurationError
+	}
+	return s.readiness.guard.Require(ctx, string(s.readiness.settlement), releasecontract.BoundaryFinancial)
+}
+
+func (s *SettlementService) requirePayout(ctx context.Context) error {
+	if s == nil || s.readiness == nil {
+		return nil
+	}
+	if s.readiness.configurationError != nil {
+		return s.readiness.configurationError
+	}
+	return s.readiness.guard.Require(ctx, string(s.readiness.payout), releasecontract.BoundaryFinancial)
+}
+
 type marketplaceOrderAmounts struct {
 	GrossAmount        float64
 	PlatformFeeAmount  float64
@@ -129,6 +211,10 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	ctx, span := observability.StartSpan(ctx, "marketplace.paid_install_checkout")
 	defer span.End()
 
+	if err := s.requireSettlement(ctx); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "readiness_denied")
+		return nil, fmt.Errorf("create paid install checkout: %w", err)
+	}
 	if s == nil || s.store == nil || s.store.db == nil {
 		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: store is required")
@@ -374,6 +460,13 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 	return s.loadSettlementByOrder(ctx, order.ID)
 }
 
+// ReconcilePaidInstallCheckout applies a verified provider event to an
+// already-created order. It intentionally has no provider-dispatch dependency.
+func (s *SettlementService) ReconcilePaidInstallCheckout(ctx context.Context, input PaidInstallCheckoutCompleted) error {
+	_, err := s.ApplyPaidInstallCheckoutCompleted(ctx, input)
+	return err
+}
+
 func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error {
 	ctx, span := observability.StartSpan(ctx, "marketplace.refund")
 	defer span.End()
@@ -448,6 +541,12 @@ func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input Ma
 	return nil
 }
 
+// ReconcileMarketplaceRefund applies a verified provider refund event locally.
+// New refund effects must use the guarded Admin initiation seam instead.
+func (s *SettlementService) ReconcileMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error {
+	return s.ApplyMarketplaceRefund(ctx, input)
+}
+
 func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, settlementID string, providerPayoutID string) (*MarketplacePayout, error) {
 	ctx, span := observability.StartSpan(ctx, "marketplace.payout_pending")
 	defer span.End()
@@ -455,6 +554,14 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 	if settlementID == "" {
 		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: settlement id is required")
+	}
+	if err := s.requireSettlement(ctx); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "readiness_denied")
+		return nil, fmt.Errorf("mark payout pending: %w", err)
+	}
+	if err := s.requirePayout(ctx); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "readiness_denied")
+		return nil, fmt.Errorf("mark payout pending: %w", err)
 	}
 	providerName, err := s.marketplacePayoutProviderName()
 	if err != nil {
@@ -769,6 +876,12 @@ func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time)
 	ctx, span := observability.StartSpan(ctx, "marketplace.create_due_payouts")
 	defer span.End()
 
+	// Recheck before loading queued work and before creating any new payout
+	// intent. A denial leaves existing queued rows untouched and undispatched.
+	if err := s.requirePayout(ctx); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_batch", "readiness_denied")
+		return nil, fmt.Errorf("create due payouts: %w", err)
+	}
 	if s == nil || s.store == nil || s.store.db == nil {
 		metrics.RecordMarketplaceSettlementEvent("payout_batch", "failed")
 		return nil, fmt.Errorf("create due payouts: store is required")
@@ -883,6 +996,10 @@ func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time)
 			if s.minimumSettlementCycle <= 0 || group.OldestSettlementAt.IsZero() || now.Before(group.OldestSettlementAt.Add(s.minimumSettlementCycle)) {
 				continue
 			}
+		}
+		if err := s.requirePayout(ctx); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_batch", "readiness_denied")
+			return nil, fmt.Errorf("create due payouts: %w", err)
 		}
 
 		payoutID := uuid.New().String()
@@ -1094,6 +1211,10 @@ func (s *SettlementService) dispatchPersistedPayout(ctx context.Context, payoutI
 	}
 	if strings.TrimSpace(payout.ProviderPayoutID) != "" {
 		return payout, nil
+	}
+	if err := s.requirePayout(ctx); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "readiness_denied")
+		return payout, fmt.Errorf("dispatch marketplace payout: %w", err)
 	}
 	providerName, dispatchResult, err := s.dispatchPayout(ctx, MarketplacePayoutDispatchRequest{
 		PayoutID:                payout.ID,
