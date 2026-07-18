@@ -9,6 +9,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net"
+	stdhttp "net/http"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"oblivious/server/internal/buildinfo"
 	serverconfig "oblivious/server/internal/config"
 	serverhttp "oblivious/server/internal/http"
+	"oblivious/server/internal/migrations"
 	"oblivious/server/internal/releasecontract"
 	sharedconfig "oblivious/server/pkg/config"
 )
@@ -184,6 +187,166 @@ func TestRuntimeBuildAndBackgroundLifecycleContract(t *testing.T) {
 		t.Fatal("zero RuntimeAuthorities unexpectedly accepted")
 	}
 }
+
+func TestServerStartupOrderContract(t *testing.T) {
+	profile := releasecontract.DeploymentProfile{
+		ID: "monolith", Commitment: releasecontract.CommitmentCommitted,
+		RefreshIntervalSeconds: 30, MaxAgeSeconds: 120, AllowedFutureSkewSeconds: 30,
+		Topology:    releasecontract.Topology{Kind: releasecontract.TopologyMonolith, Components: []string{"server"}},
+		Entrypoints: []string{"server"},
+	}
+	contract := releasecontract.AuthoredContractV1{SchemaVersion: releasecontract.SchemaVersionV1, Profiles: []releasecontract.DeploymentProfile{profile}}
+	digest, err := releasecontract.Digest(contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := testIdentity()
+	identity.ContractDigest = digest
+
+	t.Run("success orders listener before background", func(t *testing.T) {
+		events := []string{}
+		spies := &entrypointPreflightSpies{contract: contract, profile: profile, identity: identity}
+		deps := startupContractDependencies(&events, "", nil, nil, nil)
+		if err := sharedconfig.RunEntrypoint(context.Background(), "server", spies.options("monolith"), func(ctx context.Context, inputs sharedconfig.ResolvedEntrypointInputs) error {
+			return runServerWithInputs(ctx, inputs, deps)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime", "listen", "serve", "refresh", "background", "close"}
+		if !reflect.DeepEqual(events, want) {
+			t.Fatalf("startup events = %#v, want %#v", events, want)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		fail string
+		want []string
+	}{
+		{name: "database open", fail: "db_open", want: []string{"config", "db_open"}},
+		{name: "database ping", fail: "db_ping", want: []string{"config", "db_open", "db_ping"}},
+		{name: "migration", fail: "migrations", want: []string{"config", "db_open", "db_ping", "migrations"}},
+		{name: "authority", fail: "authorities", want: []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities"}},
+		{name: "runtime", fail: "build_runtime", want: []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime"}},
+		{name: "bind", fail: "listen", want: []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime", "listen", "close"}},
+	} {
+		t.Run(test.name+" fails closed", func(t *testing.T) {
+			events := []string{}
+			spies := &entrypointPreflightSpies{contract: contract, profile: profile, identity: identity}
+			deps := startupContractDependencies(&events, test.fail, nil, nil, nil)
+			if err := sharedconfig.RunEntrypoint(context.Background(), "server", spies.options("monolith"), func(ctx context.Context, inputs sharedconfig.ResolvedEntrypointInputs) error {
+				return runServerWithInputs(ctx, inputs, deps)
+			}); err == nil {
+				t.Fatal("startup unexpectedly succeeded")
+			}
+			if !reflect.DeepEqual(events, test.want) {
+				t.Fatalf("failure events = %#v, want %#v", events, test.want)
+			}
+		})
+	}
+}
+
+func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net.Listener, _ *stdhttp.Server) startupDependencies {
+	appendEvent := func(event string) { *events = append(*events, event) }
+	manager := &startupManagerSpy{events: events}
+	return startupDependencies{
+		loadConfig: func() (serverconfig.Config, error) {
+			appendEvent("config")
+			if fail == "config" {
+				return serverconfig.Config{}, errors.New("config failure")
+			}
+			return serverconfig.Config{Env: "test", DatabaseURL: "unused", Port: 0}, nil
+		},
+		openDatabase: func(string) (*sql.DB, error) {
+			appendEvent("db_open")
+			if fail == "db_open" {
+				return nil, errors.New("db open failure")
+			}
+			database, _ := sql.Open("postgres", "postgres://unused")
+			return database, nil
+		},
+		pingDatabase: func(context.Context, *sql.DB) error {
+			appendEvent("db_ping")
+			if fail == "db_ping" {
+				return errors.New("db ping failure")
+			}
+			return nil
+		},
+		applyMigrations: func(context.Context, *sql.DB, string) (migrations.Result, error) {
+			appendEvent("migrations")
+			if fail == "migrations" {
+				return migrations.Result{}, errors.New("migration failure")
+			}
+			return migrations.Result{}, nil
+		},
+		newManager: func(context.Context, serverconfig.ResolvedEntrypointInputs, string) (releasecontract.ReadinessManager, error) {
+			appendEvent("manager_construct")
+			if fail == "manager_construct" {
+				return nil, errors.New("manager failure")
+			}
+			return manager, nil
+		},
+		newAuthorities: func(releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile, releasecontract.Guard) (releasecontract.RuntimeAuthorities, error) {
+			appendEvent("authorities")
+			if fail == "authorities" {
+				return releasecontract.RuntimeAuthorities{}, errors.New("authority failure")
+			}
+			return releasecontract.RuntimeAuthorities{}, nil
+		},
+		buildRuntime: func(serverconfig.Config, *sql.DB, serverhttp.RuntimeOptions) (*serverhttp.Runtime, error) {
+			appendEvent("build_runtime")
+			if fail == "build_runtime" {
+				return nil, errors.New("runtime failure")
+			}
+			runtime := &serverhttp.Runtime{Server: &stdhttp.Server{Addr: ":0"}}
+			runtime.StartBackground = func(context.Context) error {
+				appendEvent("background")
+				return nil
+			}
+			runtime.Close = func(context.Context) error {
+				appendEvent("close")
+				return nil
+			}
+			return runtime, nil
+		},
+		listen: func(string, string) (net.Listener, error) {
+			appendEvent("listen")
+			if fail == "listen" {
+				return nil, errors.New("bind failure")
+			}
+			return startupListener{}, nil
+		},
+		serve: func(*stdhttp.Server, net.Listener) error {
+			appendEvent("serve")
+			return stdhttp.ErrServerClosed
+		},
+		serveStarted: make(chan struct{}),
+	}
+}
+
+type startupManagerSpy struct{ events *[]string }
+
+func (m *startupManagerSpy) Bootstrap(context.Context) error {
+	*m.events = append(*m.events, "bootstrap")
+	return nil
+}
+func (m *startupManagerSpy) StartRefresh(context.Context) { *m.events = append(*m.events, "refresh") }
+func (m *startupManagerSpy) Require(string) error         { return nil }
+func (m *startupManagerSpy) Evaluate() releasecontract.Evaluation {
+	return releasecontract.Evaluation{}
+}
+func (m *startupManagerSpy) ExportAudit(string) error { return nil }
+
+type startupListener struct{}
+
+func (startupListener) Accept() (net.Conn, error) { return nil, errors.New("closed") }
+func (startupListener) Close() error              { return nil }
+func (startupListener) Addr() net.Addr            { return startupAddr{} }
+
+type startupAddr struct{}
+
+func (startupAddr) Network() string { return "tcp" }
+func (startupAddr) String() string  { return ":0" }
 
 type runtimeGuardSpy struct{ calls []string }
 
