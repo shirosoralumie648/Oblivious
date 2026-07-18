@@ -28,8 +28,8 @@ test.beforeEach(async ({ page }) => {
 test('console overview renders drill-down summaries and models in the built app', async ({ page }) => {
   await page.goto('/console');
 
-  await expect(page.getByRole('heading', { name: 'Console' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Console Home' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Console Home', exact: true })).toBeVisible();
   await expect(page.getByText('Current workspace scope: workspace_console_overview')).toBeVisible();
 
   await expect(page.getByRole('link', { name: 'Estimated cost' })).toHaveAttribute('href', '/console/billing');
