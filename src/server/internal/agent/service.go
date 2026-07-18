@@ -42,6 +42,8 @@ type Service struct {
 	memoryEmbedder    MemoryEmbedder
 	webSearchProvider mcp.WebSearchProvider
 	pythonSandbox     CustomPythonSandboxRunner
+	toolExecutor      *ToolExecutor
+	runtimeOptions    *ToolRuntimeOptions
 	runner            *Runner
 	planStepExecutor  PlanStepExecutor
 }
@@ -178,6 +180,19 @@ func NewServiceWithMCP(store Store, gateway chat.ChatGateway, mcpClient *mcp.Cli
 	return s
 }
 
+// NewServiceWithRuntimeOptions wires one authority-bound ToolExecutor into
+// runner, plan-step and direct tool execution. The caller owns the startup
+// RuntimeAuthorities carrier and must provide it before enabling effects.
+func NewServiceWithRuntimeOptions(store Store, gateway chat.ChatGateway, mcpClient *mcp.Client, options ToolRuntimeOptions) (*Service, error) {
+	executor, err := NewAuthorizedToolExecutor(mcpClient, options)
+	if err != nil {
+		return nil, err
+	}
+	s := &Service{store: store, gateway: gateway, mcpClient: mcpClient, toolExecutor: executor, runtimeOptions: &options}
+	s.initRunner()
+	return s, nil
+}
+
 // NewServiceWithMemory 创建带 Memory 的 Service
 func NewServiceWithMemory(store Store, gateway chat.ChatGateway, mcpClient *mcp.Client, mem MemorySearcher) *Service {
 	s := &Service{
@@ -192,7 +207,11 @@ func NewServiceWithMemory(store Store, gateway chat.ChatGateway, mcpClient *mcp.
 
 // initRunner 初始化 Runner
 func (s *Service) initRunner() {
-	executor := NewToolExecutor(s.mcpClient)
+	executor := s.toolExecutor
+	if executor == nil {
+		executor = NewToolExecutor(s.mcpClient)
+		s.toolExecutor = executor
+	}
 	executor.SetWebSearchProvider(s.webSearchProvider)
 	executor.SetCustomPythonSandboxRunner(s.pythonSandbox)
 	s.runner = NewRunner(s.store, s.gateway, executor, s.memory, DefaultRunnerConfig())
@@ -207,6 +226,9 @@ func (s *Service) initRunner() {
 // SetMCPClient 设置 MCP 客户端
 func (s *Service) SetMCPClient(client *mcp.Client) {
 	s.mcpClient = client
+	if s.toolExecutor != nil {
+		s.toolExecutor.mcpClient = client
+	}
 	s.initRunner()
 }
 
@@ -225,7 +247,10 @@ func (s *Service) SetMemoryEmbedder(embedder MemoryEmbedder) {
 
 func (s *Service) SetWebSearchProvider(provider mcp.WebSearchProvider) {
 	s.webSearchProvider = provider
-	if s.runner != nil && s.runner.executor != nil {
+	if s.toolExecutor != nil {
+		s.toolExecutor.SetWebSearchProvider(provider)
+	}
+	if s.runner != nil && s.runner.executor != nil && s.runner.executor != s.toolExecutor {
 		s.runner.executor.SetWebSearchProvider(provider)
 	}
 	if executor, ok := s.planStepExecutor.(defaultPlanStepExecutor); ok && executor.executor != nil {
@@ -236,7 +261,10 @@ func (s *Service) SetWebSearchProvider(provider mcp.WebSearchProvider) {
 
 func (s *Service) SetCustomPythonSandboxRunner(runner CustomPythonSandboxRunner) {
 	s.pythonSandbox = runner
-	if s.runner != nil && s.runner.executor != nil {
+	if s.toolExecutor != nil {
+		s.toolExecutor.SetCustomPythonSandboxRunner(runner)
+	}
+	if s.runner != nil && s.runner.executor != nil && s.runner.executor != s.toolExecutor {
 		s.runner.executor.SetCustomPythonSandboxRunner(runner)
 	}
 	if executor, ok := s.planStepExecutor.(defaultPlanStepExecutor); ok && executor.executor != nil {
@@ -247,10 +275,10 @@ func (s *Service) SetCustomPythonSandboxRunner(runner CustomPythonSandboxRunner)
 
 func (s *Service) SetPlanStepExecutor(executor PlanStepExecutor) {
 	if executor == nil {
-		toolExecutor := NewToolExecutor(s.mcpClient)
-		toolExecutor.SetWebSearchProvider(s.webSearchProvider)
-		toolExecutor.SetCustomPythonSandboxRunner(s.pythonSandbox)
-		s.planStepExecutor = defaultPlanStepExecutor{executor: toolExecutor, store: s.store, gateway: s.gateway}
+		if s.toolExecutor == nil {
+			s.initRunner()
+		}
+		s.planStepExecutor = defaultPlanStepExecutor{executor: s.toolExecutor, store: s.store, gateway: s.gateway}
 		return
 	}
 	s.planStepExecutor = executor
@@ -3047,51 +3075,17 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 		return nil, fmt.Errorf("access denied")
 	}
 
-	// 查找工具配置
-	var targetTool *Tool
-	for _, t := range agent.Tools {
-		if t.Name == toolName && t.Enabled {
-			targetTool = &t
-			break
-		}
+	if s.toolExecutor == nil {
+		s.initRunner()
 	}
-	if targetTool == nil {
-		return nil, fmt.Errorf("tool not found or disabled: %s", toolName)
+	result, err := s.toolExecutor.Execute(ctx, agent, &ToolCall{Name: toolName, Arguments: args})
+	if err != nil {
+		return nil, err
 	}
-
-	// 根据工具类型执行
-	switch targetTool.Type {
-	case "builtin":
-		if !s.isCommercialBuiltinEnabled(toolName) {
-			return &mcp.ToolResult{
-				Content: fmt.Sprintf("builtin tool %s is disabled for default commercial use", toolName),
-				IsError: true,
-			}, nil
-		}
-		// 内置工具
-		tool, ok := mcp.GetBuiltinTool(toolName)
-		if !ok {
-			return nil, fmt.Errorf("builtin tool not found: %s", toolName)
-		}
-		if toolName == "web_search" && s.webSearchProvider != nil {
-			restore := mcp.SetWebSearchProviderForTest(s.webSearchProvider)
-			defer restore()
-		}
-		return tool.Execute(ctx, args)
-
-	case "mcp":
-		// MCP 工具
-		if s.mcpClient == nil {
-			return nil, fmt.Errorf("MCP client not configured")
-		}
-		if targetTool.ServerID == "" {
-			return nil, fmt.Errorf("MCP server not specified")
-		}
-		return s.mcpClient.CallTool(ctx, targetTool.ServerID, session.OrganizationID, toolName, args)
-
-	default:
-		return nil, fmt.Errorf("unknown tool type: %s", targetTool.Type)
+	if result == nil {
+		return nil, fmt.Errorf("tool %s returned no result", toolName)
 	}
+	return &mcp.ToolResult{Content: result.Content, IsError: result.IsError}, nil
 }
 
 // ListAvailableTools 列出 Agent 可用的工具
@@ -3106,6 +3100,9 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 	}
 	if agent.UserID != session.User.ID {
 		return nil, fmt.Errorf("access denied")
+	}
+	if s.toolExecutor != nil && s.toolExecutor.strict {
+		return s.toolExecutor.GetToolDefinitions(ctx, agent)
 	}
 
 	toolsByName := make(map[string]ToolDefinition)

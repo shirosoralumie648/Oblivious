@@ -13,7 +13,28 @@ import (
 	"time"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
+
+// UnmarshalJSON rejects caller-supplied catalog authority while preserving
+// the existing business-field request shape. Capability identity is response
+// metadata only and is never persisted.
+func (t *Tool) UnmarshalJSON(data []byte) error {
+	type alias Tool
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["capabilityId"]; ok {
+		return fmt.Errorf("capabilityId is server-managed")
+	}
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*t = Tool(decoded)
+	return nil
+}
 
 // ToolExecutor 工具执行器
 type ToolExecutor struct {
@@ -21,6 +42,25 @@ type ToolExecutor struct {
 	builtinTools              map[string]mcp.BuiltinTool
 	webSearchProvider         mcp.WebSearchProvider
 	customPythonSandboxRunner CustomPythonSandboxRunner
+	authorities               releasecontract.RuntimeAuthorities
+	httpClient                *http.Client
+	capabilities              map[string]releasecontract.CapabilityID
+	pythonProcessRunner       func(context.Context, string, io.Reader) ([]byte, error)
+	strict                    bool
+}
+
+// ToolRuntimeOptions carries the single startup authority into the live
+// Agent executor. Additional effect runners are injectable test seams; they
+// never provide capability authority.
+type ToolRuntimeOptions struct {
+	Authorities         releasecontract.RuntimeAuthorities
+	Guard               releasecontract.Guard
+	Effects             releasecontract.EffectRegistrar
+	HTTPClient          *http.Client
+	BuiltinTools        map[string]mcp.BuiltinTool
+	WebSearchProvider   mcp.WebSearchProvider
+	CustomPythonSandbox CustomPythonSandboxRunner
+	PythonProcessRunner func(context.Context, string, io.Reader) ([]byte, error)
 }
 
 // NewToolExecutor 创建工具执行器
@@ -28,7 +68,82 @@ func NewToolExecutor(mcpClient *mcp.Client) *ToolExecutor {
 	return &ToolExecutor{
 		mcpClient:    mcpClient,
 		builtinTools: mcp.BuiltinTools,
+		httpClient:   http.DefaultClient,
 	}
+}
+
+// NewAuthorizedToolExecutor is the production-capable constructor. It
+// resolves and registers every Agent effect descriptor exactly once before
+// returning and retains no generation or verdict state.
+func NewAuthorizedToolExecutor(mcpClient *mcp.Client, options ToolRuntimeOptions) (*ToolExecutor, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() || options.HTTPClient == nil {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.toolExecutor"}
+	}
+	effects := []struct {
+		key   string
+		id    releasecontract.EffectID
+		owner string
+	}{
+		{"builtin", releasecontract.EffectAgentToolBuiltin, "agent.ToolExecutor.builtin"},
+		{"custom_api_http", releasecontract.EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http"},
+		{"custom_python_process", releasecontract.EffectAgentToolLocalPython, "agent.ToolExecutor.local_python"},
+		{"custom_python_sandbox", releasecontract.EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox"},
+		{"mcp", releasecontract.EffectAgentToolMCP, "agent.ToolExecutor.mcp"},
+	}
+	capabilities := make(map[string]releasecontract.CapabilityID, len(effects))
+	descriptors := make([]releasecontract.EffectDescriptor, 0, len(effects))
+	for _, effect := range effects {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if err != nil {
+			if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				continue
+			}
+			return nil, err
+		}
+		capabilities[effect.key] = capability
+		descriptors = append(descriptors, releasecontract.EffectDescriptor{
+			ID: string(effect.id), CapabilityID: string(capability), Boundary: releasecontract.BoundaryOutbound, Owner: effect.owner,
+		})
+	}
+	for _, descriptor := range descriptors {
+		if err := options.Effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	builtinTools := options.BuiltinTools
+	if builtinTools == nil {
+		builtinTools = mcp.BuiltinTools
+	}
+	clone := make(map[string]mcp.BuiltinTool, len(builtinTools))
+	for name, tool := range builtinTools {
+		clone[name] = tool
+	}
+	e := &ToolExecutor{
+		mcpClient:                 mcpClient,
+		builtinTools:              clone,
+		webSearchProvider:         options.WebSearchProvider,
+		customPythonSandboxRunner: options.CustomPythonSandbox,
+		authorities:               options.Authorities,
+		httpClient:                options.HTTPClient,
+		capabilities:              capabilities,
+		pythonProcessRunner:       options.PythonProcessRunner,
+		strict:                    true,
+	}
+	if options.WebSearchProvider != nil {
+		webSearchCapability, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectToolWebSearch)
+		if err != nil {
+			return nil, err
+		}
+		e.capabilities["web_search"] = webSearchCapability
+		tool, err := mcp.NewWebSearchTool(options.WebSearchProvider, mcp.WebSearchRuntimeOptions{
+			Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects,
+		})
+		if err != nil {
+			return nil, err
+		}
+		e.builtinTools["web_search"] = tool
+	}
+	return e, nil
 }
 
 func (e *ToolExecutor) SetWebSearchProvider(provider mcp.WebSearchProvider) {
@@ -74,6 +189,9 @@ type CustomPythonSandboxRunner interface {
 
 // Execute 执行工具调用
 func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *ToolCall) (*ExecuteResult, error) {
+	if agent == nil || toolCall == nil {
+		return nil, fmt.Errorf("agent and tool call are required")
+	}
 	// 查找工具配置
 	var targetTool *Tool
 	for _, t := range agent.Tools {
@@ -89,7 +207,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *Tool
 	// 根据工具类型执行
 	switch targetTool.Type {
 	case "builtin":
-		return e.executeBuiltin(ctx, toolCall)
+		return e.executeBuiltin(ctx, targetTool, toolCall)
 	case "mcp":
 		return e.executeMCP(ctx, agent.OrganizationID, targetTool.ServerID, toolCall)
 	case "custom":
@@ -102,8 +220,61 @@ func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *Tool
 	}
 }
 
+func (e *ToolExecutor) authorizeTool(ctx context.Context, tool *Tool) error {
+	if !e.strict {
+		return nil
+	}
+	if !e.authorities.Valid() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.toolExecutor.authority"}
+	}
+	if tool == nil {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.tool"}
+	}
+	var subject releasecontract.CatalogSubject
+	var key string
+	switch strings.ToLower(strings.TrimSpace(tool.Type)) {
+	case "builtin":
+		runtime := releasecontract.CatalogRuntimeBuiltin
+		if tool.Name == "web_search" {
+			runtime = releasecontract.CatalogRuntimeNetwork
+		}
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectTool, ID: tool.Name, Runtime: runtime}
+		key = "builtin"
+		if tool.Name == "web_search" {
+			key = "web_search"
+		}
+	case "custom":
+		if normalizeCustomToolRuntime(tool.Runtime) == "python" && customPythonDisabledInProduction() {
+			subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "sandbox", Runtime: releasecontract.CatalogRuntimeSandbox}
+			key = "custom_python_sandbox"
+		} else if normalizeCustomToolRuntime(tool.Runtime) == "python" {
+			subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "custom", Runtime: releasecontract.CatalogRuntimeCustom}
+			key = "custom_python_process"
+		} else {
+			subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "custom", Runtime: releasecontract.CatalogRuntimeCustom}
+			key = "custom_api_http"
+		}
+	case "mcp":
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "mcp", Runtime: releasecontract.CatalogRuntimeMCP}
+		key = "mcp"
+	default:
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.tool.type"}
+	}
+	capability, err := e.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, subject, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if expected, ok := e.capabilities[key]; !ok || capability != expected {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.tool.capability"}
+	}
+	return nil
+}
+
 // executeBuiltin 执行内置工具
-func (e *ToolExecutor) executeBuiltin(ctx context.Context, toolCall *ToolCall) (*ExecuteResult, error) {
+func (e *ToolExecutor) executeBuiltin(ctx context.Context, persistedTool *Tool, toolCall *ToolCall) (*ExecuteResult, error) {
+	if err := e.authorizeTool(ctx, persistedTool); err != nil {
+		return nil, err
+	}
 	tool, ok := e.builtinTools[toolCall.Name]
 	if !ok {
 		return nil, fmt.Errorf("builtin tool not found: %s", toolCall.Name)
@@ -114,11 +285,17 @@ func (e *ToolExecutor) executeBuiltin(ctx context.Context, toolCall *ToolCall) (
 			IsError: true,
 		}, nil
 	}
-	if toolCall.Name == "web_search" && e.webSearchProvider != nil {
-		restore := mcp.SetWebSearchProviderForTest(e.webSearchProvider)
-		defer restore()
+	if !e.strict && toolCall.Name == "web_search" && e.webSearchProvider != nil {
+		webSearch, err := mcp.NewWebSearchTool(e.webSearchProvider)
+		if err != nil {
+			return nil, err
+		}
+		result, err := webSearch.Execute(ctx, toolCall.Arguments)
+		if err != nil {
+			return &ExecuteResult{Content: err.Error(), IsError: true}, nil
+		}
+		return &ExecuteResult{Content: result.Content, IsError: result.IsError}, nil
 	}
-
 	result, err := tool.Execute(ctx, toolCall.Arguments)
 	if err != nil {
 		return &ExecuteResult{
@@ -135,6 +312,11 @@ func (e *ToolExecutor) executeBuiltin(ctx context.Context, toolCall *ToolCall) (
 
 // executeMCP 执行 MCP 工具
 func (e *ToolExecutor) executeMCP(ctx context.Context, organizationID, serverID string, toolCall *ToolCall) (*ExecuteResult, error) {
+	if e.strict {
+		if err := e.authorizeTool(ctx, &Tool{Name: toolCall.Name, Type: "mcp", ServerID: serverID, Enabled: true}); err != nil {
+			return nil, err
+		}
+	}
 	if e.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not configured")
 	}
@@ -158,6 +340,9 @@ func (e *ToolExecutor) executeMCP(ctx context.Context, organizationID, serverID 
 
 // executeCustomAPI 执行自定义 API 工具
 func (e *ToolExecutor) executeCustomAPI(ctx context.Context, tool *Tool, toolCall *ToolCall) (*ExecuteResult, error) {
+	if err := e.authorizeTool(ctx, tool); err != nil {
+		return nil, err
+	}
 	if tool.ServerID == "" {
 		return nil, fmt.Errorf("custom API endpoint not specified")
 	}
@@ -176,7 +361,11 @@ func (e *ToolExecutor) executeCustomAPI(ctx context.Context, tool *Tool, toolCal
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := e.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return &ExecuteResult{
 			Content: err.Error(),
@@ -235,7 +424,7 @@ func (e *ToolExecutor) executeCustomPython(ctx context.Context, agent *Agent, to
 				IsError: true,
 			}, nil
 		}
-		return e.executeCustomPythonSandbox(ctx, agent, toolCall, sourceCode, arguments, timeout)
+		return e.executeCustomPythonSandbox(ctx, agent, tool, toolCall, sourceCode, arguments, timeout)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -256,9 +445,17 @@ func (e *ToolExecutor) executeCustomPython(ctx context.Context, agent *Agent, to
 			IsError: true,
 		}, nil
 	}
-	cmd := exec.CommandContext(runCtx, pythonBin, "-I", "-S", "-c", customPythonWrapper)
-	cmd.Stdin = bytes.NewReader(payload)
-	output, err := cmd.CombinedOutput()
+	if err := e.authorizeTool(ctx, tool); err != nil {
+		return nil, err
+	}
+	var output []byte
+	if e.pythonProcessRunner != nil {
+		output, err = e.pythonProcessRunner(runCtx, pythonBin, bytes.NewReader(payload))
+	} else {
+		cmd := exec.CommandContext(runCtx, pythonBin, "-I", "-S", "-c", customPythonWrapper)
+		cmd.Stdin = bytes.NewReader(payload)
+		output, err = cmd.CombinedOutput()
+	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		return &ExecuteResult{
 			Content: fmt.Sprintf("custom Python timed out after %s", timeout),
@@ -283,7 +480,10 @@ func (e *ToolExecutor) executeCustomPython(ctx context.Context, agent *Agent, to
 	}, nil
 }
 
-func (e *ToolExecutor) executeCustomPythonSandbox(ctx context.Context, agent *Agent, toolCall *ToolCall, sourceCode string, arguments map[string]any, timeout time.Duration) (*ExecuteResult, error) {
+func (e *ToolExecutor) executeCustomPythonSandbox(ctx context.Context, agent *Agent, tool *Tool, toolCall *ToolCall, sourceCode string, arguments map[string]any, timeout time.Duration) (*ExecuteResult, error) {
+	if err := e.authorizeTool(ctx, tool); err != nil {
+		return nil, err
+	}
 	organizationID := ""
 	userID := ""
 	agentID := ""
@@ -464,6 +664,13 @@ func (e *ToolExecutor) GetToolDefinitions(ctx context.Context, agent *Agent) ([]
 			RequiresApproval: t.RequiresApproval,
 			RiskLevel:        toolDefinitionRiskLevel(t),
 		}
+		if e.strict {
+			if capability, err := e.resolveToolDefinitionCapability(ctx, &t); err == nil {
+				def.CapabilityID = string(capability)
+			} else {
+				continue
+			}
+		}
 
 		// 获取 InputSchema
 		switch t.Type {
@@ -520,6 +727,30 @@ type ToolDefinition struct {
 	ToolType         string `json:"toolType"`
 	RequiresApproval bool   `json:"requiresApproval"`
 	RiskLevel        string `json:"riskLevel"`
+	CapabilityID     string `json:"capabilityId"`
+}
+
+func (e *ToolExecutor) resolveToolDefinitionCapability(ctx context.Context, tool *Tool) (releasecontract.CapabilityID, error) {
+	if !e.strict || tool == nil || !e.authorities.Valid() {
+		return "", &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.toolDefinition"}
+	}
+	subject := releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectTool, ID: tool.Name, Runtime: releasecontract.CatalogRuntimeBuiltin}
+	switch strings.ToLower(strings.TrimSpace(tool.Type)) {
+	case "builtin":
+		if tool.Name == "web_search" {
+			subject.Runtime = releasecontract.CatalogRuntimeNetwork
+		}
+	case "custom":
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "custom", Runtime: releasecontract.CatalogRuntimeCustom}
+		if normalizeCustomToolRuntime(tool.Runtime) == "python" && customPythonDisabledInProduction() {
+			subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "sandbox", Runtime: releasecontract.CatalogRuntimeSandbox}
+		}
+	case "mcp":
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "mcp", Runtime: releasecontract.CatalogRuntimeMCP}
+	default:
+		return "", &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.toolDefinition.type"}
+	}
+	return e.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, subject, releasecontract.BoundaryOutbound)
 }
 
 func normalizeToolType(value string) string {

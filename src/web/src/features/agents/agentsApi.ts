@@ -3,6 +3,7 @@ import type { AgentDetail, AgentSummary } from '../../types/api';
 import type { AgentPlanStep, AgentToolRun } from './planStepsApi';
 
 export type AgentToolDefinition = {
+  capabilityId: string;
   name: string;
   description?: string;
   inputSchema?: unknown;
@@ -92,19 +93,49 @@ function createRunPayload(payload: CreateAgentRunRequest) {
 }
 
 function normalizeToolDefinition(tool: Partial<AgentToolDefinition> & { name: string }): AgentToolDefinition {
-  return {
-    ...tool,
+  if (typeof tool.capabilityId !== 'string' || tool.capabilityId.trim() === '') {
+    throw new Error('Agent tool definition is missing server capabilityId');
+  }
+  const normalized: AgentToolDefinition = {
+    capabilityId: tool.capabilityId,
+    name: tool.name,
     requiresApproval: tool.requiresApproval ?? false,
     riskLevel: tool.riskLevel ?? 'safe',
     toolType: tool.toolType ?? 'builtin'
   };
+  if (tool.description !== undefined) normalized.description = tool.description;
+  if (tool.inputSchema !== undefined) normalized.inputSchema = tool.inputSchema;
+  return normalized;
+}
+
+function serializeToolMutation(tool: NonNullable<AgentSummary['tools']>[number]) {
+  const result: Record<string, unknown> = { name: tool.name };
+  const fields = ['description', 'type', 'serverId', 'enabled', 'requiresApproval', 'riskLevel', 'inputSchema', 'runtime', 'sourceCode', 'timeoutSeconds'] as const;
+  for (const field of fields) {
+    const value = tool[field];
+    if (value !== undefined) result[field] = value;
+  }
+  return result;
+}
+
+function serializeAgentMutation(payload: CreateAgentRequest | UpdateAgentRequest) {
+  const result: Record<string, unknown> = {};
+  const fields = ['config', 'description', 'isPublic', 'model', 'name', 'systemPrompt'] as const;
+  for (const field of fields) {
+    const value = payload[field];
+    if (value !== undefined) result[field] = value;
+  }
+  if (payload.tools !== undefined) {
+    result.tools = payload.tools.map(serializeToolMutation);
+  }
+  return result;
 }
 
 export function createAgentsApi(client: HttpClient): AgentsApi {
   const path = '/api/v1/app/agents';
 
   return {
-    createAgent: (payload) => client.post<AgentDetail>(path, payload),
+    createAgent: (payload) => client.post<AgentDetail>(path, serializeAgentMutation(payload)),
     deleteAgent: async (agentId) => {
       await client.delete<unknown>(`${path}/${encodeURIComponent(agentId)}`);
     },
@@ -114,6 +145,6 @@ export function createAgentsApi(client: HttpClient): AgentsApi {
     getAgentTools: async (agentId) =>
       (await client.get<Array<Partial<AgentToolDefinition> & { name: string }>>(`${path}/${encodeURIComponent(agentId)}/tools`)).map(normalizeToolDefinition),
     listAgents: () => client.get<AgentSummary[]>(path),
-    updateAgent: (agentId, payload) => client.put<AgentDetail>(`${path}/${encodeURIComponent(agentId)}`, payload)
+    updateAgent: (agentId, payload) => client.put<AgentDetail>(`${path}/${encodeURIComponent(agentId)}`, serializeAgentMutation(payload))
   };
 }

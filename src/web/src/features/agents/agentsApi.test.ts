@@ -178,6 +178,7 @@ describe('createAgentsApi', () => {
   it('loads available tool definitions for an agent', async () => {
     const get = vi.fn().mockResolvedValue([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Search workspace and web sources',
         inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
         name: 'web_search'
@@ -187,6 +188,7 @@ describe('createAgentsApi', () => {
 
     await expect(api.getAgentTools('agent_1')).resolves.toEqual([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Search workspace and web sources',
         inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
         name: 'web_search',
@@ -202,6 +204,7 @@ describe('createAgentsApi', () => {
   it('normalizes available tool approval metadata with legacy-safe defaults', async () => {
     const get = vi.fn().mockResolvedValue([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Search workspace and web sources',
         inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
         name: 'web_search',
@@ -210,6 +213,7 @@ describe('createAgentsApi', () => {
         toolType: 'builtin'
       },
       {
+        capabilityId: 'mcp.tool_execution',
         description: 'Legacy MCP response without approval metadata',
         name: 'legacy_mcp_tool'
       }
@@ -218,6 +222,7 @@ describe('createAgentsApi', () => {
 
     await expect(api.getAgentTools('agent_1')).resolves.toEqual([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Search workspace and web sources',
         inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
         name: 'web_search',
@@ -226,6 +231,7 @@ describe('createAgentsApi', () => {
         toolType: 'builtin'
       },
       {
+        capabilityId: 'mcp.tool_execution',
         description: 'Legacy MCP response without approval metadata',
         name: 'legacy_mcp_tool',
         requiresApproval: false,
@@ -233,6 +239,36 @@ describe('createAgentsApi', () => {
         toolType: 'builtin'
       }
     ]);
+  });
+
+  it('preserves response capability identity and omits it from tool mutations', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        capabilityId: 'mcp.network_execution',
+        name: 'web_search',
+        toolType: 'builtin'
+      }
+    ]);
+    const put = vi.fn().mockResolvedValue({ id: 'agent_1' });
+    const api = createAgentsApi(createClient({ get, put }));
+
+    await expect(api.getAgentTools('agent_1')).resolves.toMatchObject([
+      { capabilityId: 'mcp.network_execution', name: 'web_search' }
+    ]);
+    await api.updateAgent('agent_1', {
+      tools: [
+        {
+          capabilityId: 'caller.must.not.send',
+          enabled: true,
+          name: 'web_search',
+          type: 'builtin'
+        } as never
+      ]
+    });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/app/agents/agent_1', {
+      tools: [{ enabled: true, name: 'web_search', type: 'builtin' }]
+    });
   });
 
   it('starts an agent run from the agent runs endpoint', async () => {
