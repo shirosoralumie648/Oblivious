@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-01-PLAN.md
-last_updated: "2026-07-17T16:36:37.330Z"
-last_activity: 2026-07-17
-last_activity_desc: Completed Phase 31.1 Plan 01 readiness authority foundation
+stopped_at: Completed 31.1-04-PLAN.md
+last_updated: "2026-07-18T02:03:49.266Z"
+last_activity: 2026-07-18
+last_activity_desc: Completed Phase 31.1 Plan 04 worker readiness guards
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 8
-  percent: 25
+  completed_plans: 9
+  percent: 28
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 1 of 10
-Status: Plan 31.1-01 complete; Wave 2 consumer guard plans are ready for execution
-Last activity: 2026-07-17 — Completed Phase 31.1 Plan 01 readiness authority foundation
+Plan: 4 of 10
+Status: Plan 31.1-04 complete; remaining Wave 2 consumer guard plans are ready for execution
+Last activity: 2026-07-18 — Completed Phase 31.1 Plan 04 worker readiness guards
 
-Progress: [███░░░░░░░] 25%
+Progress: [███░░░░░░░] 28%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 8
-- Average duration: 36 min
-- Total execution time: 4.8 hours
+- Total plans completed: 9
+- Average duration: 34 min
+- Total execution time: 5.1 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 1 plan in 37 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 2 plans in 57 minutes.
 
-**Recent Trend:** Plan 31.1-01 established the runtime readiness authority foundation in 37 minutes.
+**Recent Trend:** Plan 31.1-04 closed worker claim/effect readiness bypasses in 20 minutes.
 
 ## Accumulated Context
 
@@ -78,6 +78,8 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: The evaluator accepts only the resolver-confirmed monolith profile and exact authored 30s/120s/30s timing. — Keeps every freshness and future-skew verdict on one UTC nanosecond contract.
 - [Phase 31.1]: RuntimeAuthorities compiles digest-bound catalog keys and profile-applicable typed effect mappings once at startup. — Prevents caller, persisted, global, or stale capability selection from becoming dispatch authority.
 - [Phase 31.1]: RELS-01 remains pending after Plan 31.1-01. — Consumer guards, lifecycle wiring, deployment proof, and the remaining Phase 31.1 plans are not complete.
+- [Phase 31.1]: Worker constructors resolve typed capabilities from the startup RuntimeAuthorities carrier and re-read the same manager-backed Guard before each claim and irreversible effect.
+- [Phase 31.1]: Readiness denials persist only stable readiness codes through bounded retry bookkeeping and never authorize provider settlement, refund, dispatch, or terminal transition.
 
 ### Pending Todos
 
@@ -106,8 +108,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-17T16:36:37.324Z
-Stopped at: Completed 31.1-01-PLAN.md
+Last session: 2026-07-18T01:59:09.103Z
+Stopped at: Completed 31.1-04-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -122,3 +124,4 @@ Resume file: None
 | Phase 31 P06 | 64 min | 3 tasks | 7 files |
 | Phase 31 P07 | 29 min | 3 tasks | 13 files |
 | Phase 31.1-readiness-fail-closed P01 | 37 min | 3 tasks | 10 files |
+| Phase 31.1-readiness-fail-closed | 04 | 20 min | 3 tasks, 11 files |
