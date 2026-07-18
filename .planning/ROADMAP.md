@@ -84,7 +84,7 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: 9/10 plans executed
+**Plans**: 10/10 plans executed
 
 **Planning envelope exception:** checker-requested closure requires complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites do not fit the original 6-8 target while retaining the nine-file hard cap, so the decomposition uses ten focused plans without shrinking coverage or trusting executable/environment identity.
 
@@ -118,7 +118,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 31.1-08-PLAN.md - Wire canonical deployment assets and prove standalone-build plus aggregate-consume immutable-image readiness/deployment harness modes.
+- [x] 31.1-08-PLAN.md - Wire canonical deployment assets and prove standalone-build plus aggregate-consume immutable-image readiness/deployment harness modes.
 
 Cross-cutting constraints:
 
