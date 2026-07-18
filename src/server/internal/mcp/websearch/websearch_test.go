@@ -6,10 +6,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
 
 func writeJSON(t *testing.T, w http.ResponseWriter, payload any) {
@@ -513,6 +518,91 @@ func TestChainFallsBackOnError(t *testing.T) {
 		t.Fatalf("calls = %d/%d, want 1/1", failing.calls, succeeding.calls)
 	}
 	assertResults(t, results, "Go", "https://go.dev", "Go")
+}
+
+func TestWebsearchChainReadinessPerProviderContract(t *testing.T) {
+	guard := &chainReadinessGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadChainReadinessContract(t)
+	registrar := &chainReadinessRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	readiness, err := newSearchReadiness(RuntimeOptions{Guard: guard, Authorities: authorities, Effects: registrar}, "test.websearch.chain", "test")
+	if err != nil {
+		t.Fatalf("new search readiness: %v", err)
+	}
+	failing := &stubProvider{err: errors.New("primary failed")}
+	succeeding := &stubProvider{results: []mcp.WebSearchResult{{Title: "fallback"}}}
+	chain := &Chain{Providers: []mcp.WebSearchProvider{failing, succeeding}, readiness: readiness}
+	if _, err := chain.Search(context.Background(), "golang"); err != nil {
+		t.Fatalf("authorized fallback: %v", err)
+	}
+	if failing.calls != 1 || succeeding.calls != 1 || guard.calls.Load() != 2 || registrar.count() != 1 {
+		t.Fatalf("calls guard/providers/registrar = %d/%d/%d/%d, want 2/1/1/1", guard.calls.Load(), failing.calls, succeeding.calls, registrar.count())
+	}
+	guard.allow.Store(false)
+	if _, err := chain.Search(context.Background(), "golang"); err == nil {
+		t.Fatal("denied fallback returned nil error")
+	}
+	if succeeding.calls != 1 || registrar.count() != 1 {
+		t.Fatalf("denied fallback changed downstream/registrar counts = %d/%d", succeeding.calls, registrar.count())
+	}
+}
+
+type chainReadinessGuard struct {
+	allow atomic.Bool
+	calls atomic.Int32
+}
+
+func (g *chainReadinessGuard) Require(context.Context, string, releasecontract.Boundary) error {
+	g.calls.Add(1)
+	if !g.allow.Load() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "test"}
+	}
+	return nil
+}
+
+type chainReadinessRegistrar struct {
+	mu          sync.Mutex
+	descriptors map[string]releasecontract.EffectDescriptor
+}
+
+func (r *chainReadinessRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descriptors[descriptor.ID]; exists {
+		return errors.New("duplicate descriptor")
+	}
+	r.descriptors[descriptor.ID] = descriptor
+	return nil
+}
+
+func (r *chainReadinessRegistrar) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.descriptors)
+}
+
+func loadChainReadinessContract(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve websearch test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../../../"))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
 }
 
 func TestChainReportsAllFailures(t *testing.T) {
