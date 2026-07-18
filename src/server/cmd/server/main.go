@@ -251,7 +251,10 @@ func (r *runtimeEffectRegistry) Register(descriptor releasecontract.EffectDescri
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.descriptors[descriptor.ID]; exists {
+	if existing, exists := r.descriptors[descriptor.ID]; exists {
+		if existing == descriptor {
+			return nil
+		}
 		return fmt.Errorf("duplicate effect descriptor %q", descriptor.ID)
 	}
 	r.descriptors[descriptor.ID] = descriptor

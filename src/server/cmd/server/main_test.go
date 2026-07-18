@@ -188,6 +188,25 @@ func TestRuntimeBuildAndBackgroundLifecycleContract(t *testing.T) {
 	}
 }
 
+func TestRuntimeEffectRegistryAllowsExactSharedDescriptor(t *testing.T) {
+	registry := newRuntimeEffectRegistry()
+	descriptor := releasecontract.EffectDescriptor{
+		ID: "chat.provider.dispatch", CapabilityID: "relay.provider_inference",
+		Boundary: releasecontract.BoundaryOutbound, Owner: "chat.RelayGateway",
+	}
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("register first descriptor: %v", err)
+	}
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("exact shared descriptor should be idempotent: %v", err)
+	}
+	conflict := descriptor
+	conflict.Owner = "chat.CompositeGateway"
+	if err := registry.Register(conflict); err == nil {
+		t.Fatal("conflicting descriptor unexpectedly passed")
+	}
+}
+
 func TestServerStartupOrderContract(t *testing.T) {
 	profile := releasecontract.DeploymentProfile{
 		ID: "monolith", Commitment: releasecontract.CommitmentCommitted,
