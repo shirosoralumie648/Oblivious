@@ -26,6 +26,7 @@ type marketplaceHandler struct {
 	checkoutCreators  map[string]stripebilling.CheckoutCreator
 	checkoutConfig    stripebilling.CheckoutConfig
 	providerRegistry  *payment.Registry
+	readiness         *billingFinancialReadiness
 }
 
 type marketplaceHandlerOption func(*marketplaceHandler)
@@ -57,6 +58,19 @@ func withMarketplaceCheckout(settlementService marketplaceSettlementCheckoutServ
 		handler.checkoutCreators = checkoutCreators
 		handler.checkoutConfig = checkoutConfig
 		handler.providerRegistry = providerRegistry
+	}
+}
+
+// withMarketplaceFinancialReadiness binds the provider checkout attempt to
+// the same startup-built financial authority used by SettlementService.
+func withMarketplaceFinancialReadiness(financial marketplace.FinancialReadiness) marketplaceHandlerOption {
+	return func(handler *marketplaceHandler) {
+		readiness, err := newCheckoutFinancialReadiness(financial, "http.marketplace.checkout", "http.marketplaceHandler")
+		if err != nil {
+			handler.readiness = &billingFinancialReadiness{configuration: err}
+			return
+		}
+		handler.readiness = readiness
 	}
 }
 
@@ -298,6 +312,10 @@ func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, 
 		return
 	}
 
+	if err := h.readiness.require(r.Context()); err != nil {
+		writeBillingReadinessError(w, err)
+		return
+	}
 	checkoutSession, err := checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, stripebilling.CheckoutSessionRequest{
 		OrganizationID:          organizationID,
 		UserID:                  userID,

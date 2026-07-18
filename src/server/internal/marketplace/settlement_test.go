@@ -11,6 +11,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/lib/pq"
+	"oblivious/server/internal/releasecontract"
 )
 
 func TestSettlementCreatePaidInstallCheckoutCreatesPendingOrderAndIntent(t *testing.T) {
@@ -54,6 +55,16 @@ func TestSettlementCreatePaidInstallCheckoutCreatesPendingOrderAndIntent(t *test
 	}
 	if intentKind != "marketplace_install" || intentStatus != "pending" || intentAmount != 50 {
 		t.Fatalf("expected pending marketplace payment intent, got kind=%s status=%s amount=%.2f", intentKind, intentStatus, intentAmount)
+	}
+}
+
+func TestMarketplaceSettlementReadinessContract(t *testing.T) {
+	service := NewSettlementService(nil, WithMarketplaceFinancialReadiness(FinancialReadiness{}))
+	if _, err := service.CreateDuePayouts(context.Background(), time.Now()); !errors.Is(err, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "marketplace.financial"}) {
+		var readinessErr *releasecontract.ReadinessError
+		if !errors.As(err, &readinessErr) || readinessErr.Code != releasecontract.CodeReadinessUnavailable {
+			t.Fatalf("expected fail-closed marketplace payout construction, got %v", err)
+		}
 	}
 }
 
