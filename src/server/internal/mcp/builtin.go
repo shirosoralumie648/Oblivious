@@ -101,6 +101,65 @@ func disabledBuiltinResult(name, reason string) *ToolResult {
 // WebSearchTool 网页搜索工具
 type WebSearchTool struct{}
 
+// authorizedWebSearchTool is the instance-scoped production web-search
+// builtin. The legacy WebSearchTool value remains for compatibility with
+// existing non-runtime callers; production executors use NewWebSearchTool.
+type authorizedWebSearchTool struct {
+	provider  WebSearchProvider
+	readiness *webSearchReadiness
+}
+
+// NewWebSearchTool constructs an instance-scoped web-search builtin. When a
+// runtime carrier is supplied the stable descriptor is registered exactly
+// once and every Execute call re-resolves the current catalog subject.
+func NewWebSearchTool(provider WebSearchProvider, runtime ...WebSearchRuntimeOptions) (BuiltinTool, error) {
+	if len(runtime) > 1 {
+		return nil, fmt.Errorf("mcp: multiple web-search runtime authority carriers")
+	}
+	tool := &authorizedWebSearchTool{provider: provider}
+	if len(runtime) == 0 {
+		return tool, nil
+	}
+	readiness, err := newWebSearchReadiness(runtime[0], "mcp.websearch.builtin", "mcp.WebSearchTool")
+	if err != nil {
+		return nil, err
+	}
+	tool.readiness = readiness
+	return tool, nil
+}
+
+func (t *authorizedWebSearchTool) Name() string { return "web_search" }
+
+func (t *authorizedWebSearchTool) Description() string { return "Search the web for information" }
+
+func (t *authorizedWebSearchTool) InputSchema() any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{"type": "string", "description": "The search query"},
+		},
+		"required": []string{"query"},
+	}
+}
+
+func (t *authorizedWebSearchTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
+	query, ok := args["query"].(string)
+	if !ok || strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	if err := t.readiness.authorize(ctx); err != nil {
+		return &ToolResult{Content: err.Error(), IsError: true}, nil
+	}
+	if t.provider == nil {
+		return disabledBuiltinResult("web_search", "no search provider is configured"), nil
+	}
+	results, err := t.provider.Search(ctx, strings.TrimSpace(query))
+	if err != nil {
+		return &ToolResult{Content: err.Error(), IsError: true}, nil
+	}
+	return &ToolResult{Content: formatWebSearchResults(results)}, nil
+}
+
 func (t *WebSearchTool) Name() string {
 	return "web_search"
 }

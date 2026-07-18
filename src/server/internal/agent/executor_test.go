@@ -3,14 +3,256 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestLiveAgentToolExecutorReadinessContract(t *testing.T) {
+	guard := &liveExecutorGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadLiveExecutorAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	registrar := &liveExecutorRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+	var httpCalls atomic.Int32
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		httpCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer httpServer.Close()
+	var processCalls atomic.Int32
+	var sandboxCalls atomic.Int32
+	executor, err := NewAuthorizedToolExecutor(nil, ToolRuntimeOptions{
+		Authorities: authorities,
+		Guard:       guard,
+		Effects:     registrar,
+		HTTPClient:  http.DefaultClient,
+		PythonProcessRunner: func(context.Context, string, io.Reader) ([]byte, error) {
+			processCalls.Add(1)
+			return []byte(`{"ok":true}`), nil
+		},
+		CustomPythonSandbox: liveSandboxRunner{calls: &sandboxCalls},
+	})
+	if err != nil {
+		t.Fatalf("construct authorized ToolExecutor: %v", err)
+	}
+	if got := registrar.count(); got != 5 {
+		t.Fatalf("constructor descriptor count = %d, want 5", got)
+	}
+	definitions, err := executor.GetToolDefinitions(t.Context(), &Agent{Tools: []Tool{{Name: "calculator", Type: "builtin", Enabled: true}}})
+	if err != nil || len(definitions) != 1 || definitions[0].CapabilityID != "mcp.tool_execution" {
+		t.Fatalf("server-derived tool capability definitions = %+v, %v", definitions, err)
+	}
+	if encoded, _ := json.Marshal(definitions[0].ToOpenAITool()); strings.Contains(string(encoded), "capabilityId") {
+		t.Fatalf("provider tool conversion leaked capabilityId: %s", encoded)
+	}
+	var injected Tool
+	if err := json.Unmarshal([]byte(`{"name":"calculator","type":"builtin","enabled":true,"capabilityId":"caller"}`), &injected); err == nil {
+		t.Fatal("caller capabilityId mutation unexpectedly decoded")
+	}
+
+	t.Run("builtin", func(t *testing.T) {
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "calculator", Type: "builtin", Enabled: true}}}
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "calculator", Arguments: map[string]any{"expression": "1+1"}}); err != nil {
+			t.Fatalf("builtin execute: %v", err)
+		}
+		before := guard.count()
+		guard.allow.Store(false)
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "calculator", Arguments: map[string]any{"expression": "2+2"}}); err == nil {
+			t.Fatal("denied builtin execute unexpectedly succeeded")
+		}
+		if guard.count() != before+1 {
+			t.Fatalf("builtin denial guard delta = %d, want 1", guard.count()-before)
+		}
+		guard.allow.Store(true)
+	})
+
+	t.Run("builtin_web_search", func(t *testing.T) {
+		webRegistrar := &liveExecutorRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+		provider := &liveWebSearchProvider{}
+		webExecutor, err := NewAuthorizedToolExecutor(nil, ToolRuntimeOptions{
+			Authorities: authorities, Guard: guard, Effects: webRegistrar, HTTPClient: http.DefaultClient, WebSearchProvider: provider,
+		})
+		if err != nil {
+			t.Fatalf("construct web-search executor: %v", err)
+		}
+		if webRegistrar.count() != 6 {
+			t.Fatalf("web-search executor descriptor count = %d, want five executor descriptors plus one WebSearchTool descriptor", webRegistrar.count())
+		}
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "web_search", Type: "builtin", Enabled: true}}}
+		for _, query := range []string{"first", "second"} {
+			if _, err := webExecutor.Execute(t.Context(), a, &ToolCall{Name: "web_search", Arguments: map[string]any{"query": query}}); err != nil {
+				t.Fatalf("web search %q: %v", query, err)
+			}
+		}
+		if provider.calls.Load() != 2 {
+			t.Fatalf("web-search provider calls = %d, want 2", provider.calls.Load())
+		}
+		guard.allow.Store(false)
+		if _, err := webExecutor.Execute(t.Context(), a, &ToolCall{Name: "web_search", Arguments: map[string]any{"query": "expired"}}); err == nil {
+			t.Fatal("denied web search unexpectedly succeeded")
+		}
+		if provider.calls.Load() != 2 {
+			t.Fatalf("denied web-search provider calls = %d, want unchanged 2", provider.calls.Load())
+		}
+		guard.allow.Store(true)
+	})
+
+	t.Run("custom_api_http", func(t *testing.T) {
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "api", Type: "custom", Runtime: "api", ServerID: httpServer.URL, Enabled: true}}}
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "api", Arguments: map[string]any{"x": 1}}); err != nil {
+			t.Fatalf("custom API execute: %v", err)
+		}
+		before := httpCalls.Load()
+		guard.allow.Store(false)
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "api", Arguments: map[string]any{"x": 2}}); err == nil {
+			t.Fatal("denied custom API unexpectedly succeeded")
+		}
+		if httpCalls.Load() != before {
+			t.Fatalf("denied custom API calls = %d, want unchanged %d", httpCalls.Load(), before)
+		}
+		guard.allow.Store(true)
+	})
+
+	t.Run("custom_python_process", func(t *testing.T) {
+		t.Setenv("APP_ENV", "development")
+		t.Setenv("OBLIVIOUS_CUSTOM_PYTHON_BIN", "/bin/python3")
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "python", Type: "custom", Runtime: "python", SourceCode: "def main(args): return 1", Enabled: true}}}
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "python", Arguments: map[string]any{}}); err != nil {
+			t.Fatalf("local Python execute: %v", err)
+		}
+		before := processCalls.Load()
+		guard.allow.Store(false)
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "python", Arguments: map[string]any{}}); err == nil {
+			t.Fatal("denied local Python unexpectedly succeeded")
+		}
+		if processCalls.Load() != before {
+			t.Fatalf("denied local Python calls = %d, want unchanged %d", processCalls.Load(), before)
+		}
+		guard.allow.Store(true)
+	})
+
+	t.Run("custom_python_sandbox", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "sandbox", Type: "custom", Runtime: "python", SourceCode: "def main(args): return 1", Enabled: true}}}
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "sandbox", Arguments: map[string]any{}}); err != nil {
+			t.Fatalf("sandbox execute: %v", err)
+		}
+		before := sandboxCalls.Load()
+		guard.allow.Store(false)
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "sandbox", Arguments: map[string]any{}}); err == nil {
+			t.Fatal("denied sandbox unexpectedly succeeded")
+		}
+		if sandboxCalls.Load() != before {
+			t.Fatalf("denied sandbox calls = %d, want unchanged %d", sandboxCalls.Load(), before)
+		}
+		guard.allow.Store(true)
+	})
+
+	t.Run("mcp", func(t *testing.T) {
+		a := &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "remote", Type: "mcp", ServerID: "server_1", Enabled: true}}}
+		guard.allow.Store(false)
+		if _, err := executor.Execute(t.Context(), a, &ToolCall{Name: "remote", Arguments: map[string]any{}}); err == nil {
+			t.Fatal("denied MCP unexpectedly succeeded")
+		}
+		guard.allow.Store(true)
+	})
+	if _, err := NewAuthorizedToolExecutor(nil, ToolRuntimeOptions{Authorities: authorities, Guard: guard, Effects: registrar, HTTPClient: http.DefaultClient}); err == nil {
+		t.Fatal("duplicate ToolExecutor construction unexpectedly succeeded")
+	}
+}
+
+type liveExecutorGuard struct {
+	allow atomic.Bool
+	calls atomic.Int32
+}
+
+func (g *liveExecutorGuard) Require(context.Context, string, releasecontract.Boundary) error {
+	g.calls.Add(1)
+	if !g.allow.Load() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "test"}
+	}
+	return nil
+}
+
+func (g *liveExecutorGuard) count() int { return int(g.calls.Load()) }
+
+type liveExecutorRegistrar struct {
+	mu          sync.Mutex
+	descriptors map[string]releasecontract.EffectDescriptor
+}
+
+func (r *liveExecutorRegistrar) Register(d releasecontract.EffectDescriptor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descriptors[d.ID]; exists {
+		return fmt.Errorf("duplicate descriptor %s", d.ID)
+	}
+	r.descriptors[d.ID] = d
+	return nil
+}
+
+func (r *liveExecutorRegistrar) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.descriptors)
+}
+
+type liveSandboxRunner struct{ calls *atomic.Int32 }
+
+func (r liveSandboxRunner) RunCustomPython(context.Context, CustomPythonSandboxRequest) (*CustomPythonSandboxResult, error) {
+	r.calls.Add(1)
+	return &CustomPythonSandboxResult{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+}
+
+type liveWebSearchProvider struct{ calls atomic.Int32 }
+
+func (p *liveWebSearchProvider) Search(context.Context, string) ([]mcp.WebSearchResult, error) {
+	p.calls.Add(1)
+	return []mcp.WebSearchResult{{Title: "result"}}, nil
+}
+
+func loadLiveExecutorAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve executor test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for i := range contract.Capabilities {
+		if contract.Capabilities[i].ID == "sandbox.code_execution" {
+			contract.Capabilities[i].Commitment = releasecontract.CommitmentConditional
+		}
+	}
+	for i := range contract.Profiles {
+		if contract.Profiles[i].ID != "monolith" {
+			continue
+		}
+		profile := contract.Profiles[i]
+		contract.Profiles[i] = profile
+		return contract, profile
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
 
 func TestToolExecutorExecutesCustomAPITool(t *testing.T) {
 	var (
