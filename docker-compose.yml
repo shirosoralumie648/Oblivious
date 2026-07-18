@@ -120,6 +120,7 @@ services:
         GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
     image: ${OBLIVIOUS_SERVER_IMAGE:-oblivious-server:local}
     container_name: oblivious-server
+    user: "1000:1000"
     restart: unless-stopped
     depends_on:
       postgres:
@@ -155,6 +156,12 @@ services:
       - MODEL_DEFAULT_NAME=${MODEL_DEFAULT_NAME:-demo-reply}
       - RELAY_ENABLED=${RELAY_ENABLED:-true}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - OBLIVIOUS_DEPLOYMENT_PROFILE=monolith
+      - OBLIVIOUS_RELEASE_CONTRACT_PATH=/app/config/release/contract.v1.json
+      - OBLIVIOUS_RELEASE_CONTRACT_SCHEMA_PATH=/app/config/release/contract.schema.json
+      - OBLIVIOUS_READINESS_AUDIT_PATH=/var/lib/oblivious/audit/readiness.json
+    volumes:
+      - readiness_audit:/var/lib/oblivious/audit
 
   # ---------------------------------------------------------------------------
   # Microservices Architecture (enable with: docker compose --profile microservices up)
@@ -613,3 +620,4 @@ volumes:
   clickhouse_data:
   minio_data:
   kafka_data:
+  readiness_audit:

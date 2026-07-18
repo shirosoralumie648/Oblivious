@@ -36,6 +36,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X oblivious/server/internal/buildinfo.linkedReleaseCommit=${RELEASE_COMMIT} -X oblivious/server/internal/buildinfo.linkedSourceTree=${SOURCE_TREE} -X oblivious/server/internal/buildinfo.linkedContractDigest=${CONTRACT_DIGEST} -X oblivious/server/internal/buildinfo.linkedDirty=${BUILD_DIRTY} -X oblivious/server/internal/buildinfo.linkedEvidenceClass=${EVIDENCE_CLASS}" \
     -o /out/oblivious-grpc-smoke ./cmd/grpc-smoke
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X oblivious/server/internal/buildinfo.linkedReleaseCommit=${RELEASE_COMMIT} -X oblivious/server/internal/buildinfo.linkedSourceTree=${SOURCE_TREE} -X oblivious/server/internal/buildinfo.linkedContractDigest=${CONTRACT_DIGEST} -X oblivious/server/internal/buildinfo.linkedDirty=${BUILD_DIRTY} -X oblivious/server/internal/buildinfo.linkedEvidenceClass=${EVIDENCE_CLASS}" \
+    -o /out/oblivious-release-contract ./cmd/release-contract
 
 FROM ${ALPINE_IMAGE} AS runtime
 ARG RELEASE_COMMIT
@@ -47,14 +52,23 @@ LABEL org.opencontainers.image.revision="${RELEASE_COMMIT}" \
       io.oblivious.source-tree="${SOURCE_TREE}" \
       io.oblivious.release-contract-digest="${CONTRACT_DIGEST}" \
       io.oblivious.build-identity-schema="build-identity/v1" \
-      io.oblivious.evidence-class="${EVIDENCE_CLASS}"
+      io.oblivious.evidence-class="${EVIDENCE_CLASS}" \
+      io.oblivious.deployment-profile="monolith" \
+      io.oblivious.release-contract-path="/app/config/release/contract.v1.json" \
+      io.oblivious.release-contract-schema-path="/app/config/release/contract.schema.json" \
+      io.oblivious.readiness-audit-path="/var/lib/oblivious/audit/readiness.json"
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S oblivious \
+    && adduser -S -G oblivious -u 1000 oblivious \
+    && mkdir -p /var/lib/oblivious/audit \
+    && chown -R oblivious:oblivious /var/lib/oblivious
 
 WORKDIR /app
 COPY --from=builder /out/oblivious-server /usr/local/bin/oblivious-server
 COPY --from=builder /out/oblivious-migrate /usr/local/bin/oblivious-migrate
 COPY --from=builder /out/oblivious-grpc-smoke /usr/local/bin/oblivious-grpc-smoke
+COPY --from=builder /out/oblivious-release-contract /usr/local/bin/oblivious-release-contract
 COPY src/server/migrations ./migrations
 COPY config/release/contract.v1.json ./config/release/contract.v1.json
 COPY config/release/contract.schema.json ./config/release/contract.schema.json
@@ -65,4 +79,10 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/readyz >/dev/null || exit 1
 
+ENV OBLIVIOUS_DEPLOYMENT_PROFILE=monolith \
+    OBLIVIOUS_RELEASE_CONTRACT_PATH=/app/config/release/contract.v1.json \
+    OBLIVIOUS_RELEASE_CONTRACT_SCHEMA_PATH=/app/config/release/contract.schema.json \
+    OBLIVIOUS_READINESS_AUDIT_PATH=/var/lib/oblivious/audit/readiness.json
+
+USER oblivious
 CMD ["/usr/local/bin/oblivious-server"]

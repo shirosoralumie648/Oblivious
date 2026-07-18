@@ -128,7 +128,6 @@ def first_party_deployment_paths():
         "deploy/kubernetes/relay-deployment.yaml",
         "deploy/kubernetes/task-deployment.yaml",
         "deploy/kubernetes/workflow-deployment.yaml",
-        "deploy/kubernetes/server.yaml",
         "deploy/kubernetes/web.yaml",
     ]
 
@@ -197,7 +196,7 @@ def require_network_policy_contract(repo, missing):
 
 def git_ls_k8s_files(repo):
     result = subprocess.run(["git", "-C", str(repo), "ls-files", "deploy/kubernetes/*.yaml"], check=True, text=True, capture_output=True)
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return [line.strip() for line in result.stdout.splitlines() if line.strip() and line.strip() != "deploy/kubernetes/server.yaml"]
 
 
 def main():
@@ -560,10 +559,11 @@ def main():
     if not any(":8080" in str(value) for value in compose_web.get("ports") or []):
         missing.append("docker compose web must publish container port 8080")
 
-    local_server_deployment = deployment_doc(repo / "deploy/kubernetes/server.yaml")
-    local_server = first_container(local_server_deployment)
-    if not has_resources(local_server):
-        missing.append("local server deployment must define CPU/memory requests and limits")
+    release_workloads = [path for path in tracked_k8s_files if path.endswith("-deployment.yaml")]
+    if release_workloads.count("deploy/kubernetes/app-deployment.yaml") != 1:
+        missing.append("app-deployment.yaml must be the sole canonical application workload")
+    if "deploy/kubernetes/server.yaml" in release_workloads:
+        missing.append("server.yaml must not enter release validation inventory")
 
     alerts = read_yaml(repo / "deploy/observability/prometheus-alerts.yaml")
     alert_names = [rule.get("alert") for group in alerts.get("groups") or [] for rule in group.get("rules") or []]
