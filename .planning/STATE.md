@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-04-PLAN.md
-last_updated: "2026-07-18T02:03:49.266Z"
+stopped_at: Completed 31.1-05-PLAN.md
+last_updated: "2026-07-18T03:02:57.291Z"
 last_activity: 2026-07-18
-last_activity_desc: Completed Phase 31.1 Plan 04 worker readiness guards
+last_activity_desc: Completed Phase 31.1 Plan 05 Relay, Chat, and model catalog guards
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 9
-  percent: 28
+  completed_plans: 10
+  percent: 31
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 4 of 10
-Status: Plan 31.1-04 complete; remaining Wave 2 consumer guard plans are ready for execution
-Last activity: 2026-07-18 — Completed Phase 31.1 Plan 04 worker readiness guards
+Plan: 5 of 10
+Status: Plan 31.1-05 complete; remaining Wave 2 consumer guard plans are ready for execution
+Last activity: 2026-07-18 — Completed Phase 31.1 Plan 05 Relay, Chat, and model catalog guards
 
-Progress: [███░░░░░░░] 28%
+Progress: [███░░░░░░░] 31%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 34 min
 - Total execution time: 5.1 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 2 plans in 57 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 3 plans in 88 minutes.
 
-**Recent Trend:** Plan 31.1-04 closed worker claim/effect readiness bypasses in 20 minutes.
+**Recent Trend:** Plan 31.1-05 closed Relay/Chat retry and model-mutation authority bypasses in 31 minutes.
 
 ## Accumulated Context
 
@@ -80,6 +80,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: RELS-01 remains pending after Plan 31.1-01. — Consumer guards, lifecycle wiring, deployment proof, and the remaining Phase 31.1 plans are not complete.
 - [Phase 31.1]: Worker constructors resolve typed capabilities from the startup RuntimeAuthorities carrier and re-read the same manager-backed Guard before each claim and irreversible effect.
 - [Phase 31.1]: Readiness denials persist only stable readiness codes through bounded retry bookkeeping and never authorize provider settlement, refund, dispatch, or terminal transition.
+- [Phase 31.1]: Relay separates per-attempt model catalog authorization from the immediate Provider transport guard.
+- [Phase 31.1]: Chat fallback uses a distinct descriptor and cannot start after cancellation or a stale readiness generation.
+- [Phase 31.1]: Model capability metadata is handler-owned response data; Chat and Admin mutations never accept or persist caller capability authority.
+- [Phase 31.1]: Admin validates raw model lists before normalization to reject ambiguous or stale persisted subjects.
 
 ### Pending Todos
 
@@ -108,8 +112,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-18T01:59:09.103Z
-Stopped at: Completed 31.1-04-PLAN.md
+Last session: 2026-07-18T03:02:57.195Z
+Stopped at: Completed 31.1-05-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -125,3 +129,4 @@ Resume file: None
 | Phase 31 P07 | 29 min | 3 tasks | 13 files |
 | Phase 31.1-readiness-fail-closed P01 | 37 min | 3 tasks | 10 files |
 | Phase 31.1-readiness-fail-closed | 04 | 20 min | 3 tasks, 11 files |
+| Phase 31.1-readiness-fail-closed | 05 | 31 min | 3 tasks, 10 files |
