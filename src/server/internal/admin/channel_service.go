@@ -244,6 +244,11 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 		}
 		return nil, fmt.Errorf("channel probe failed")
 	}
+	if s.modelReadiness != nil {
+		if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
+			return nil, err
+		}
+	}
 
 	models := normalizeProbeModels(result.Models)
 	if len(models) == 0 {
@@ -299,6 +304,14 @@ func (s *Service) DetectChannelModelUpdates(ctx context.Context, organizationID,
 		return nil, fmt.Errorf("channel probe failed")
 	}
 
+	if s.modelReadiness != nil {
+		if err := s.modelReadiness.requireModels(ctx, channel.Models); err != nil {
+			return nil, err
+		}
+		if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
+			return nil, err
+		}
+	}
 	currentModels := normalizeProbeModels(channel.Models)
 	upstreamModels := normalizeProbeModels(result.Models)
 	if len(upstreamModels) == 0 {
@@ -342,6 +355,11 @@ func (s *Service) ApplyChannelModelUpdates(ctx context.Context, actor auth.Sessi
 		appliedModels = append([]string{}, preview.UpstreamModels...)
 	default:
 		return nil, fmt.Errorf("model update mode must be 'merge' or 'replace'")
+	}
+	if s.modelReadiness != nil {
+		if err := s.modelReadiness.requireModels(ctx, appliedModels); err != nil {
+			return nil, err
+		}
 	}
 
 	channel, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, ChannelUpdateRequest{Models: &appliedModels})

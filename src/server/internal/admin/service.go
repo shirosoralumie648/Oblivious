@@ -14,6 +14,7 @@ import (
 
 	"oblivious/server/internal/marketplace"
 	relaytypes "oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
 
 // UserStats holds aggregate user statistics.
@@ -68,6 +69,7 @@ type Service struct {
 	channelRuntimeStatsProvider ChannelRuntimeStatsProvider
 	relayConfigApplier          RelayConfigApplier
 	relayPricingSyncHTTPClient  *http.Client
+	modelReadiness              *modelCatalogReadiness
 }
 
 type ServiceOption func(*Service)
@@ -97,6 +99,66 @@ type RelayConfigChange struct {
 }
 
 type RelayConfigApplier func(ctx context.Context, change RelayConfigChange) error
+
+// ModelCatalogRuntimeOptions is the startup-built authority carrier used by
+// channel model/routing mutations. Persisted capability metadata is never
+// accepted as input or stored as a verdict.
+type ModelCatalogRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type modelCatalogReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+	guard       releasecontract.Guard
+	mutation    releasecontract.CapabilityID
+}
+
+func newModelCatalogReadiness(options ModelCatalogRuntimeOptions) (*modelCatalogReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "admin.channelModels"}
+	}
+	mutation, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectHTTPMutation)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           "admin.channel.model.mutation",
+		CapabilityID: string(mutation),
+		Boundary:     releasecontract.BoundaryHTTP,
+		Owner:        "admin.channel_service",
+	}); err != nil {
+		return nil, err
+	}
+	return &modelCatalogReadiness{authorities: options.Authorities, guard: options.Guard, mutation: mutation}, nil
+}
+
+func (r *modelCatalogReadiness) requireModels(ctx context.Context, models []string) error {
+	if r == nil {
+		return nil
+	}
+	if err := r.guard.Require(ctx, string(r.mutation), releasecontract.BoundaryHTTP); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "channel.models"}
+		}
+		if _, duplicate := seen[model]; duplicate {
+			return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "channel.models.ambiguous"}
+		}
+		seen[model] = struct{}{}
+		if _, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+			Kind: releasecontract.CatalogSubjectModel, ID: model, Runtime: releasecontract.CatalogRuntimeServerModel,
+		}, releasecontract.BoundaryHTTP); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 type RequestLogEvidenceStore interface {
 	ListRequestLogEvidence(ctx context.Context, requestIDs []string) (map[string]RequestLogEvidence, error)
@@ -145,6 +207,22 @@ func NewService(store Store, options ...ServiceOption) *Service {
 		option(service)
 	}
 	return service
+}
+
+// NewReadinessService constructs an Admin service with the startup authority
+// required for channel model mutations.
+func NewReadinessService(store Store, runtime ModelCatalogRuntimeOptions, options ...ServiceOption) (*Service, error) {
+	readiness, err := newModelCatalogReadiness(runtime)
+	if err != nil {
+		return nil, err
+	}
+	service := &Service{store: store, modelReadiness: readiness}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service, nil
 }
 
 // --- System Stats ---
