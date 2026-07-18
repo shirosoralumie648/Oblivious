@@ -5,61 +5,64 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"oblivious/server/internal/channel"
-	"oblivious/server/internal/config"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"oblivious/server/internal/buildinfo"
+	"oblivious/server/internal/channel"
+	"oblivious/server/internal/config"
+	"oblivious/server/internal/releasecontract"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	dbURL := cfg.DatabaseURL
-	if cfg.DBMode != "monolith" && cfg.DBURLChannel != "" {
-		dbURL = cfg.DBURLChannel
-	}
-
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
-	}
-
-	store := channel.NewSQLStore(db)
-	service := channel.NewChannelService(&storeAdapter{store})
-
-	router := gin.Default()
-	registerRoutes(router, service)
-
-	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
-	}
-
-	go func() {
-		log.Println("Channel service listening on :8080")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+	if err := config.RunEntrypoint(context.Background(), releasecontract.EntrypointID("channel"), config.EntrypointPreflightOptions{
+		RepoRoot: "/app", ContractPath: "config/release/contract.v1.json", SchemaPath: "config/release/contract.schema.json",
+		ProfileID: os.Getenv("OBLIVIOUS_DEPLOYMENT_PROFILE"), Contracts: config.FileContractLoader{},
+		Identities: buildinfo.NewEmbeddedProvider(), Profiles: releasecontract.NewFileProfileResolver(),
+	}, func(context.Context, config.ResolvedEntrypointInputs) error {
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
 		}
-	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+		dbURL := cfg.DatabaseURL
+		if cfg.DBMode != "monolith" && cfg.DBURLChannel != "" {
+			dbURL = cfg.DBURLChannel
+		}
+		db, err := sql.Open("postgres", dbURL)
+		if err != nil {
+			log.Fatalf("Failed to connect to database: %v", err)
+		}
+		defer db.Close()
+		if err := db.Ping(); err != nil {
+			log.Fatalf("Failed to ping database: %v", err)
+		}
 
-	log.Println("Shutting down channel service...")
-	srv.Shutdown(context.Background())
+		store := channel.NewSQLStore(db)
+		service := channel.NewChannelService(&storeAdapter{store})
+		router := gin.Default()
+		registerRoutes(router, service)
+		srv := &http.Server{Addr: ":8080", Handler: router}
+		go func() {
+			log.Println("Channel service listening on :8080")
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("listen: %s\n", err)
+			}
+		}()
+
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		log.Println("Shutting down channel service...")
+		_ = srv.Shutdown(context.Background())
+		return nil
+	}); err != nil {
+		log.Fatalf("channel preflight failed: %v", err)
+	}
 }
 
 func registerRoutes(r *gin.Engine, service *channel.ChannelService) {

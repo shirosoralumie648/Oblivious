@@ -1,11 +1,145 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
+
+	"oblivious/server/internal/buildinfo"
+	"oblivious/server/internal/releasecontract"
 )
+
+type ContractLoader interface {
+	Load(context.Context, string, string, string) (releasecontract.AuthoredContractV1, error)
+}
+
+type FileContractLoader struct{}
+
+func (FileContractLoader) Load(ctx context.Context, repoRoot, contractPath, schemaPath string) (releasecontract.AuthoredContractV1, error) {
+	return releasecontract.Load(ctx, repoRoot, contractPath, schemaPath)
+}
+
+type EntrypointPreflightOptions struct {
+	RepoRoot     string
+	ContractPath string
+	SchemaPath   string
+	ProfileID    string
+	Contracts    ContractLoader
+	Identities   buildinfo.IdentityProvider
+	Profiles     releasecontract.ProfileResolver
+}
+
+type ResolvedEntrypointInputs struct {
+	contract releasecontract.AuthoredContractV1
+	profile  releasecontract.DeploymentProfile
+	identity buildinfo.BuildIdentityV1
+}
+
+func (i ResolvedEntrypointInputs) Contract() releasecontract.AuthoredContractV1 {
+	return mustCloneEntrypointValue(i.contract)
+}
+
+func (i ResolvedEntrypointInputs) Profile() releasecontract.DeploymentProfile {
+	return mustCloneEntrypointValue(i.profile)
+}
+
+func (i ResolvedEntrypointInputs) Identity() buildinfo.BuildIdentityV1 {
+	return i.identity
+}
+
+type EntrypointContinuation func(context.Context, ResolvedEntrypointInputs) error
+
+func RunEntrypoint(ctx context.Context, id releasecontract.EntrypointID, options EntrypointPreflightOptions, normalStartup EntrypointContinuation) error {
+	if ctx == nil {
+		return fmt.Errorf("entrypoint preflight: context is required")
+	}
+	if strings.TrimSpace(options.RepoRoot) == "" || strings.TrimSpace(options.ContractPath) == "" || strings.TrimSpace(options.SchemaPath) == "" || strings.TrimSpace(options.ProfileID) == "" {
+		return fmt.Errorf("entrypoint preflight: repo root, contract path, schema path, and profile are required")
+	}
+	if options.Contracts == nil || options.Identities == nil || options.Profiles == nil || normalStartup == nil {
+		return fmt.Errorf("entrypoint preflight: contract loader, identity provider, profile resolver, and continuation are required")
+	}
+
+	contract, err := options.Contracts.Load(ctx, options.RepoRoot, options.ContractPath, options.SchemaPath)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: load contract: %w", err)
+	}
+	profile, err := options.Profiles.ResolveCommittedProfile(ctx, options.RepoRoot, options.ContractPath, options.SchemaPath, options.ProfileID)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: resolve profile: %w", err)
+	}
+	identity, err := options.Identities.Resolve(ctx, options.RepoRoot, options.ContractPath, options.SchemaPath)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: resolve build identity: %w", err)
+	}
+	if err := validateEntrypointInputs(contract, profile, identity, options.ProfileID, id); err != nil {
+		return err
+	}
+
+	contractCopy, err := cloneEntrypointValue(contract)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: freeze contract: %w", err)
+	}
+	profileCopy, err := cloneEntrypointValue(profile)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: freeze profile: %w", err)
+	}
+	return normalStartup(ctx, ResolvedEntrypointInputs{contract: contractCopy, profile: profileCopy, identity: identity})
+}
+
+func validateEntrypointInputs(contract releasecontract.AuthoredContractV1, profile releasecontract.DeploymentProfile, identity buildinfo.BuildIdentityV1, profileID string, entrypointID releasecontract.EntrypointID) error {
+	if err := buildinfo.ValidateIdentity(identity); err != nil {
+		return fmt.Errorf("entrypoint preflight: validate build identity: %w", err)
+	}
+	digest, err := releasecontract.Digest(contract)
+	if err != nil {
+		return fmt.Errorf("entrypoint preflight: digest contract: %w", err)
+	}
+	if digest != identity.ContractDigest {
+		return fmt.Errorf("entrypoint preflight: %w", &buildinfo.IdentityError{Code: buildinfo.ErrorContractDigestMismatch, Field: "contractDigest"})
+	}
+	if profile.ID != profileID {
+		return fmt.Errorf("entrypoint preflight: resolved profile %q does not match requested profile %q", profile.ID, profileID)
+	}
+	var authored *releasecontract.DeploymentProfile
+	for index := range contract.Profiles {
+		if contract.Profiles[index].ID == profile.ID {
+			authored = &contract.Profiles[index]
+			break
+		}
+	}
+	if authored == nil || !reflect.DeepEqual(*authored, profile) {
+		return fmt.Errorf("entrypoint preflight: resolver profile is not the authored contract profile")
+	}
+	if err := releasecontract.RequireProfileEntrypoint(profile, entrypointID); err != nil {
+		return fmt.Errorf("entrypoint preflight: authorize entrypoint: %w", err)
+	}
+	return nil
+}
+
+func cloneEntrypointValue[T any](value T) (T, error) {
+	var cloned T
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return cloned, err
+	}
+	if err := json.Unmarshal(encoded, &cloned); err != nil {
+		return cloned, err
+	}
+	return cloned, nil
+}
+
+func mustCloneEntrypointValue[T any](value T) T {
+	cloned, err := cloneEntrypointValue(value)
+	if err != nil {
+		panic(fmt.Sprintf("clone validated entrypoint input: %v", err))
+	}
+	return cloned
+}
 
 type CommonConfig struct {
 	Env         string
