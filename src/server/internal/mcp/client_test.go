@@ -11,13 +11,127 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
+
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestMCPReadinessDispatchContract(t *testing.T) {
+	guard := &mcpReadinessGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadMCPReadinessContract(t)
+	registrar := newMCPReadinessRegistrar()
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	transport := &countingMCPTransport{}
+	client, err := NewClientWithOptions(newMemoryMCPStore(&Server{ID: "mcp_1", OrganizationID: "org_1", UserID: "user_1", Name: "test", URL: "http://mcp.local"}), ClientRuntimeOptions{
+		Guard: guard, Authorities: authorities, Effects: registrar,
+	})
+	if err != nil {
+		t.Fatalf("NewClientWithOptions: %v", err)
+	}
+	client.httpClient.Transport = transport
+	server := &Server{ID: "mcp_1", OrganizationID: "org_1", URL: "http://mcp.local"}
+	req := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+	if _, err := client.sendRequest(context.Background(), server, req); err != nil {
+		t.Fatalf("first MCP request: %v", err)
+	}
+	if _, err := client.sendRequest(context.Background(), server, req); err != nil {
+		t.Fatalf("second MCP request: %v", err)
+	}
+	if registrar.count() != 1 || guard.count() != 2 || transport.count() != 2 {
+		t.Fatalf("registration/guard/transport counts = %d/%d/%d, want 1/2/2", registrar.count(), guard.count(), transport.count())
+	}
+	guard.allow.Store(false)
+	if _, err := client.sendRequest(context.Background(), server, req); err == nil {
+		t.Fatal("denied MCP request returned nil error")
+	}
+	if transport.count() != 2 {
+		t.Fatalf("denied request transport count = %d, want unchanged 2", transport.count())
+	}
+	if _, err := NewClientWithOptions(nil, ClientRuntimeOptions{Guard: guard, Authorities: authorities, Effects: registrar}); err == nil {
+		t.Fatal("duplicate MCP descriptor construction unexpectedly succeeded")
+	}
+}
+
+type mcpReadinessGuard struct {
+	allow atomic.Bool
+	calls atomic.Int32
+}
+
+func (g *mcpReadinessGuard) Require(context.Context, string, releasecontract.Boundary) error {
+	g.calls.Add(1)
+	if !g.allow.Load() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "test"}
+	}
+	return nil
+}
+
+func (g *mcpReadinessGuard) count() int { return int(g.calls.Load()) }
+
+type mcpReadinessRegistrar struct {
+	mu          sync.Mutex
+	descriptors map[string]releasecontract.EffectDescriptor
+}
+
+func newMCPReadinessRegistrar() *mcpReadinessRegistrar {
+	return &mcpReadinessRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+}
+
+func (r *mcpReadinessRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descriptors[descriptor.ID]; exists {
+		return fmt.Errorf("duplicate descriptor %s", descriptor.ID)
+	}
+	r.descriptors[descriptor.ID] = descriptor
+	return nil
+}
+
+func (r *mcpReadinessRegistrar) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.descriptors)
+}
+
+type countingMCPTransport struct{ calls atomic.Int32 }
+
+func (t *countingMCPTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls.Add(1)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","result":{}}`)), Header: make(http.Header)}, nil
+}
+
+func (t *countingMCPTransport) count() int { return int(t.calls.Load()) }
+
+func loadMCPReadinessContract(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve mcp test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
 
 func TestClientRehydratesPersistedServerOnConnectListToolsAndCallTool(t *testing.T) {
 	ctx := context.Background()
