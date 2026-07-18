@@ -3,15 +3,191 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	relaytypes "oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestChatRelayReadinessDispatchContract(t *testing.T) {
+	contract, profile := loadChatReadinessAuthority(t)
+	newRuntime := func(t *testing.T, guard releasecontract.Guard, registrar releasecontract.EffectRegistrar) RelayGatewayRuntimeOptions {
+		t.Helper()
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		return RelayGatewayRuntimeOptions{Guard: guard, Authorities: authorities, Effects: registrar}
+	}
+
+	t.Run("constructors fail closed without the startup carrier", func(t *testing.T) {
+		if _, err := NewRelayGatewayWithOptions(RelayGatewayRuntimeOptions{}); !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("expected Relay gateway construction denial, got %v", err)
+		}
+		if _, err := NewCompositeGatewayWithOptions(nil, nil, RelayGatewayRuntimeOptions{}); !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("expected Composite gateway construction denial, got %v", err)
+		}
+	})
+
+	for _, mode := range []string{"complete", "stream", "structured"} {
+		mode := mode
+		t.Run(mode+" guards provider transport immediately before Do", func(t *testing.T) {
+			guard := &chatReadinessGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "generation"}}
+			registrar := &chatEffectRegistrar{}
+			networkCalls := 0
+			gateway, err := NewRelayGatewayWithOptions(
+				newRuntime(t, guard, registrar),
+				WithRelayURL("https://secret-relay.invalid/v1"),
+				WithHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					networkCalls++
+					return nil, errors.New("network must not be called")
+				})}),
+			)
+			if err != nil {
+				t.Fatalf("construct guarded gateway: %v", err)
+			}
+			config := ConversationConfig{ModelID: "gpt-4o-mini"}
+			switch mode {
+			case "complete":
+				_, err = gateway.GenerateReply(context.Background(), []Message{{Role: "user", Content: "hello"}}, config)
+			case "stream":
+				err = gateway.GenerateReplyStream(context.Background(), []Message{{Role: "user", Content: "hello"}}, config, func(string) error { return nil })
+			case "structured":
+				_, err = gateway.GenerateStructuredReply(context.Background(), []Message{{Role: "user", Content: "hello"}}, config, nil)
+			}
+			if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityBlocked) || networkCalls != 0 {
+				t.Fatalf("transport denial leaked network call: err=%v calls=%d guard=%#v", err, networkCalls, guard.calls)
+			}
+			if strings.Contains(err.Error(), "secret-relay") {
+				t.Fatalf("readiness error leaked relay URL: %v", err)
+			}
+		})
+	}
+
+	t.Run("unknown current model is denied before network", func(t *testing.T) {
+		guard := &chatReadinessGuardSpy{}
+		networkCalls := 0
+		gateway, err := NewRelayGatewayWithOptions(
+			newRuntime(t, guard, &chatEffectRegistrar{}),
+			WithHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				networkCalls++
+				return nil, errors.New("network must not be called")
+			})}),
+		)
+		if err != nil {
+			t.Fatalf("construct guarded gateway: %v", err)
+		}
+		_, err = gateway.GenerateReply(context.Background(), nil, ConversationConfig{ModelID: "caller-capability"})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) || networkCalls != 0 {
+			t.Fatalf("unknown model did not fail before network: err=%v calls=%d", err, networkCalls)
+		}
+	})
+
+	t.Run("fallback re-authorizes after primary failure", func(t *testing.T) {
+		guard := &chatReadinessGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
+		registrar := &chatEffectRegistrar{}
+		runtimeOptions := newRuntime(t, guard, registrar)
+		primaryCalls := 0
+		primary, err := NewRelayGatewayWithOptions(
+			runtimeOptions,
+			WithRelayURL("https://relay.invalid/v1"),
+			WithHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				primaryCalls++
+				return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":"unavailable"}`))}, nil
+			})}),
+		)
+		if err != nil {
+			t.Fatalf("construct guarded primary: %v", err)
+		}
+		fallback := &mockReplyGenerator{reply: "unsafe fallback"}
+		composite, err := NewCompositeGatewayWithOptions(primary, fallback, runtimeOptions)
+		if err != nil {
+			t.Fatalf("construct guarded composite: %v", err)
+		}
+		_, err = composite.GenerateReply(context.Background(), []Message{{Role: "user", Content: "hello"}}, ConversationConfig{ModelID: "gpt-4o-mini"})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) || primaryCalls != 1 || fallback.calls != 0 {
+			t.Fatalf("fallback denial leaked dispatch: err=%v primary=%d fallback=%d guard=%#v", err, primaryCalls, fallback.calls, guard.calls)
+		}
+		if len(registrar.descriptors) != 2 || registrar.descriptors[0].ID == registrar.descriptors[1].ID {
+			t.Fatalf("expected distinct primary/fallback descriptors, got %#v", registrar.descriptors)
+		}
+	})
+
+	t.Run("cancellation cannot authorize fallback", func(t *testing.T) {
+		fallback := &mockReplyGenerator{reply: "unsafe fallback"}
+		composite := NewCompositeGateway(canceledChatGateway{}, fallback)
+		_, err := composite.GenerateReply(context.Background(), nil, ConversationConfig{ModelID: "gpt-4o-mini"})
+		if !errors.Is(err, context.Canceled) || fallback.calls != 0 {
+			t.Fatalf("cancellation triggered fallback: err=%v calls=%d", err, fallback.calls)
+		}
+	})
+}
+
+type chatReadinessGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type chatReadinessGuardSpy struct {
+	denyAtCall int
+	denial     error
+	calls      []chatReadinessGuardCall
+}
+
+func (g *chatReadinessGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, chatReadinessGuardCall{capabilityID: capabilityID, boundary: boundary})
+	if g.denyAtCall > 0 && len(g.calls) >= g.denyAtCall {
+		return g.denial
+	}
+	return nil
+}
+
+type chatEffectRegistrar struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *chatEffectRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+func loadChatReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve chat readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
+
+type canceledChatGateway struct{}
+
+func (canceledChatGateway) GenerateReply(context.Context, []Message, ConversationConfig) (string, error) {
+	return "", context.Canceled
+}
+
+func (canceledChatGateway) GenerateReplyStream(context.Context, []Message, ConversationConfig, func(string) error) error {
+	return context.Canceled
+}
 
 func TestRelayGateway_GenerateReply(t *testing.T) {
 	// Create test server
@@ -481,9 +657,11 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 type mockReplyGenerator struct {
 	reply string
 	err   error
+	calls int
 }
 
 func (m *mockReplyGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	m.calls++
 	if m.err != nil {
 		return "", m.err
 	}

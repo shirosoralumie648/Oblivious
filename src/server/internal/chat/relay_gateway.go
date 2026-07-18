@@ -15,6 +15,7 @@ import (
 	"time"
 
 	relaytypes "oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
 
 // RelayGateway 通过 Relay 调用 LLM
@@ -22,12 +23,68 @@ type RelayGateway struct {
 	httpClient   *http.Client
 	relayURL     string
 	defaultModel string
+	readiness    *relayGatewayReadiness
 }
 
 const maxRelayStreamLineBytes = 4 * 1024 * 1024
 
 // RelayGatewayOption 配置选项
 type RelayGatewayOption func(*RelayGateway)
+
+// RelayGatewayRuntimeOptions is the exact startup-built readiness carrier for
+// provider dispatch. It is intentionally separate from HTTP/client settings.
+type RelayGatewayRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type relayGatewayReadiness struct {
+	guard       releasecontract.Guard
+	authorities releasecontract.RuntimeAuthorities
+	chatEffect  releasecontract.CapabilityID
+}
+
+func newRelayGatewayReadiness(options RelayGatewayRuntimeOptions, descriptorID, owner string) (*relayGatewayReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "chat.relayGateway"}
+	}
+	chatEffect, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectChatProvider)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           descriptorID,
+		CapabilityID: string(chatEffect),
+		Boundary:     releasecontract.BoundaryOutbound,
+		Owner:        owner,
+	}); err != nil {
+		return nil, err
+	}
+	return &relayGatewayReadiness{guard: options.Guard, authorities: options.Authorities, chatEffect: chatEffect}, nil
+}
+
+func (r *relayGatewayReadiness) requireDispatch(ctx context.Context, model string) error {
+	if r == nil {
+		return nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "chat.model"}
+	}
+	capabilityID, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind:    releasecontract.CatalogSubjectModel,
+		ID:      model,
+		Runtime: releasecontract.CatalogRuntimeServerModel,
+	}, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if capabilityID != r.chatEffect {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "chat.modelCapability"}
+	}
+	return r.guard.Require(ctx, string(r.chatEffect), releasecontract.BoundaryOutbound)
+}
 
 // WithRelayURL 设置 Relay URL
 func WithRelayURL(url string) RelayGatewayOption {
@@ -63,6 +120,22 @@ func NewRelayGateway(opts ...RelayGatewayOption) *RelayGateway {
 		opt(g)
 	}
 	return g
+}
+
+// NewRelayGatewayWithOptions constructs an authority-bound Relay gateway.
+func NewRelayGatewayWithOptions(runtime RelayGatewayRuntimeOptions, opts ...RelayGatewayOption) (*RelayGateway, error) {
+	readiness, err := newRelayGatewayReadiness(runtime, "chat.provider.dispatch", "chat.RelayGateway")
+	if err != nil {
+		return nil, err
+	}
+	gateway := NewRelayGateway(opts...)
+	gateway.readiness = readiness
+	return gateway, nil
+}
+
+// NewReadinessRelayGateway is an explicit alias for runtime composition.
+func NewReadinessRelayGateway(runtime RelayGatewayRuntimeOptions, opts ...RelayGatewayOption) (*RelayGateway, error) {
+	return NewRelayGatewayWithOptions(runtime, opts...)
 }
 
 // GenerateReply 实现 ReplyGenerator 接口
@@ -195,6 +268,11 @@ func (g *RelayGateway) complete(ctx context.Context, req *chatCompletionRequest)
 	applyRelayRequestMetadata(httpReq)
 	applyRelayConversationMetadata(httpReq, req.ConversationID)
 
+	if g.readiness != nil {
+		if err := g.readiness.requireDispatch(ctx, req.Model); err != nil {
+			return nil, err
+		}
+	}
 	resp, err := g.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
@@ -230,6 +308,11 @@ func (g *RelayGateway) completeStream(ctx context.Context, req *chatCompletionRe
 	applyRelayRequestMetadata(httpReq)
 	applyRelayConversationMetadata(httpReq, req.ConversationID)
 
+	if g.readiness != nil {
+		if err := g.readiness.requireDispatch(ctx, req.Model); err != nil {
+			return err
+		}
+	}
 	resp, err := g.httpClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
@@ -292,6 +375,7 @@ var _ StructuredReplyGenerator = (*RelayGateway)(nil)
 type CompositeGateway struct {
 	primary   ChatGateway
 	fallback  ReplyGenerator
+	readiness *relayGatewayReadiness
 	mu        sync.Mutex
 	lastError error
 }
@@ -304,6 +388,17 @@ func NewCompositeGateway(primary ChatGateway, fallback ReplyGenerator) *Composit
 	}
 }
 
+// NewCompositeGatewayWithOptions binds both primary and fallback dispatch to
+// the same current startup authority. The primary gateway may already carry a
+// readiness instance; this constructor still owns the fallback boundary.
+func NewCompositeGatewayWithOptions(primary ChatGateway, fallback ReplyGenerator, runtime RelayGatewayRuntimeOptions) (*CompositeGateway, error) {
+	readiness, err := newRelayGatewayReadiness(runtime, "chat.provider.fallback", "chat.CompositeGateway")
+	if err != nil {
+		return nil, err
+	}
+	return &CompositeGateway{primary: primary, fallback: fallback, readiness: readiness}, nil
+}
+
 // GenerateReply 实现 ReplyGenerator 接口
 func (g *CompositeGateway) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
 	reply, err := g.primary.GenerateReply(ctx, messages, config)
@@ -314,11 +409,17 @@ func (g *CompositeGateway) GenerateReply(ctx context.Context, messages []Message
 
 		// 如果 Relay 不可用，尝试回退
 		if g.fallback != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return "", err
+			}
 			// 检查是否是可回退的错误类型
 			if errors.Is(err, ErrModelGatewayUnavailable) ||
-				errors.Is(err, context.DeadlineExceeded) ||
-				errors.Is(err, context.Canceled) ||
 				strings.Contains(err.Error(), "relay returned status") {
+				if g.readiness != nil {
+					if authErr := g.readiness.requireDispatch(ctx, selectModelID(config.ModelID, "")); authErr != nil {
+						return "", authErr
+					}
+				}
 				return g.fallback.GenerateReply(ctx, messages, config)
 			}
 		}
