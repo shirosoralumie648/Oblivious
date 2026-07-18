@@ -84,7 +84,7 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: 2/10 plans executed
+**Plans**: 3/10 plans executed
 
 **Planning envelope exception:** checker-requested closure requires complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites do not fit the original 6-8 target while retaining the nine-file hard cap, so the decomposition uses ten focused plans without shrinking coverage or trusting executable/environment identity.
 
@@ -96,7 +96,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion; consumer packages are file-disjoint and may run in parallel)*
 
 - [x] 31.1-04-PLAN.md - Guard schedule, channel, batch, and archive worker boundaries and own the workflow ToolExecutor injection seam.
-- [ ] 31.1-05-PLAN.md - Guard Relay/Chat attempts and deliver exact server-derived `ModelOption.capabilityId` response/mutation contracts.
+- [x] 31.1-05-PLAN.md - Guard Relay/Chat attempts and deliver exact server-derived `ModelOption.capabilityId` response/mutation contracts.
 - [ ] 31.1-06-PLAN.md - Guard MCP, the independent Agent tools Registry API, strict mutation DTOs, and the generic configured web-search Chain without depending on the later expected manifest.
 - [ ] 31.1-07-PLAN.md - Guard checkout, Admin refund, payout, and settlement while preserving signed reconciliation-only completion.
 
@@ -331,7 +331,7 @@ Cross-cutting constraints:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 2/10 | In Progress | - |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 3/10 | In Progress | - |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
