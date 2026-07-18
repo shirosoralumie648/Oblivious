@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +14,135 @@ import (
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestBatchPollingReadinessGuardContract(t *testing.T) {
+	now := time.Date(2026, time.July, 18, 3, 0, 0, 0, time.UTC)
+	denialCodes := []releasecontract.ReadinessCode{
+		releasecontract.CodeCapabilityDisabled,
+		releasecontract.CodeCapabilityBlocked,
+		releasecontract.CodeReadinessStale,
+		releasecontract.CodeCapabilityUnknown,
+		releasecontract.CodeReadinessUnavailable,
+		releasecontract.CodeBuildIdentityMismatch,
+	}
+	for _, code := range denialCodes {
+		t.Run("claim denial "+string(code), func(t *testing.T) {
+			store, client := batchReadinessFixture("completed")
+			completion := &recordingBatchCompletionFinalizer{}
+			failure := &recordingBatchFailureFinalizer{}
+			guard := &batchGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: code}}
+			worker := newBatchReadinessWorker(t, store, client, completion, failure, guard, now)
+
+			worker.runOnce(context.Background())
+
+			if store.claimCalls != 0 || len(client.seen) != 0 || len(completion.calls) != 0 || len(failure.calls) != 0 || store.transitionCalls() != 0 {
+				t.Fatalf("denied claim reached effects: claim=%d retrieve=%d completeFinalize=%d failureFinalize=%d transitions=%d", store.claimCalls, len(client.seen), len(completion.calls), len(failure.calls), store.transitionCalls())
+			}
+		})
+	}
+
+	t.Run("nil guard fails before worker construction", func(t *testing.T) {
+		contract, profile := loadBatchReadinessAuthority(t)
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, &batchGuardSpy{})
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		_, err = NewReadinessBatchPollingWorker(&recordingBatchPollingWorkerStore{}, &recordingBatchStatusClient{}, BatchPollingWorkerConfig{
+			Guard: nil, Authorities: authorities, Effects: &batchEffectRegistrar{},
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("nil guard error = %v", err)
+		}
+	})
+
+	t.Run("expiry after claim blocks provider retrieval and records retry only", func(t *testing.T) {
+		store, client := batchReadinessFixture("completed")
+		completion := &recordingBatchCompletionFinalizer{}
+		failure := &recordingBatchFailureFinalizer{}
+		guard := &batchGuardSpy{denyAtCall: 2, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "manager"}}
+		worker := newBatchReadinessWorker(t, store, client, completion, failure, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimCalls != 1 || len(client.seen) != 0 || len(completion.calls) != 0 || len(failure.calls) != 0 {
+			t.Fatalf("provider denial reached effects: claim=%d retrieve=%d completion=%d failure=%d", store.claimCalls, len(client.seen), len(completion.calls), len(failure.calls))
+		}
+		if store.failedCalls != 1 || store.succeededCalls != 0 || store.deadLetterCalls != 0 || store.failedReason != string(releasecontract.CodeReadinessStale) {
+			t.Fatalf("expected stable retry only: failed=%d succeeded=%d dead=%d reason=%q", store.failedCalls, store.succeededCalls, store.deadLetterCalls, store.failedReason)
+		}
+	})
+
+	t.Run("expiry after retrieval blocks completion finalizer", func(t *testing.T) {
+		store, client := batchReadinessFixture("completed")
+		completion := &recordingBatchCompletionFinalizer{}
+		guard := &batchGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newBatchReadinessWorker(t, store, client, completion, &recordingBatchFailureFinalizer{}, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if len(client.seen) != 1 || len(completion.calls) != 0 || store.failedCalls != 1 || store.succeededCalls != 0 || store.deadLetterCalls != 0 {
+			t.Fatalf("completion finalizer denial counts: retrieve=%d finalize=%d failed=%d succeeded=%d dead=%d", len(client.seen), len(completion.calls), store.failedCalls, store.succeededCalls, store.deadLetterCalls)
+		}
+	})
+
+	t.Run("expiry after completion finalizer blocks succeeded transition", func(t *testing.T) {
+		store, client := batchReadinessFixture("completed")
+		completion := &recordingBatchCompletionFinalizer{}
+		guard := &batchGuardSpy{denyAtCall: 4, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newBatchReadinessWorker(t, store, client, completion, &recordingBatchFailureFinalizer{}, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if len(completion.calls) != 1 || store.failedCalls != 1 || store.succeededCalls != 0 || store.deadLetterCalls != 0 {
+			t.Fatalf("succeeded transition reused finalizer authorization: finalize=%d failed=%d succeeded=%d dead=%d", len(completion.calls), store.failedCalls, store.succeededCalls, store.deadLetterCalls)
+		}
+	})
+
+	t.Run("expiry after retrieval blocks failure finalizer and refund", func(t *testing.T) {
+		store, client := batchReadinessFixture("failed")
+		failure := &recordingBatchFailureFinalizer{}
+		guard := &batchGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newBatchReadinessWorker(t, store, client, &recordingBatchCompletionFinalizer{}, failure, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if len(client.seen) != 1 || len(failure.calls) != 0 || store.failedCalls != 1 || store.deadLetterCalls != 0 || store.succeededCalls != 0 {
+			t.Fatalf("failure finalizer denial counts: retrieve=%d finalize=%d failed=%d dead=%d succeeded=%d", len(client.seen), len(failure.calls), store.failedCalls, store.deadLetterCalls, store.succeededCalls)
+		}
+	})
+
+	t.Run("expiry after failure finalizer blocks dead letter transition", func(t *testing.T) {
+		store, client := batchReadinessFixture("failed")
+		failure := &recordingBatchFailureFinalizer{}
+		guard := &batchGuardSpy{denyAtCall: 4, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale}}
+		worker := newBatchReadinessWorker(t, store, client, &recordingBatchCompletionFinalizer{}, failure, guard, now)
+
+		worker.runOnce(context.Background())
+
+		if len(failure.calls) != 1 || store.failedCalls != 1 || store.deadLetterCalls != 0 || store.succeededCalls != 0 {
+			t.Fatalf("dead-letter transition reused finalizer authorization: finalize=%d failed=%d dead=%d succeeded=%d", len(failure.calls), store.failedCalls, store.deadLetterCalls, store.succeededCalls)
+		}
+	})
+
+	t.Run("authorizing guard preserves provider finalizer and succeeded flow", func(t *testing.T) {
+		store, client := batchReadinessFixture("completed")
+		completion := &recordingBatchCompletionFinalizer{}
+		guard := &batchGuardSpy{}
+		registrar := &batchEffectRegistrar{}
+		worker := newBatchReadinessWorkerWithRegistrar(t, store, client, completion, &recordingBatchFailureFinalizer{}, guard, registrar, now)
+
+		worker.runOnce(context.Background())
+
+		if store.claimCalls != 1 || len(client.seen) != 1 || len(completion.calls) != 1 || store.succeededCalls != 1 || store.failedCalls != 0 || store.deadLetterCalls != 0 {
+			t.Fatalf("authorized flow changed: claim=%d retrieve=%d finalize=%d succeeded=%d failed=%d dead=%d", store.claimCalls, len(client.seen), len(completion.calls), store.succeededCalls, store.failedCalls, store.deadLetterCalls)
+		}
+		if len(registrar.descriptors) != 6 || len(guard.calls) != 4 {
+			t.Fatalf("descriptor or guard coverage missing: descriptors=%#v calls=%#v", registrar.descriptors, guard.calls)
+		}
+	})
+}
 
 func TestBatchPollingWorkerMarksCompletedBatchSucceeded(t *testing.T) {
 	now := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
@@ -684,8 +814,9 @@ func TestBatchUsageFinalizerFailsClosedWithoutRequestID(t *testing.T) {
 }
 
 type recordingBatchPollingWorkerStore struct {
-	jobs []RelayBatchPollingJob
-	err  error
+	jobs       []RelayBatchPollingJob
+	err        error
+	claimCalls int
 
 	claimNow      time.Time
 	claimLimit    int
@@ -694,19 +825,23 @@ type recordingBatchPollingWorkerStore struct {
 	succeededBatchID  string
 	succeededLockedBy string
 	succeededAt       time.Time
+	succeededCalls    int
 
 	failedBatchID     string
 	failedLockedBy    string
 	failedReason      string
 	failedAvailableAt time.Time
+	failedCalls       int
 
 	deadLetterBatchID  string
 	deadLetterLockedBy string
 	deadLetterReason   string
 	deadLetterAt       time.Time
+	deadLetterCalls    int
 }
 
 func (s *recordingBatchPollingWorkerStore) ClaimBatchPollingJobs(_ context.Context, now time.Time, limit int, workerID string) ([]RelayBatchPollingJob, error) {
+	s.claimCalls++
 	s.claimNow = now
 	s.claimLimit = limit
 	s.claimWorkerID = workerID
@@ -717,6 +852,7 @@ func (s *recordingBatchPollingWorkerStore) ClaimBatchPollingJobs(_ context.Conte
 }
 
 func (s *recordingBatchPollingWorkerStore) MarkBatchPollingJobSucceeded(_ context.Context, batchID, lockedBy string, completedAt time.Time) error {
+	s.succeededCalls++
 	s.succeededBatchID = batchID
 	s.succeededLockedBy = lockedBy
 	s.succeededAt = completedAt
@@ -724,6 +860,7 @@ func (s *recordingBatchPollingWorkerStore) MarkBatchPollingJobSucceeded(_ contex
 }
 
 func (s *recordingBatchPollingWorkerStore) MarkBatchPollingJobFailed(_ context.Context, batchID, lockedBy, reason string, availableAt time.Time) error {
+	s.failedCalls++
 	s.failedBatchID = batchID
 	s.failedLockedBy = lockedBy
 	s.failedReason = reason
@@ -732,11 +869,16 @@ func (s *recordingBatchPollingWorkerStore) MarkBatchPollingJobFailed(_ context.C
 }
 
 func (s *recordingBatchPollingWorkerStore) MarkBatchPollingJobDeadLetter(_ context.Context, batchID, lockedBy, reason string, completedAt time.Time) error {
+	s.deadLetterCalls++
 	s.deadLetterBatchID = batchID
 	s.deadLetterLockedBy = lockedBy
 	s.deadLetterReason = reason
 	s.deadLetterAt = completedAt
 	return nil
+}
+
+func (s *recordingBatchPollingWorkerStore) transitionCalls() int {
+	return s.succeededCalls + s.failedCalls + s.deadLetterCalls
 }
 
 type recordingBatchCompletionFinalizer struct {
@@ -867,4 +1009,87 @@ func (c *recordingBatchStatusClient) RetrieveBatch(_ context.Context, job RelayB
 		return BatchStatusResult{}, errors.New("missing batch status result")
 	}
 	return result, nil
+}
+
+type batchGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type batchGuardSpy struct {
+	denyAtCall int
+	denial     error
+	calls      []batchGuardCall
+}
+
+func (g *batchGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, batchGuardCall{capabilityID: capabilityID, boundary: boundary})
+	if g.denyAtCall > 0 && len(g.calls) >= g.denyAtCall {
+		return g.denial
+	}
+	return nil
+}
+
+type batchEffectRegistrar struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *batchEffectRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+func batchReadinessFixture(status string) (*recordingBatchPollingWorkerStore, *recordingBatchStatusClient) {
+	job := RelayBatchPollingJob{
+		BatchID: "batch_guarded", RequestID: "request_guarded", UserID: "user_guarded",
+		OrganizationID: "org_guarded", APITokenID: "token_guarded", FeatureType: "workflow",
+		Model: "gpt-4o-mini", APIType: "batch", BillingSessionID: "billing_guarded",
+		TokenPreauthorizedAmount: 1.5, Attempts: 1, MaxAttempts: 5, LockedBy: "worker-guarded",
+	}
+	return &recordingBatchPollingWorkerStore{jobs: []RelayBatchPollingJob{job}}, &recordingBatchStatusClient{
+		results: map[string]BatchStatusResult{job.BatchID: {ID: job.BatchID, Status: status, Error: "provider status"}},
+	}
+}
+
+func newBatchReadinessWorker(t *testing.T, store *recordingBatchPollingWorkerStore, client *recordingBatchStatusClient, completion BatchCompletionFinalizer, failure BatchFailureFinalizer, guard *batchGuardSpy, now time.Time) *BatchPollingWorker {
+	t.Helper()
+	return newBatchReadinessWorkerWithRegistrar(t, store, client, completion, failure, guard, &batchEffectRegistrar{}, now)
+}
+
+func newBatchReadinessWorkerWithRegistrar(t *testing.T, store *recordingBatchPollingWorkerStore, client *recordingBatchStatusClient, completion BatchCompletionFinalizer, failure BatchFailureFinalizer, guard *batchGuardSpy, registrar *batchEffectRegistrar, now time.Time) *BatchPollingWorker {
+	t.Helper()
+	contract, profile := loadBatchReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	worker, err := NewReadinessBatchPollingWorker(store, client, BatchPollingWorkerConfig{
+		Now: func() time.Time { return now }, WorkerID: "worker-guarded", Limit: 5,
+		CompletionFinalizer: completion, FailureFinalizer: failure,
+		Guard: guard, Authorities: authorities, Effects: registrar,
+	})
+	if err != nil {
+		t.Fatalf("construct readiness batch worker: %v", err)
+	}
+	return worker
+}
+
+func loadBatchReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve batch readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
 }

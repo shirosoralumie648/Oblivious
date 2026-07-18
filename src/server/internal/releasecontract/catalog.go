@@ -71,6 +71,7 @@ const (
 	EffectChannelDelivery        EffectID = "worker.channel_retry.delivery"
 	EffectRelayBatchClaim        EffectID = "worker.relay_batch.claim"
 	EffectRelayBatchProvider     EffectID = "worker.relay_batch.provider"
+	EffectRelayBatchFinalize     EffectID = "worker.relay_batch.finalize"
 	EffectArchiveClaim           EffectID = "worker.archive.claim"
 	EffectArchiveWrite           EffectID = "worker.archive.write"
 	EffectArchiveDelete          EffectID = "worker.archive.delete"
@@ -99,6 +100,7 @@ var authoredEffectCapabilities = map[EffectID]CapabilityID{
 	EffectChannelDelivery:        "channel.delivery",
 	EffectRelayBatchClaim:        "relay.provider_inference",
 	EffectRelayBatchProvider:     "relay.provider_inference",
+	EffectRelayBatchFinalize:     "relay.provider_inference",
 	EffectArchiveClaim:           "observability.audit",
 	EffectArchiveWrite:           "observability.audit",
 	EffectArchiveDelete:          "observability.audit",

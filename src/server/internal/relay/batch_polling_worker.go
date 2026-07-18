@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
 
 const (
@@ -341,6 +343,9 @@ type BatchPollingWorkerConfig struct {
 	CompletionFinalizer BatchCompletionFinalizer
 	FailureFinalizer    BatchFailureFinalizer
 	OnError             func(error)
+	Guard               releasecontract.Guard
+	Authorities         releasecontract.RuntimeAuthorities
+	Effects             releasecontract.EffectRegistrar
 }
 
 func batchStatusURL(adapter *channel.OpenAIAdapter, model, batchID string) (string, error) {
@@ -390,9 +395,19 @@ type BatchPollingWorker struct {
 	ticks               <-chan time.Time
 	workerID            string
 	onError             func(error)
+	readiness           *batchPollingReadiness
 }
 
 func NewBatchPollingWorker(store BatchPollingWorkerStore, client BatchStatusClient, config BatchPollingWorkerConfig) *BatchPollingWorker {
+	worker, _ := newBatchPollingWorker(store, client, config, false)
+	return worker
+}
+
+func NewReadinessBatchPollingWorker(store BatchPollingWorkerStore, client BatchStatusClient, config BatchPollingWorkerConfig) (*BatchPollingWorker, error) {
+	return newBatchPollingWorker(store, client, config, true)
+}
+
+func newBatchPollingWorker(store BatchPollingWorkerStore, client BatchStatusClient, config BatchPollingWorkerConfig, requireReadiness bool) (*BatchPollingWorker, error) {
 	interval := config.Interval
 	if interval <= 0 {
 		interval = defaultBatchPollingWorkerInterval
@@ -409,6 +424,14 @@ func NewBatchPollingWorker(store BatchPollingWorkerStore, client BatchStatusClie
 	if workerID == "" {
 		workerID = defaultBatchPollingWorkerID()
 	}
+	var readiness *batchPollingReadiness
+	if requireReadiness {
+		var err error
+		readiness, err = newBatchPollingReadiness(config.Guard, config.Authorities, config.Effects)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &BatchPollingWorker{
 		store:               store,
 		client:              client,
@@ -420,7 +443,74 @@ func NewBatchPollingWorker(store BatchPollingWorkerStore, client BatchStatusClie
 		ticks:               config.Ticks,
 		workerID:            workerID,
 		onError:             config.OnError,
+		readiness:           readiness,
+	}, nil
+}
+
+type batchPollingReadiness struct {
+	guard              releasecontract.Guard
+	claimCapability    releasecontract.CapabilityID
+	providerCapability releasecontract.CapabilityID
+	finalizeCapability releasecontract.CapabilityID
+}
+
+func newBatchPollingReadiness(guard releasecontract.Guard, authorities releasecontract.RuntimeAuthorities, effects releasecontract.EffectRegistrar) (*batchPollingReadiness, error) {
+	if guard == nil || effects == nil || !authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "relay.batch.readiness"}
 	}
+	claim, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectRelayBatchClaim)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectRelayBatchProvider)
+	if err != nil {
+		return nil, err
+	}
+	finalize, err := authorities.CapabilityBindings.Resolve(releasecontract.EffectRelayBatchFinalize)
+	if err != nil {
+		return nil, err
+	}
+	for _, descriptor := range []releasecontract.EffectDescriptor{
+		{ID: "worker.relay_batch.claim", CapabilityID: string(claim), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "relay.BatchPollingWorker"},
+		{ID: "worker.relay_batch.retrieve", CapabilityID: string(provider), Boundary: releasecontract.BoundaryOutbound, Owner: "relay.BatchPollingWorker"},
+		{ID: "worker.relay_batch.complete.finalize", CapabilityID: string(finalize), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "relay.BatchPollingWorker"},
+		{ID: "worker.relay_batch.failure.finalize", CapabilityID: string(finalize), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "relay.BatchPollingWorker"},
+		{ID: "worker.relay_batch.succeeded", CapabilityID: string(finalize), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "relay.BatchPollingWorker"},
+		{ID: "worker.relay_batch.dead_letter", CapabilityID: string(finalize), Boundary: releasecontract.BoundaryWorkerEffect, Owner: "relay.BatchPollingWorker"},
+	} {
+		if err := effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	return &batchPollingReadiness{guard: guard, claimCapability: claim, providerCapability: provider, finalizeCapability: finalize}, nil
+}
+
+func (r *batchPollingReadiness) requireClaim(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.claimCapability), releasecontract.BoundaryWorkerClaim)
+}
+
+func (r *batchPollingReadiness) requireProvider(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.providerCapability), releasecontract.BoundaryOutbound)
+}
+
+func (r *batchPollingReadiness) requireFinalizer(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.finalizeCapability), releasecontract.BoundaryWorkerEffect)
+}
+
+func (r *batchPollingReadiness) requireTerminal(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.finalizeCapability), releasecontract.BoundaryWorkerEffect)
 }
 
 func (w *BatchPollingWorker) Run(ctx context.Context) {
@@ -452,12 +542,20 @@ func (w *BatchPollingWorker) runOnce(ctx context.Context) {
 		return
 	}
 	now := w.now()
+	if err := w.readiness.requireClaim(ctx); err != nil {
+		w.reportError(err)
+		return
+	}
 	jobs, err := w.store.ClaimBatchPollingJobs(ctx, now, w.limit, w.workerID)
 	if err != nil {
 		w.reportError(err)
 		return
 	}
 	for _, job := range jobs {
+		if err := w.readiness.requireProvider(ctx); err != nil {
+			w.recordReadinessDeniedJob(ctx, job, err, w.now())
+			continue
+		}
 		result, err := w.client.RetrieveBatch(ctx, job)
 		if err != nil {
 			w.recordFailedJob(ctx, job, err, w.now())
@@ -472,25 +570,63 @@ func (w *BatchPollingWorker) recordBatchStatus(ctx context.Context, job RelayBat
 	switch {
 	case batchPollingStatusSucceeded(status):
 		if w.completionFinalizer != nil {
+			if err := w.readiness.requireFinalizer(ctx); err != nil {
+				w.recordReadinessDeniedJob(ctx, job, err, now)
+				return
+			}
 			if err := w.completionFinalizer.FinalizeCompletedBatch(ctx, job, result); err != nil {
 				w.recordFailedJob(ctx, job, err, now)
 				return
 			}
+		}
+		if err := w.readiness.requireTerminal(ctx); err != nil {
+			w.recordReadinessDeniedJob(ctx, job, err, now)
+			return
 		}
 		if err := w.store.MarkBatchPollingJobSucceeded(ctx, job.BatchID, job.LockedBy, now); err != nil {
 			w.reportError(err)
 		}
 	case batchPollingStatusTerminalFailure(status):
 		if w.failureFinalizer != nil {
+			if err := w.readiness.requireFinalizer(ctx); err != nil {
+				w.recordReadinessDeniedJob(ctx, job, err, now)
+				return
+			}
 			if err := w.failureFinalizer.FinalizeFailedBatch(ctx, job, result); err != nil {
 				w.recordFailedJob(ctx, job, err, now)
 				return
 			}
 		}
+		if err := w.readiness.requireTerminal(ctx); err != nil {
+			w.recordReadinessDeniedJob(ctx, job, err, now)
+			return
+		}
 		w.recordTerminalFailedJob(ctx, job, batchPollingStatusReason(status, result.Error), now)
 	default:
 		w.recordFailedJob(ctx, job, fmt.Errorf("%s", batchPollingStatusReason(status, result.Error)), now)
 	}
+}
+
+func (w *BatchPollingWorker) recordReadinessDeniedJob(ctx context.Context, job RelayBatchPollingJob, denial error, now time.Time) {
+	reason := batchReadinessDenialReason(denial)
+	if reason == "" {
+		reason = string(releasecontract.CodeReadinessUnavailable)
+	}
+	nextAttemptAt := now.Add(batchPollingRetryDelay(job.Attempts))
+	if err := w.store.MarkBatchPollingJobFailed(ctx, job.BatchID, job.LockedBy, reason, nextAttemptAt); err != nil {
+		w.reportError(err)
+	}
+}
+
+func batchReadinessDenialReason(denial error) string {
+	var readinessErr *releasecontract.ReadinessError
+	if errors.As(denial, &readinessErr) && readinessErr != nil && readinessErr.Code != "" {
+		return string(readinessErr.Code)
+	}
+	if denial == nil {
+		return ""
+	}
+	return strings.TrimSpace(denial.Error())
 }
 
 func (w *BatchPollingWorker) recordTerminalFailedJob(ctx context.Context, job RelayBatchPollingJob, reason string, now time.Time) {
@@ -509,6 +645,10 @@ func (w *BatchPollingWorker) recordFailedJob(ctx context.Context, job RelayBatch
 		reason = "upstream batch status unknown"
 	}
 	if batchPollingJobAttemptsExhausted(job) {
+		if err := w.readiness.requireTerminal(ctx); err != nil {
+			w.recordReadinessDeniedJob(ctx, job, err, now)
+			return
+		}
 		deadLetterReason := "dead_letter: " + reason
 		if err := w.store.MarkBatchPollingJobDeadLetter(ctx, job.BatchID, job.LockedBy, deadLetterReason, now); err != nil {
 			w.reportError(err)
