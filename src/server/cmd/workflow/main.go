@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"oblivious/server/internal/buildinfo"
 	workflowv1 "oblivious/server/internal/grpc/workflowv1"
+	"oblivious/server/internal/releasecontract"
 	internalworkflow "oblivious/server/internal/workflow"
 	"oblivious/server/pkg/config"
 	pkgworkflow "oblivious/server/pkg/workflow"
@@ -24,69 +26,78 @@ import (
 )
 
 func main() {
-	cfg := config.LoadWorkflowConfig()
+	if err := config.RunEntrypoint(context.Background(), releasecontract.EntrypointID("workflow"), config.EntrypointPreflightOptions{
+		RepoRoot: "/app", ContractPath: "config/release/contract.v1.json", SchemaPath: "config/release/contract.schema.json",
+		ProfileID: os.Getenv("OBLIVIOUS_DEPLOYMENT_PROFILE"), Contracts: config.FileContractLoader{},
+		Identities: buildinfo.NewEmbeddedProvider(), Profiles: releasecontract.NewFileProfileResolver(),
+	}, func(context.Context, config.ResolvedEntrypointInputs) error {
+		cfg := config.LoadWorkflowConfig()
 
-	db, err := sql.Open("postgres", cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("db open failed: %v", err)
-	}
-	defer db.Close()
-
-	store := internalworkflow.NewSQLStore(db)
-	svc := internalworkflow.NewService(store)
-
-	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
-		kafkaBrokers = []string{"localhost:9092"}
-	}
-	eventPublisher := internalworkflow.NewEventPublisher(kafkaBrokers, "workflow.events")
-	defer eventPublisher.Close()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
-
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	grpcServer := grpc.NewServer()
-	registerWorkflowGRPCService(grpcServer, svc)
-
-	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
-	if err != nil {
-		log.Fatalf("workflow grpc listen failed: %v", err)
-	}
-
-	serverErrors := make(chan error, 2)
-	go func() {
-		log.Printf("Workflow HTTP health listening on :%s", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErrors <- fmt.Errorf("workflow http server: %w", err)
+		db, err := sql.Open("postgres", cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("db open failed: %v", err)
 		}
-	}()
-	go func() {
-		log.Printf("Workflow gRPC service listening on :%s", cfg.GRPCPort)
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			serverErrors <- fmt.Errorf("workflow grpc server: %w", err)
+		defer db.Close()
+
+		store := internalworkflow.NewSQLStore(db)
+		svc := internalworkflow.NewService(store)
+
+		kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+		if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
+			kafkaBrokers = []string{"localhost:9092"}
 		}
-	}()
+		eventPublisher := internalworkflow.NewEventPublisher(kafkaBrokers, "workflow.events")
+		defer eventPublisher.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+		mux := http.NewServeMux()
+		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		})
 
-	select {
-	case err := <-serverErrors:
-		log.Fatalf("workflow service failed: %v", err)
-	case <-ctx.Done():
+		srv := &http.Server{Addr: ":" + cfg.Port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+		grpcServer := grpc.NewServer()
+		registerWorkflowGRPCService(grpcServer, svc)
+
+		grpcListener, err := net.Listen("tcp", ":"+cfg.GRPCPort)
+		if err != nil {
+			log.Fatalf("workflow grpc listen failed: %v", err)
+		}
+
+		serverErrors := make(chan error, 2)
+		go func() {
+			log.Printf("Workflow HTTP health listening on :%s", cfg.Port)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serverErrors <- fmt.Errorf("workflow http server: %w", err)
+			}
+		}()
+		go func() {
+			log.Printf("Workflow gRPC service listening on :%s", cfg.GRPCPort)
+			if err := grpcServer.Serve(grpcListener); err != nil {
+				serverErrors <- fmt.Errorf("workflow grpc server: %w", err)
+			}
+		}()
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		select {
+		case err := <-serverErrors:
+			log.Fatalf("workflow service failed: %v", err)
+		case <-ctx.Done():
+		}
+
+		log.Println("Shutting down workflow service...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("workflow HTTP shutdown error: %v", err)
+		}
+		gracefulStopGRPC(grpcServer, 10*time.Second)
+		return nil
+	}); err != nil {
+		log.Fatalf("workflow preflight failed: %v", err)
 	}
-
-	log.Println("Shutting down workflow service...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("workflow HTTP shutdown error: %v", err)
-	}
-	gracefulStopGRPC(grpcServer, 10*time.Second)
 }
 
 func registerWorkflowGRPCService(grpcServer *grpc.Server, service *internalworkflow.Service) {
