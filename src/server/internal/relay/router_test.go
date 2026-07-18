@@ -13,11 +13,142 @@ import (
 	"oblivious/server/internal/metrics"
 	relaycache "oblivious/server/internal/relay/cache"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
 
 type codedTestError struct {
 	message string
 	code    string
+}
+
+func TestRelayReadinessPerAttemptContract(t *testing.T) {
+	contract, profile := loadBatchReadinessAuthority(t)
+	newAuthorities := func(t *testing.T, guard releasecontract.Guard) releasecontract.RuntimeAuthorities {
+		t.Helper()
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		return authorities
+	}
+	newBillingRouter := func(t *testing.T, guard *batchGuardSpy, registrar *batchEffectRegistrar) *Router {
+		t.Helper()
+		pricing := NewPricingStore()
+		for _, dimension := range []types.UsageDimension{types.DimPromptTokens, types.DimCompletionTokens, types.DimTotalTokens} {
+			pricing.SetPrice("gpt-4o-mini", types.APITypeChat, dimension, 0.01)
+		}
+		pool := NewChannelPool()
+		pool.AddChannel(&types.Channel{ID: "relay-primary", Provider: "openai", BaseURL: "https://primary.invalid", Models: []string{"gpt-4o-mini"}, Enabled: true, Priority: 0}, 1)
+		pool.AddChannel(&types.Channel{ID: "relay-fallback", Provider: "openai", BaseURL: "https://fallback.invalid", Models: []string{"gpt-4o-mini"}, Enabled: true, Priority: 10}, 1)
+		router, err := NewRouterWithBillingOptions(
+			pool,
+			NewLoadBalancer(pool, "priority"),
+			map[string]*CircuitBreaker{
+				"relay-primary":  NewCircuitBreaker("relay-primary", 5, time.Second, time.Minute),
+				"relay-fallback": NewCircuitBreaker("relay-fallback", 5, time.Second, time.Minute),
+			},
+			nil,
+			NewHealthChecker(HealthCheckDisabled, time.Second),
+			NewBillingHook(pricing, nil),
+			"",
+			RouterRuntimeOptions{Guard: guard, Authorities: newAuthorities(t, guard), Effects: registrar},
+		)
+		if err != nil {
+			t.Fatalf("construct guarded router: %v", err)
+		}
+		router.retrySleep = func(time.Duration) {}
+		return router
+	}
+
+	t.Run("constructor fails closed without startup authority", func(t *testing.T) {
+		_, err := NewRouterWithOptions(nil, nil, nil, nil, nil, RouterRuntimeOptions{})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("expected readiness unavailable, got %v", err)
+		}
+	})
+
+	for _, code := range []releasecontract.ReadinessCode{
+		releasecontract.CodeCapabilityDisabled,
+		releasecontract.CodeCapabilityBlocked,
+		releasecontract.CodeReadinessStale,
+		releasecontract.CodeReadinessUnavailable,
+		releasecontract.CodeBuildIdentityMismatch,
+	} {
+		code := code
+		t.Run("initial denial "+string(code)+" has zero downstream effects", func(t *testing.T) {
+			guard := &batchGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: code, Field: "generation"}}
+			router := newBillingRouter(t, guard, &batchEffectRegistrar{})
+			quotaManager := &stubQuotaManager{}
+			usageLogger := &recordingUsageLogger{}
+			router.SetQuotaManager(quotaManager)
+			router.SetUsageLogger(usageLogger)
+			providerCalls := 0
+			_, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "initial-denial", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+				providerCalls++
+				return types.NewOKResponse(nil, nil), nil
+			})
+			if !releasecontract.IsReadinessCode(err, code) {
+				t.Fatalf("expected %s denial, got %v", code, err)
+			}
+			if providerCalls != 0 || quotaManager.preconsumeCalls != 0 || quotaManager.settleCalls != 0 || quotaManager.refundCalls != 0 || len(usageLogger.records) != 0 {
+				t.Fatalf("denial leaked effects: provider=%d quota=%+v usage=%+v", providerCalls, quotaManager, usageLogger.records)
+			}
+		})
+	}
+
+	t.Run("unknown current model is rejected before effects", func(t *testing.T) {
+		guard := &batchGuardSpy{}
+		router := newBillingRouter(t, guard, &batchEffectRegistrar{})
+		quotaManager := &stubQuotaManager{}
+		router.SetQuotaManager(quotaManager)
+		providerCalls := 0
+		_, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "caller-capability", "", "unknown-model", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return nil, nil
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) || providerCalls != 0 || quotaManager.preconsumeCalls != 0 {
+			t.Fatalf("unknown model did not fail before effects: err=%v provider=%d quota=%d", err, providerCalls, quotaManager.preconsumeCalls)
+		}
+	})
+
+	t.Run("billing retry re-authorizes the next model attempt", func(t *testing.T) {
+		guard := &batchGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
+		registrar := &batchEffectRegistrar{}
+		router := newBillingRouter(t, guard, registrar)
+		quotaManager := &stubQuotaManager{}
+		router.SetQuotaManager(quotaManager)
+		providerCalls := 0
+		_, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "readiness-attempt", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return &types.ProviderResponse{StatusCode: http.StatusBadGateway, Error: &types.ProviderError{Code: "retryable", Retryable: true}}, nil
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) || providerCalls != 1 || quotaManager.preconsumeCalls != 1 {
+			t.Fatalf("expected next-attempt denial, got err=%v calls=%#v provider=%d quota=%d", err, guard.calls, providerCalls, quotaManager.preconsumeCalls)
+		}
+		if len(registrar.descriptors) != 1 || registrar.descriptors[0].CapabilityID != "relay.provider_inference" {
+			t.Fatalf("unexpected readiness descriptors: %#v", registrar.descriptors)
+		}
+	})
+
+	t.Run("non billing fallback re-authorizes the next selected route", func(t *testing.T) {
+		guard := &batchGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
+		pool := NewChannelPool()
+		pool.AddChannel(&types.Channel{ID: "relay-fallback", Provider: "openai", Models: []string{"gpt-4o-mini"}, Enabled: true}, 1)
+		router, err := NewRouterWithOptions(pool, NewLoadBalancer(pool, "weighted"), nil, nil, NewHealthChecker(HealthCheckDisabled, time.Second), RouterRuntimeOptions{
+			Guard: guard, Authorities: newAuthorities(t, guard), Effects: &batchEffectRegistrar{},
+		})
+		if err != nil {
+			t.Fatalf("construct guarded router: %v", err)
+		}
+		providerCalls := 0
+		_, err = router.RouteWithFallback(context.Background(), types.APITypeChat.String(), 2, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return nil, errors.New("retryable transport error")
+		})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) || providerCalls != 1 {
+			t.Fatalf("expected fallback denial, got err=%v calls=%#v provider=%d", err, guard.calls, providerCalls)
+		}
+	})
 }
 
 func (e codedTestError) Error() string {
