@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-03-PLAN.md
-last_updated: "2026-07-18T17:00:00.000Z"
+stopped_at: Completed 31.1-08-PLAN.md
+last_updated: "2026-07-18T18:00:00.000Z"
 last_activity: 2026-07-18
-last_activity_desc: Completed Phase 31.1 Plan 03 readiness control plane, effect coverage, and report CLI
+last_activity_desc: Completed Phase 31.1 Plan 08 canonical deployment assets and mandatory readiness/deployment E2 harness
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 16
-  percent: 50
+  completed_plans: 17
+  percent: 53
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 3 of 10
-Status: Plan 31.1-03 complete; Wave 7 deployment harness is next
-Last activity: 2026-07-18 — Completed Phase 31.1 Plan 03 readiness control plane, effect coverage, and report CLI
+Plan: 8 of 10
+Status: Plan 31.1-08 complete; Phase 31.1 verification is next
+Last activity: 2026-07-18 — Completed Phase 31.1 Plan 08 canonical deployment assets and mandatory readiness/deployment E2 harness
 
-Progress: [█████░░░░░] 50%
+Progress: [█████░░░░░] 53%
 
 ## Performance Metrics
 
