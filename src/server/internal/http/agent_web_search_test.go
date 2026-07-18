@@ -1,15 +1,107 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestWebSearchProviderFactoryAuthorityContract(t *testing.T) {
+	guard := &factoryReadinessGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadFactoryReadinessContract(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	registrar := &factoryReadinessRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+	var outboundCalls atomic.Int32
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		outboundCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer upstream.Close()
+	provider, err := buildAgentWebSearchProviderWithOptions(config.Config{
+		AgentWebSearchProvider: "tavily", AgentWebSearchEndpoint: upstream.URL, AgentWebSearchAPIKey: "secret",
+	}, mcp.WebSearchRuntimeOptions{Authorities: authorities, Guard: guard, Effects: registrar})
+	if err != nil {
+		t.Fatalf("strict factory: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("strict factory returned nil provider")
+	}
+	if _, err := buildAgentWebSearchProviderWithOptions(config.Config{AgentWebSearchProvider: "tavily", AgentWebSearchAPIKey: "secret"}, mcp.WebSearchRuntimeOptions{}); err == nil {
+		t.Fatal("missing authority/config unexpectedly succeeded")
+	}
+	guard.allow.Store(false)
+	if _, err := provider.Search(t.Context(), "denied"); err == nil {
+		t.Fatal("denied factory provider search unexpectedly succeeded")
+	}
+	if outboundCalls.Load() != 0 {
+		t.Fatalf("denied factory provider made %d outbound calls", outboundCalls.Load())
+	}
+}
+
+type factoryReadinessGuard struct {
+	allow atomic.Bool
+	calls atomic.Int32
+}
+
+func (g *factoryReadinessGuard) Require(context.Context, string, releasecontract.Boundary) error {
+	g.calls.Add(1)
+	if !g.allow.Load() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "test"}
+	}
+	return nil
+}
+
+type factoryReadinessRegistrar struct {
+	mu          sync.Mutex
+	descriptors map[string]releasecontract.EffectDescriptor
+}
+
+func (r *factoryReadinessRegistrar) Register(d releasecontract.EffectDescriptor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descriptors[d.ID]; exists {
+		return fmt.Errorf("duplicate descriptor %s", d.ID)
+	}
+	r.descriptors[d.ID] = d
+	return nil
+}
+
+func loadFactoryReadinessContract(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve factory test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
 
 func TestBuildAgentWebSearchProviderFromConfigEnablesWebSearch(t *testing.T) {
 	var called bool

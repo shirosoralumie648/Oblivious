@@ -2,11 +2,60 @@ package mcp
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestTavilyWebSearchReadinessDispatchContract(t *testing.T) {
+	guard := &mcpReadinessGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadMCPReadinessContract(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	registrar := newMCPReadinessRegistrar()
+	transport := &countingTavilyTransport{}
+	provider, err := NewAuthorizedTavilyWebSearchProvider(TavilyWebSearchProviderConfig{
+		Endpoint: "https://tavily.example.test/search", APIKey: "secret", HTTPClient: &http.Client{Transport: transport}, ResultLimit: 1,
+	}, WebSearchRuntimeOptions{Authorities: authorities, Guard: guard, Effects: registrar})
+	if err != nil {
+		t.Fatalf("construct authorized Tavily provider: %v", err)
+	}
+	for _, query := range []string{"first", "second"} {
+		if _, err := provider.Search(t.Context(), query); err != nil {
+			t.Fatalf("authorized search %q: %v", query, err)
+		}
+	}
+	if registrar.count() != 1 || guard.count() != 2 || transport.count() != 2 {
+		t.Fatalf("registration/guard/http counts = %d/%d/%d, want 1/2/2", registrar.count(), guard.count(), transport.count())
+	}
+	guard.allow.Store(false)
+	if _, err := provider.Search(t.Context(), "expired"); err == nil {
+		t.Fatal("expired Tavily search unexpectedly succeeded")
+	}
+	if transport.count() != 2 {
+		t.Fatalf("denied Tavily transport count = %d, want unchanged 2", transport.count())
+	}
+	if _, err := NewAuthorizedTavilyWebSearchProvider(TavilyWebSearchProviderConfig{Endpoint: "https://tavily.example.test", APIKey: "secret"}, WebSearchRuntimeOptions{Authorities: authorities, Guard: guard, Effects: registrar}); err == nil {
+		t.Fatal("duplicate Tavily descriptor construction unexpectedly succeeded")
+	}
+}
+
+type countingTavilyTransport struct{ calls atomic.Int32 }
+
+func (t *countingTavilyTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls.Add(1)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"results":[]}`)), Header: make(http.Header)}, nil
+}
+
+func (t *countingTavilyTransport) count() int { return int(t.calls.Load()) }
 
 func TestTavilyWebSearchProviderEnablesBuiltinWithRealHTTPResult(t *testing.T) {
 	var (

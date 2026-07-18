@@ -9,6 +9,29 @@ import (
 	"oblivious/server/internal/mcp/websearch"
 )
 
+// buildAgentWebSearchProviderWithOptions is the authority-required factory
+// used by readiness-aware composition. The legacy one-result wrapper below is
+// retained until Plan 02 owns server.go wiring.
+func buildAgentWebSearchProviderWithOptions(cfg config.Config, options mcp.WebSearchRuntimeOptions) (mcp.WebSearchProvider, error) {
+	providerName := strings.ToLower(strings.TrimSpace(cfg.AgentWebSearchProvider))
+	if providerName == "" {
+		return nil, nil
+	}
+	if providerName == "tavily" {
+		return mcp.NewAuthorizedTavilyWebSearchProvider(mcp.TavilyWebSearchProviderConfig{
+			Endpoint:    cfg.AgentWebSearchEndpoint,
+			APIKey:      cfg.AgentWebSearchAPIKey,
+			ResultLimit: cfg.AgentWebSearchResultLimit,
+		}, options)
+	}
+	return websearch.NewProviderFromConfig(websearch.Config{
+		Provider:    providerName,
+		APIKey:      cfg.AgentWebSearchAPIKey,
+		Endpoint:    cfg.AgentWebSearchEndpoint,
+		GoogleCSEID: cfg.AgentWebSearchGoogleCSEID,
+	}, websearch.RuntimeOptions{Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects})
+}
+
 func buildAgentWebSearchProvider(cfg config.Config) mcp.WebSearchProvider {
 	providerName := strings.ToLower(strings.TrimSpace(cfg.AgentWebSearchProvider))
 	if providerName == "" {
