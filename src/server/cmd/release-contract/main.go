@@ -278,11 +278,13 @@ func runDeploymentReport(ctx context.Context, args []string, stdout, stderr io.W
 }
 
 func readinessOutputPath(args []string) string {
-	flags := flag.NewFlagSet("report-readiness-output", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	value := flags.String("output", "", "atomic report output path")
-	_ = flags.Parse(args)
-	return *value
+	for index := 0; index < len(args); index++ {
+		if args[index] != "--output" || index+1 >= len(args) {
+			continue
+		}
+		return strings.TrimSpace(args[index+1])
+	}
+	return ""
 }
 
 type buildInspectionInput struct {

@@ -309,6 +309,16 @@ func TestRunReadinessAndDeploymentReportCommandsContract(t *testing.T) {
 	}
 }
 
+func TestReadinessOutputPathScansCommonFlags(t *testing.T) {
+	args := []string{"--repo", "/repo", "--contract", "contract.json", "--schema", "schema.json", "--profile", "monolith", "--snapshot", "snapshot.json", "--output", "/tmp/readiness.json"}
+	if got := readinessOutputPath(args); got != "/tmp/readiness.json" {
+		t.Fatalf("readiness output path = %q", got)
+	}
+	if got := readinessOutputPath([]string{"--output"}); got != "" {
+		t.Fatalf("incomplete output flag = %q", got)
+	}
+}
+
 type commandIdentityProvider struct {
 	identity BuildIdentityV1Alias
 	err      error
