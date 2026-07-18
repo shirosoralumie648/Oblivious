@@ -285,8 +285,22 @@ func newStartupReadinessManager(_ context.Context, inputs config.ResolvedEntrypo
 		}
 	}
 	probes := make([]releasecontract.Probe, 0, len(profile.Dependencies))
+	probeBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OBLIVIOUS_READINESS_PROBE_BASE_URL")), "/")
 	for _, dependency := range profile.Dependencies {
-		probes = append(probes, startupBlockedProbe{dependencyID: dependency.ID, capabilityIDs: capabilitiesByDependency[dependency.ID]})
+		if probeBaseURL == "" {
+			probes = append(probes, startupBlockedProbe{dependencyID: dependency.ID, capabilityIDs: capabilitiesByDependency[dependency.ID]})
+			continue
+		}
+		probe, err := releasecontract.NewHTTPDependencyProbe(
+			"runtime."+dependency.ID,
+			dependency.ID,
+			probeBaseURL+"/"+dependency.ID,
+			&stdhttp.Client{Timeout: 5 * time.Second},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("construct readiness probe %s: %w", dependency.ID, err)
+		}
+		probes = append(probes, probe)
 	}
 	return releasecontract.NewManager(contract, inputs.Identity(), profile, releasecontract.NewEvaluator(), releasecontract.NewSystemClock(), probes, 5*time.Second, releasecontract.NewAtomicReadinessSnapshotWriter(), auditPath)
 }
