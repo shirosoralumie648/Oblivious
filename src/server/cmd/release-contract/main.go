@@ -8,7 +8,9 @@ import (
 	"flag"
 	"io"
 	"os"
+	"reflect"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/buildinfo"
 	"oblivious/server/internal/releasecontract"
@@ -90,12 +92,197 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return runOperation(ctx, args[1:], stdout, stderr, deps)
 	case "report-build-identity":
 		return runBuildIdentityReport(ctx, args[1:], stdout, stderr, deps)
+	case "inspect-readiness":
+		return runInspectReadiness(ctx, args[1:], stdout, stderr, deps)
+	case "report-readiness":
+		return runReadinessReport(ctx, args[1:], stdout, stderr, deps)
+	case "verify-readiness-snapshot":
+		return runVerifyReadinessSnapshot(ctx, args[1:], stdout, stderr, deps)
+	case "report-deployment":
+		return runDeploymentReport(ctx, args[1:], stdout, stderr, deps)
 	case "verify-report":
 		return runVerifyReport(args[1:], stdout, stderr)
 	default:
 		writeCLIError(stderr, "invalid_arguments", "subcommand")
 		return 2
 	}
+}
+
+func readinessSnapshotPathOptions(name string, args []string, snapshotRequired bool) (commonOptions, string, string, bool) {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options commonOptions
+	bindCommonOptions(flags, &options)
+	profileID := flags.String("profile", "", "explicit committed deployment profile")
+	snapshotPath := flags.String("snapshot", "", "runtime-produced readiness snapshot")
+	flags.String("output", "", "atomic report output path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !validCommonOptions(options) || strings.TrimSpace(*profileID) == "" || (snapshotRequired && strings.TrimSpace(*snapshotPath) == "") {
+		return commonOptions{}, "", "", false
+	}
+	return options, *profileID, *snapshotPath, true
+}
+
+func loadReadinessSnapshot(ctx context.Context, options commonOptions, profileID, snapshotPath string, deps dependencies) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile, buildinfo.BuildIdentityV1, releasecontract.ReadinessSnapshotV1, error) {
+	if deps.gitProvider == nil || deps.profileResolver == nil {
+		return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}, buildinfo.BuildIdentityV1{}, releasecontract.ReadinessSnapshotV1{}, errors.New("trusted readiness resolvers are required")
+	}
+	identityProvider := &cachedIdentityProvider{delegate: deps.gitProvider}
+	identity, err := identityProvider.Resolve(ctx, options.repoRoot, options.contractPath, options.schemaPath)
+	if err != nil {
+		return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}, buildinfo.BuildIdentityV1{}, releasecontract.ReadinessSnapshotV1{}, err
+	}
+	profile, err := deps.profileResolver.ResolveCommittedProfile(ctx, options.repoRoot, options.contractPath, options.schemaPath, profileID)
+	if err != nil {
+		return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}, buildinfo.BuildIdentityV1{}, releasecontract.ReadinessSnapshotV1{}, err
+	}
+	contract, err := releasecontract.Load(ctx, options.repoRoot, options.contractPath, options.schemaPath)
+	if err != nil {
+		return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}, buildinfo.BuildIdentityV1{}, releasecontract.ReadinessSnapshotV1{}, err
+	}
+	var snapshot releasecontract.ReadinessSnapshotV1
+	if err := decodeStrictBoundedFile(snapshotPath, &snapshot); err != nil {
+		return contract, profile, identity, releasecontract.ReadinessSnapshotV1{}, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "snapshot", Err: err}
+	}
+	return contract, profile, identity, snapshot, nil
+}
+
+func evaluateReadinessSnapshot(contract releasecontract.AuthoredContractV1, profile releasecontract.DeploymentProfile, identity buildinfo.BuildIdentityV1, snapshot releasecontract.ReadinessSnapshotV1) (releasecontract.Evaluation, error) {
+	if snapshot.SchemaVersion != releasecontract.ReadinessSnapshotSchemaV1 || snapshot.Identity != identity || snapshot.Profile != profile.ID {
+		return releasecontract.Evaluation{}, &releasecontract.ReadinessError{Code: releasecontract.CodeBuildIdentityMismatch, Field: "snapshot"}
+	}
+	evaluation, err := releasecontract.NewEvaluator().Evaluate(contract, identity, profile, snapshot.Generation, snapshot.Observations, time.Now().UTC())
+	if err != nil {
+		return releasecontract.Evaluation{}, err
+	}
+	if evaluation.ValidUntil.UnixNano() != snapshot.ValidUntil.UTC().UnixNano() || !reflect.DeepEqual(evaluation.Capabilities, snapshot.Capabilities) {
+		return releasecontract.Evaluation{}, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "snapshot.capabilities"}
+	}
+	return evaluation, nil
+}
+
+func runInspectReadiness(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	options, profileID, snapshotPath, ok := readinessSnapshotPathOptions("inspect-readiness", args, true)
+	if !ok {
+		writeCLIError(stderr, "invalid_arguments", "inspect-readiness")
+		return 2
+	}
+	contract, profile, identity, snapshot, err := loadReadinessSnapshot(ctx, options, profileID, snapshotPath, deps)
+	if err != nil {
+		return writeDomainError(stderr, err)
+	}
+	_, evalErr := evaluateReadinessSnapshot(contract, profile, identity, snapshot)
+	result := "pass"
+	errorCode := ""
+	if evalErr != nil {
+		result = "fail"
+		var readinessErr *releasecontract.ReadinessError
+		if errors.As(evalErr, &readinessErr) {
+			errorCode = string(readinessErr.Code)
+		} else {
+			errorCode = string(releasecontract.CodeReadinessUnavailable)
+		}
+	}
+	return writeSuccess(stdout, stderr, struct {
+		SchemaVersion string `json:"schemaVersion"`
+		Profile       string `json:"profile"`
+		Generation    uint64 `json:"generation"`
+		Result        string `json:"result"`
+		ErrorCode     string `json:"errorCode,omitempty"`
+	}{releasecontract.ReadinessSnapshotSchemaV1, profile.ID, snapshot.Generation, result, errorCode})
+}
+
+func runReadinessReport(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	options, profileID, snapshotPath, ok := readinessSnapshotPathOptions("report-readiness", args, true)
+	if !ok {
+		writeCLIError(stderr, "invalid_arguments", "report-readiness")
+		return 2
+	}
+	if deps.reportWriter == nil {
+		writeCLIError(stderr, "invalid_arguments", "reportWriter")
+		return 2
+	}
+	outputPath := readinessOutputPath(args)
+	if outputPath == "" {
+		writeCLIError(stderr, "invalid_arguments", "output")
+		return 2
+	}
+	reportDeps := deps
+	reportDeps.gitProvider = &cachedIdentityProvider{delegate: deps.gitProvider}
+	reportDeps.profileResolver = &cachedProfileResolver{delegate: deps.profileResolver}
+	contract, profile, identity, snapshot, err := loadReadinessSnapshot(ctx, options, profileID, snapshotPath, reportDeps)
+	if err != nil {
+		return writeReportProducerError(ctx, stderr, err, deps.reportWriter, outputPath)
+	}
+	_, evalErr := evaluateReadinessSnapshot(contract, profile, identity, snapshot)
+	outcome := surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}}
+	if evalErr != nil {
+		outcome.Result = surfacereport.ResultFail
+		var readinessErr *releasecontract.ReadinessError
+		if errors.As(evalErr, &readinessErr) {
+			outcome.ErrorCodes = []string{string(readinessErr.Code)}
+		} else {
+			outcome.ErrorCodes = []string{string(releasecontract.CodeReadinessUnavailable)}
+		}
+	}
+	report, err := surfacereport.NewReadinessReport(ctx, reportDeps.gitProvider, reportDeps.profileResolver, options.repoRoot, options.contractPath, options.schemaPath, profileID, surfacereport.OfflineReadinessInspection(snapshot), outcome)
+	if err != nil {
+		return writeDomainError(stderr, err)
+	}
+	if err := deps.reportWriter.Write(ctx, outputPath, report); err != nil {
+		return writeDomainError(stderr, err)
+	}
+	return writeSuccess(stdout, stderr, map[string]any{"schemaVersion": report.SchemaVersion, "surface": report.SurfaceIdentity.Surface, "profile": report.ReleaseIdentity.DeploymentProfile, "result": report.Outcome.Result, "output": outputPath})
+}
+
+func runVerifyReadinessSnapshot(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	options, profileID, snapshotPath, ok := readinessSnapshotPathOptions("verify-readiness-snapshot", args, true)
+	if !ok {
+		writeCLIError(stderr, "invalid_arguments", "verify-readiness-snapshot")
+		return 2
+	}
+	contract, profile, identity, snapshot, err := loadReadinessSnapshot(ctx, options, profileID, snapshotPath, deps)
+	if err != nil {
+		return writeDomainError(stderr, err)
+	}
+	if _, err := evaluateReadinessSnapshot(contract, profile, identity, snapshot); err != nil {
+		return writeDomainError(stderr, err)
+	}
+	return writeSuccess(stdout, stderr, map[string]any{"schemaVersion": releasecontract.ReadinessSnapshotSchemaV1, "profile": profile.ID, "generation": snapshot.Generation, "result": "pass", "evidenceClass": buildinfo.EvidenceRepositoryLocal})
+}
+
+func runDeploymentReport(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	flags := flag.NewFlagSet("report-deployment", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options commonOptions
+	bindCommonOptions(flags, &options)
+	profileID := flags.String("profile", "", "explicit committed deployment profile")
+	observationPath := flags.String("observation", "", "typed deployment observation")
+	outputPath := flags.String("output", "", "atomic report output path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !validCommonOptions(options) || strings.TrimSpace(*profileID) == "" || strings.TrimSpace(*observationPath) == "" || strings.TrimSpace(*outputPath) == "" || deps.gitProvider == nil || deps.profileResolver == nil || deps.reportWriter == nil {
+		writeCLIError(stderr, "invalid_arguments", "report-deployment")
+		return 2
+	}
+	var details surfacereport.DeploymentDetails
+	if err := decodeStrictBoundedFile(*observationPath, &details); err != nil {
+		writeCLIError(stderr, string(surfacereport.ErrorSurfaceSchemaInvalid), "observation")
+		return 1
+	}
+	report, err := surfacereport.NewDeploymentReport(ctx, deps.gitProvider, deps.profileResolver, options.repoRoot, options.contractPath, options.schemaPath, *profileID, details, surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}})
+	if err != nil {
+		return writeReportProducerError(ctx, stderr, err, deps.reportWriter, *outputPath)
+	}
+	if err := deps.reportWriter.Write(ctx, *outputPath, report); err != nil {
+		return writeDomainError(stderr, err)
+	}
+	return writeSuccess(stdout, stderr, map[string]any{"schemaVersion": report.SchemaVersion, "surface": report.SurfaceIdentity.Surface, "profile": report.ReleaseIdentity.DeploymentProfile, "result": report.Outcome.Result, "output": *outputPath})
+}
+
+func readinessOutputPath(args []string) string {
+	flags := flag.NewFlagSet("report-readiness-output", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	value := flags.String("output", "", "atomic report output path")
+	_ = flags.Parse(args)
+	return *value
 }
 
 type buildInspectionInput struct {
@@ -202,6 +389,21 @@ type cachedIdentityProvider struct {
 	identity buildinfo.BuildIdentityV1
 	err      error
 	resolved bool
+}
+
+type cachedProfileResolver struct {
+	delegate releasecontract.ProfileResolver
+	profile  releasecontract.DeploymentProfile
+	err      error
+	resolved bool
+}
+
+func (r *cachedProfileResolver) ResolveCommittedProfile(ctx context.Context, repoRoot, contractPath, schemaPath, profileID string) (releasecontract.DeploymentProfile, error) {
+	if !r.resolved {
+		r.profile, r.err = r.delegate.ResolveCommittedProfile(ctx, repoRoot, contractPath, schemaPath, profileID)
+		r.resolved = true
+	}
+	return r.profile, r.err
 }
 
 func (p *cachedIdentityProvider) Resolve(ctx context.Context, repoRoot, contractPath, schemaPath string) (buildinfo.BuildIdentityV1, error) {

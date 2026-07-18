@@ -268,6 +268,47 @@ func TestRunInspectHasNoExternalSideEffects(t *testing.T) {
 	}
 }
 
+func TestRunReadinessAndDeploymentReportCommandsContract(t *testing.T) {
+	identity := commandTestIdentity()
+	repoRoot := commandSourceRoot(t)
+	observation := map[string]any{
+		"profile": "monolith", "canonicalWorkload": "deploy/kubernetes/app-deployment.yaml",
+		"startupEndpoint": "/livez", "livenessEndpoint": "/livez", "readinessEndpoint": "/readyz",
+		"auditStorage": "emptyDir", "migrationState": "applied_and_validated", "harnessResult": "passed",
+	}
+	content, err := json.Marshal(observation)
+	if err != nil {
+		t.Fatalf("marshal observation: %v", err)
+	}
+	observationPath := filepath.Join(t.TempDir(), "deployment.json")
+	if err := os.WriteFile(observationPath, content, 0o644); err != nil {
+		t.Fatalf("write observation: %v", err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "deployment-report.json")
+	args := []string{"report-deployment", "--repo", repoRoot, "--contract", "config/release/contract.v1.json", "--schema", "config/release/contract.schema.json", "--profile", "monolith", "--observation", observationPath, "--output", outputPath}
+	var stdout, stderr bytes.Buffer
+	if exitCode := runWithDependencies(context.Background(), args, &stdout, &stderr, dependencies{gitProvider: &commandIdentityProvider{identity: identity}, profileResolver: &reportProfileResolver{profile: commandCommittedProfile()}, reportWriter: surfacereport.NewAtomicWriter()}); exitCode != 0 {
+		t.Fatalf("deployment report exit=%d stderr=%s", exitCode, stderr.String())
+	}
+	reportContent, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read deployment report: %v", err)
+	}
+	report, err := surfacereport.Decode(reportContent, surfacereport.NewDetailsRegistry())
+	if err != nil || report.SurfaceIdentity.Surface != surfacereport.DeploymentSurfaceID {
+		t.Fatalf("deployment report = %#v err=%v", report, err)
+	}
+	for _, override := range []string{"--release-commit", "--source-tree", "--contract-digest", "--generation", "--checked-at", "--skipped-checks"} {
+		stdout.Reset()
+		stderr.Reset()
+		invalid := append([]string{"report-deployment"}, args[1:]...)
+		invalid = append(invalid, override, "caller-value")
+		if exitCode := runWithDependencies(context.Background(), invalid, &stdout, &stderr, dependencies{gitProvider: &commandIdentityProvider{identity: identity}, profileResolver: &reportProfileResolver{profile: commandCommittedProfile()}, reportWriter: surfacereport.NewAtomicWriter()}); exitCode == 0 {
+			t.Fatalf("override %s passed", override)
+		}
+	}
+}
+
 type commandIdentityProvider struct {
 	identity BuildIdentityV1Alias
 	err      error
