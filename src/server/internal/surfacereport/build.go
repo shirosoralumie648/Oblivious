@@ -54,6 +54,9 @@ func registerFoundationDetails(registry *DetailsRegistry) {
 	if err := RegisterDeploymentDetails(registry); err != nil {
 		panic("register deployment details: " + err.Error())
 	}
+	if err := RegisterReadinessDetails(registry); err != nil {
+		panic("register readiness details: " + err.Error())
+	}
 }
 
 func NewBuildIdentityReport(

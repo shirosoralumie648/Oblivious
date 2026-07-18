@@ -40,9 +40,6 @@ func TestReadinessSurfaceContract(t *testing.T) {
 				t.Fatalf("report identities = %#v / %#v", report.SurfaceIdentity, report.ReleaseIdentity)
 			}
 			registry := NewDetailsRegistry()
-			if err := RegisterReadinessDetails(registry); err != nil {
-				t.Fatalf("register readiness details: %v", err)
-			}
 			if err := Validate(report, registry); err != nil {
 				t.Fatalf("validate readiness report: %v", err)
 			}
@@ -58,9 +55,6 @@ func TestReadinessSurfaceContract(t *testing.T) {
 
 	t.Run("registry accepts exactly generation checkedAt and validUntil", func(t *testing.T) {
 		registry := NewDetailsRegistry()
-		if err := RegisterReadinessDetails(registry); err != nil {
-			t.Fatalf("register readiness details: %v", err)
-		}
 		details := ReadinessDetails{Generation: 1, CheckedAt: now.Format(time.RFC3339Nano), ValidUntil: now.Add(120 * time.Second).Format(time.RFC3339Nano)}
 		raw, err := registry.MarshalDetails(ReadinessSurfaceID, details)
 		if err != nil {
@@ -78,7 +72,7 @@ func TestReadinessSurfaceContract(t *testing.T) {
 				t.Fatalf("invalid details error = %T %v", err, err)
 			}
 		}
-		if err := NewDetailsRegistry().ValidateDetails(ReadinessSurfaceID, raw); !IsCode(err, ErrorSurfaceSchemaInvalid) {
+		if err := (&DetailsRegistry{schemas: make(map[string]detailsSchema)}).ValidateDetails(ReadinessSurfaceID, raw); !IsCode(err, ErrorSurfaceSchemaInvalid) {
 			t.Fatalf("unregistered readiness details error = %T %v", err, err)
 		}
 	})
