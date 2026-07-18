@@ -8,12 +8,14 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
 	internalagent "oblivious/server/internal/agent"
+	"oblivious/server/internal/buildinfo"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/db"
@@ -21,6 +23,7 @@ import (
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/mcp/websearch"
 	"oblivious/server/internal/memory"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/workflow"
 	"oblivious/server/internal/workflow/sandbox"
 	pkgagent "oblivious/server/pkg/agent"
@@ -31,58 +34,67 @@ import (
 )
 
 func main() {
-	agentCfg := agentconfig.LoadAgentConfig()
-	runtimeCfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("config load failed: %v", err)
-	}
-
-	database, err := db.Open(selectAgentDatabaseURL(runtimeCfg))
-	if err != nil {
-		log.Fatalf("agent db open failed: %v", err)
-	}
-	defer database.Close()
-
-	agentService := buildAgentRuntimeService(runtimeCfg, database)
-	httpServer := newHTTPHealthServer(agentCfg.Port)
-	grpcServer := grpc.NewServer()
-	registerAgentGRPCService(grpcServer, agentService)
-
-	grpcListener, err := net.Listen("tcp", ":"+agentCfg.GRPCPort)
-	if err != nil {
-		log.Fatalf("agent grpc listen failed: %v", err)
-	}
-
-	serverErrors := make(chan error, 2)
-	go func() {
-		log.Printf("Agent HTTP health listening on :%s", agentCfg.Port)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErrors <- fmt.Errorf("agent http server: %w", err)
+	if err := agentconfig.RunEntrypoint(context.Background(), releasecontract.EntrypointID("agent"), agentconfig.EntrypointPreflightOptions{
+		RepoRoot: "/app", ContractPath: "config/release/contract.v1.json", SchemaPath: "config/release/contract.schema.json",
+		ProfileID: os.Getenv("OBLIVIOUS_DEPLOYMENT_PROFILE"), Contracts: agentconfig.FileContractLoader{},
+		Identities: buildinfo.NewEmbeddedProvider(), Profiles: releasecontract.NewFileProfileResolver(),
+	}, func(context.Context, agentconfig.ResolvedEntrypointInputs) error {
+		agentCfg := agentconfig.LoadAgentConfig()
+		runtimeCfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("config load failed: %v", err)
 		}
-	}()
-	go func() {
-		log.Printf("Agent gRPC service listening on :%s", agentCfg.GRPCPort)
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			serverErrors <- fmt.Errorf("agent grpc server: %w", err)
+
+		database, err := db.Open(selectAgentDatabaseURL(runtimeCfg))
+		if err != nil {
+			log.Fatalf("agent db open failed: %v", err)
 		}
-	}()
+		defer database.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+		agentService := buildAgentRuntimeService(runtimeCfg, database)
+		httpServer := newHTTPHealthServer(agentCfg.Port)
+		grpcServer := grpc.NewServer()
+		registerAgentGRPCService(grpcServer, agentService)
 
-	select {
-	case err := <-serverErrors:
-		log.Fatalf("agent service failed: %v", err)
-	case <-ctx.Done():
+		grpcListener, err := net.Listen("tcp", ":"+agentCfg.GRPCPort)
+		if err != nil {
+			log.Fatalf("agent grpc listen failed: %v", err)
+		}
+
+		serverErrors := make(chan error, 2)
+		go func() {
+			log.Printf("Agent HTTP health listening on :%s", agentCfg.Port)
+			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serverErrors <- fmt.Errorf("agent http server: %w", err)
+			}
+		}()
+		go func() {
+			log.Printf("Agent gRPC service listening on :%s", agentCfg.GRPCPort)
+			if err := grpcServer.Serve(grpcListener); err != nil {
+				serverErrors <- fmt.Errorf("agent grpc server: %w", err)
+			}
+		}()
+
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		select {
+		case err := <-serverErrors:
+			log.Fatalf("agent service failed: %v", err)
+		case <-ctx.Done():
+		}
+
+		log.Println("Shutting down agent service...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("agent HTTP shutdown error: %v", err)
+		}
+		gracefulStopGRPC(grpcServer, 10*time.Second)
+		return nil
+	}); err != nil {
+		log.Fatalf("agent preflight failed: %v", err)
 	}
-
-	log.Println("Shutting down agent service...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("agent HTTP shutdown error: %v", err)
-	}
-	gracefulStopGRPC(grpcServer, 10*time.Second)
 }
 
 func newHTTPHealthServer(port string) *http.Server {

@@ -1,12 +1,26 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+
+	"oblivious/server/internal/releasecontract"
+	pkgconfig "oblivious/server/pkg/config"
 )
+
+type ContractLoader = pkgconfig.ContractLoader
+type FileContractLoader = pkgconfig.FileContractLoader
+type EntrypointPreflightOptions = pkgconfig.EntrypointPreflightOptions
+type ResolvedEntrypointInputs = pkgconfig.ResolvedEntrypointInputs
+type EntrypointContinuation = pkgconfig.EntrypointContinuation
+
+func RunEntrypoint(ctx context.Context, id releasecontract.EntrypointID, options EntrypointPreflightOptions, normalStartup EntrypointContinuation) error {
+	return pkgconfig.RunEntrypoint(ctx, id, options, normalStartup)
+}
 
 type Config struct {
 	Port                int

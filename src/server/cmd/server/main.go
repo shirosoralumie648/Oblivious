@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"oblivious/server/internal/db"
 	serverhttp "oblivious/server/internal/http"
 	"oblivious/server/internal/migrations"
+	"oblivious/server/internal/releasecontract"
 )
 
 const (
@@ -35,12 +37,21 @@ type inspectionDependencies struct {
 }
 
 func main() {
-	exitCode := runMain(context.Background(), os.Args[1:], inspectionDependencies{
-		provider: buildinfo.NewEmbeddedProvider(), stdout: os.Stdout, stderr: os.Stderr,
-		repoRoot: packagedRepoRoot, contract: packagedContractPath, schema: packagedSchemaPath,
-	}, runServer)
-	if exitCode != 0 {
-		os.Exit(exitCode)
+	if err := config.RunEntrypoint(context.Background(), releasecontract.EntrypointID("server"), config.EntrypointPreflightOptions{
+		RepoRoot: packagedRepoRoot, ContractPath: packagedContractPath, SchemaPath: packagedSchemaPath,
+		ProfileID: os.Getenv("OBLIVIOUS_DEPLOYMENT_PROFILE"), Contracts: config.FileContractLoader{},
+		Identities: buildinfo.NewEmbeddedProvider(), Profiles: releasecontract.NewFileProfileResolver(),
+	}, func(ctx context.Context, _ config.ResolvedEntrypointInputs) error {
+		exitCode := runMain(ctx, os.Args[1:], inspectionDependencies{
+			provider: buildinfo.NewEmbeddedProvider(), stdout: os.Stdout, stderr: os.Stderr,
+			repoRoot: packagedRepoRoot, contract: packagedContractPath, schema: packagedSchemaPath,
+		}, runServer)
+		if exitCode != 0 {
+			return fmt.Errorf("server exited with code %d", exitCode)
+		}
+		return nil
+	}); err != nil {
+		log.Fatalf("server preflight failed: %v", err)
 	}
 }
 
