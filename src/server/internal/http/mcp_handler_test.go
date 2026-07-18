@@ -6,13 +6,112 @@ import (
 	"fmt"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestMCPCatalogMutationContract(t *testing.T) {
+	guard := &mcpHandlerReadinessGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadMCPHandlerReadinessContract(t)
+	registrar := &mcpHandlerReadinessRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)}
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	store := newMCPHandlerFakeStore()
+	client := mcp.NewClient(store)
+	handler, err := newMCPHandlerWithOptions(client, MCPHandlerRuntimeOptions{Guard: guard, Authorities: authorities, Effects: registrar})
+	if err != nil {
+		t.Fatalf("new MCP handler: %v", err)
+	}
+
+	for _, body := range []string{
+		`{"name":"bad","url":"https://mcp.example.test","capabilityId":"caller"}`,
+		`{"name":"bad","url":"https://mcp.example.test","unexpected":true}`,
+	} {
+		recorder := httptest.NewRecorder()
+		handler.addServer(recorder, newAuthenticatedMCPRequest(stdhttp.MethodPost, "/api/v1/app/mcp-servers", body))
+		if recorder.Code != stdhttp.StatusBadRequest {
+			t.Fatalf("unknown MCP member status = %d, body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if len(store.servers) != 0 || guard.calls.Load() != 0 {
+		t.Fatalf("rejected MCP mutation changed store/guard = %d/%d", len(store.servers), guard.calls.Load())
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.addServer(recorder, newAuthenticatedMCPRequest(stdhttp.MethodPost, "/api/v1/app/mcp-servers", `{"name":"valid","url":"https://mcp.example.test"}`))
+	if recorder.Code != stdhttp.StatusCreated || len(store.servers) != 1 || guard.calls.Load() != 1 {
+		t.Fatalf("valid MCP mutation status/store/guard = %d/%d/%d, want 201/1/1", recorder.Code, len(store.servers), guard.calls.Load())
+	}
+	if registrar.count() != 1 {
+		t.Fatalf("MCP handler registrar count = %d, want 1", registrar.count())
+	}
+}
+
+type mcpHandlerReadinessGuard struct {
+	allow atomic.Bool
+	calls atomic.Int32
+}
+
+func (g *mcpHandlerReadinessGuard) Require(context.Context, string, releasecontract.Boundary) error {
+	g.calls.Add(1)
+	if !g.allow.Load() {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "test"}
+	}
+	return nil
+}
+
+type mcpHandlerReadinessRegistrar struct {
+	mu          sync.Mutex
+	descriptors map[string]releasecontract.EffectDescriptor
+}
+
+func (r *mcpHandlerReadinessRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descriptors[descriptor.ID]; exists {
+		return fmt.Errorf("duplicate descriptor %s", descriptor.ID)
+	}
+	r.descriptors[descriptor.ID] = descriptor
+	return nil
+}
+
+func (r *mcpHandlerReadinessRegistrar) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.descriptors)
+}
+
+func loadMCPHandlerReadinessContract(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve MCP handler test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
 
 func TestMCPHandlerListsLocalSafeBuiltinServers(t *testing.T) {
 	handler := newMCPHandler(nil)
