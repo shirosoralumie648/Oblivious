@@ -22,15 +22,35 @@ const applyRefundUpdateTopupOrderSQL = `
 
 // LifecycleService applies verified provider events to local billing state.
 type LifecycleService struct {
-	store              LifecycleStore
-	marketplaceApplier MarketplaceSettlementApplier
+	store                 LifecycleStore
+	marketplaceReconciler MarketplaceReconciliationApplier
 }
 
 type LifecycleOption func(*LifecycleService)
 
+// MarketplaceReconciliationApplier is deliberately limited to local,
+// idempotent application of already-verified provider events. It cannot
+// initiate checkout, refund, payout, or settlement dispatch.
+type MarketplaceReconciliationApplier interface {
+	ReconcilePaidInstallCheckout(ctx context.Context, input MarketplaceCheckoutCompleted) error
+	ReconcileMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error
+}
+
+// MarketplaceSettlementApplier is retained as a source-compatible adapter for
+// existing callers. New lifecycle wiring should use the reconciliation verbs.
 type MarketplaceSettlementApplier interface {
 	ApplyPaidInstallCheckoutCompleted(ctx context.Context, input MarketplaceCheckoutCompleted) error
 	ApplyMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error
+}
+
+type legacyMarketplaceReconciliationApplier struct{ applier MarketplaceSettlementApplier }
+
+func (a legacyMarketplaceReconciliationApplier) ReconcilePaidInstallCheckout(ctx context.Context, input MarketplaceCheckoutCompleted) error {
+	return a.applier.ApplyPaidInstallCheckoutCompleted(ctx, input)
+}
+
+func (a legacyMarketplaceReconciliationApplier) ReconcileMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error {
+	return a.applier.ApplyMarketplaceRefund(ctx, input)
 }
 
 type MarketplaceCheckoutCompleted struct {
@@ -107,7 +127,15 @@ type LifecycleStore interface {
 
 func WithMarketplaceSettlementApplier(applier MarketplaceSettlementApplier) LifecycleOption {
 	return func(service *LifecycleService) {
-		service.marketplaceApplier = applier
+		if applier != nil {
+			service.marketplaceReconciler = legacyMarketplaceReconciliationApplier{applier: applier}
+		}
+	}
+}
+
+func WithMarketplaceReconciliationApplier(applier MarketplaceReconciliationApplier) LifecycleOption {
+	return func(service *LifecycleService) {
+		service.marketplaceReconciler = applier
 	}
 }
 
@@ -133,11 +161,11 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 			return err
 		}
 		if input.Kind == "marketplace_install" {
-			if s.marketplaceApplier == nil {
+			if s.marketplaceReconciler == nil {
 				metrics.RecordBillingLifecycleEvent("checkout", "failed")
 				return fmt.Errorf("checkout.session.completed: marketplace settlement applier is not configured")
 			}
-			if err := s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
+			if err := s.marketplaceReconciler.ReconcilePaidInstallCheckout(ctx, MarketplaceCheckoutCompleted{
 				EventID:                   event.ID,
 				OrderID:                   input.MarketplaceOrderID,
 				PaymentIntentID:           input.PaymentIntentID,
@@ -206,7 +234,7 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 			return err
 		}
 		if input.Kind == "marketplace_install" {
-			if s.marketplaceApplier == nil {
+			if s.marketplaceReconciler == nil {
 				metrics.RecordBillingLifecycleEvent("refund", "failed")
 				return fmt.Errorf("%s: marketplace settlement applier is not configured", event.Type)
 			}
@@ -214,7 +242,7 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 				metrics.RecordBillingLifecycleEvent("refund", "failed")
 				return err
 			}
-			if err := s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
+			if err := s.marketplaceReconciler.ReconcileMarketplaceRefund(ctx, MarketplaceRefund{
 				EventID:                 event.ID,
 				ProviderRefundID:        input.ProviderRefundID,
 				PaymentIntentID:         input.PaymentIntentID,
@@ -268,7 +296,7 @@ func (s *LifecycleService) ApplyDomesticCheckoutPaid(ctx context.Context, input 
 		return fmt.Errorf("%s checkout.paid: missing plan_id for subscription checkout", provider)
 	}
 	if kind == "marketplace_install" {
-		if s.marketplaceApplier == nil {
+		if s.marketplaceReconciler == nil {
 			metrics.RecordBillingLifecycleEvent("checkout", "failed")
 			return fmt.Errorf("%s checkout.paid: marketplace settlement applier is not configured", provider)
 		}
@@ -276,7 +304,7 @@ func (s *LifecycleService) ApplyDomesticCheckoutPaid(ctx context.Context, input 
 			metrics.RecordBillingLifecycleEvent("checkout", "failed")
 			return fmt.Errorf("%s checkout.paid: missing marketplace_order_id for marketplace install checkout", provider)
 		}
-		if err := s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
+		if err := s.marketplaceReconciler.ReconcilePaidInstallCheckout(ctx, MarketplaceCheckoutCompleted{
 			EventID:                   input.EventID,
 			OrderID:                   strings.TrimSpace(input.MarketplaceOrderID),
 			PaymentIntentID:           input.PaymentIntentID,
@@ -357,11 +385,11 @@ func (s *LifecycleService) ApplyDomesticRefund(ctx context.Context, input Domest
 		return err
 	}
 	if refund.Kind == "marketplace_install" {
-		if s.marketplaceApplier == nil {
+		if s.marketplaceReconciler == nil {
 			metrics.RecordBillingLifecycleEvent("refund", "failed")
 			return fmt.Errorf("%s refund: marketplace settlement applier is not configured", provider)
 		}
-		if err := s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
+		if err := s.marketplaceReconciler.ReconcileMarketplaceRefund(ctx, MarketplaceRefund{
 			EventID:                 input.EventID,
 			ProviderRefundID:        refund.ProviderRefundID,
 			PaymentIntentID:         refund.PaymentIntentID,

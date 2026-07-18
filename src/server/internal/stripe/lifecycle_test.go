@@ -57,6 +57,21 @@ type fakeMarketplaceSettlementApplier struct {
 	refundEvents   []MarketplaceRefund
 }
 
+type reconciliationOnlySpy struct {
+	checkouts int
+	refunds   int
+}
+
+func (s *reconciliationOnlySpy) ReconcilePaidInstallCheckout(context.Context, MarketplaceCheckoutCompleted) error {
+	s.checkouts++
+	return nil
+}
+
+func (s *reconciliationOnlySpy) ReconcileMarketplaceRefund(context.Context, MarketplaceRefund) error {
+	s.refunds++
+	return nil
+}
+
 func (s *fakeMarketplaceSettlementApplier) ApplyPaidInstallCheckoutCompleted(_ context.Context, input MarketplaceCheckoutCompleted) error {
 	s.checkoutEvents = append(s.checkoutEvents, input)
 	return nil
@@ -246,6 +261,34 @@ func TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier(t *te
 		input.PaymentIntentID != "pi_marketplace_1" || input.ProviderPaymentIntentID != "trade_marketplace_1" ||
 		input.Amount != 10 || input.Currency != "cny" || input.Reason != "requested_by_customer" {
 		t.Fatalf("unexpected domestic marketplace refund input: %+v", input)
+	}
+}
+
+func TestSignedFinancialReconciliationReadinessContract(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	spy := &reconciliationOnlySpy{}
+	service := NewLifecycleService(store, WithMarketplaceReconciliationApplier(spy))
+
+	if err := service.ApplyDomesticCheckoutPaid(context.Background(), DomesticCheckoutPaid{
+		Provider: "alipay", EventID: "evt_signed_checkout", OrganizationID: "org_1", UserID: "user_1",
+		PaymentIntentID: "pi_1", MarketplaceOrderID: "order_1", Kind: "marketplace_install",
+		ProviderPaymentIntentID: "trade_1", ProviderCheckoutSessionID: "session_1",
+	}, []byte(`{"id":"evt_signed_checkout"}`)); err != nil {
+		t.Fatalf("signed checkout reconciliation failed: %v", err)
+	}
+	if spy.checkouts != 1 || spy.refunds != 0 {
+		t.Fatalf("expected one local reconciliation and no outbound dispatcher, got %#v", spy)
+	}
+
+	if err := service.ApplyDomesticRefund(context.Background(), DomesticRefund{
+		Provider: "alipay", EventID: "evt_signed_refund", OrganizationID: "org_1", UserID: "user_1",
+		PaymentIntentID: "pi_1", Kind: "marketplace_install", ProviderRefundID: "refund_1",
+		ProviderPaymentIntentID: "trade_1", Amount: 1, Currency: "cny", Status: "succeeded",
+	}, []byte(`{"id":"evt_signed_refund"}`)); err != nil {
+		t.Fatalf("signed refund reconciliation failed: %v", err)
+	}
+	if spy.checkouts != 1 || spy.refunds != 1 {
+		t.Fatalf("expected one checkout and one refund reconciliation, got %#v", spy)
 	}
 }
 
