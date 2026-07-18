@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-05-PLAN.md
-last_updated: "2026-07-18T03:02:57.291Z"
+stopped_at: Completed 31.1-06-PLAN.md
+last_updated: "2026-07-18T03:45:34.242Z"
 last_activity: 2026-07-18
-last_activity_desc: Completed Phase 31.1 Plan 05 Relay, Chat, and model catalog guards
+last_activity_desc: Completed Phase 31.1 Plan 06 MCP, Registry, web-search, and mutation guards
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 10
-  percent: 31
+  completed_plans: 11
+  percent: 34
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 5 of 10
-Status: Plan 31.1-05 complete; remaining Wave 2 consumer guard plans are ready for execution
-Last activity: 2026-07-18 — Completed Phase 31.1 Plan 05 Relay, Chat, and model catalog guards
+Plan: 6 of 10
+Status: Plan 31.1-06 complete; remaining Wave 2 consumer guard plans are ready for execution
+Last activity: 2026-07-18 — Completed Phase 31.1 Plan 06 MCP, Registry, web-search, and mutation guards
 
-Progress: [███░░░░░░░] 31%
+Progress: [███░░░░░░░] 34%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10
-- Average duration: 34 min
-- Total execution time: 5.1 hours
+- Total plans completed: 11
+- Average duration: 35 min
+- Total execution time: 5.8 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 3 plans in 88 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 4 plans in 128 minutes.
 
-**Recent Trend:** Plan 31.1-05 closed Relay/Chat retry and model-mutation authority bypasses in 31 minutes.
+**Recent Trend:** Plan 31.1-06 closed MCP/Registry/web-search retry and strict mutation authority bypasses in 40 minutes.
 
 ## Accumulated Context
 
@@ -84,6 +84,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Chat fallback uses a distinct descriptor and cannot start after cancellation or a stale readiness generation.
 - [Phase 31.1]: Model capability metadata is handler-owned response data; Chat and Admin mutations never accept or persist caller capability authority.
 - [Phase 31.1]: Admin validates raw model lists before normalization to reject ambiguous or stale persisted subjects.
+- [Phase 31.1]: MCP, Registry, and web-search effects resolve current server-owned catalog subjects immediately before each attempt; capability-like caller metadata remains non-authoritative.
 
 ### Pending Todos
 
@@ -100,6 +101,7 @@ None yet.
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
 | 260717-up4 | 审计当前未提交内容，完善 .gitignore，删除确认无关的生成内容，并按逻辑边界逐步提交 | 2026-07-17 | 5d43da8 | Verified | [260717-up4-gitignore](./quick/260717-up4-gitignore/) |
+| Phase 31.1 P06 | 40 min | 3 tasks | 9 files |
 
 ### Roadmap Evolution
 
@@ -112,8 +114,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-18T03:02:57.195Z
-Stopped at: Completed 31.1-05-PLAN.md
+Last session: 2026-07-18T03:45:34.231Z
+Stopped at: Completed 31.1-06-PLAN.md
 Resume file: None
 
 ## Performance Metrics
