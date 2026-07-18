@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	stdhttp "net/http"
+	"sync"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -16,12 +17,15 @@ import (
 	publishingchannel "oblivious/server/internal/channel"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/notification"
 	"oblivious/server/internal/observability"
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/relay"
+	relaychannel "oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/schedule"
 	"oblivious/server/internal/usage"
 	"oblivious/server/internal/workflow"
@@ -37,8 +41,59 @@ type shutdownRegistrar interface {
 	RegisterOnShutdown(func())
 }
 
+type Runtime struct {
+	Server          *stdhttp.Server
+	StartBackground func(context.Context) error
+	Close           func(context.Context) error
+}
+
+type RuntimeOptions struct {
+	Readiness   releasecontract.ReadinessManager
+	Guard       releasecontract.Guard
+	Effects     releasecontract.EffectRegistrar
+	Authorities releasecontract.RuntimeAuthorities
+}
+
+type runtimeLifecycle struct {
+	mu        sync.Mutex
+	started   bool
+	closed    bool
+	cancel    context.CancelFunc
+	wait      sync.WaitGroup
+	close     sync.Once
+	resources sync.Once
+	runners   []func(context.Context)
+	closers   []func()
+	server    *stdhttp.Server
+}
+
+func BuildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions) (*Runtime, error) {
+	if database == nil {
+		return nil, fmt.Errorf("build runtime: database is required")
+	}
+	routerOptions := RouterOptions{Readiness: options.Readiness, Guard: options.Guard, Effects: options.Effects, Authorities: options.Authorities}
+	if err := routerOptions.ValidateReadinessAuthorities(); err != nil {
+		return nil, fmt.Errorf("build runtime: %w", err)
+	}
+	return buildRuntime(cfg, database, options, true)
+}
+
+// NewServer remains a side-effect-free compatibility constructor for tests
+// that do not exercise the production readiness boundary.
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
+	runtime, err := buildRuntime(cfg, database, RuntimeOptions{}, false)
+	if err != nil {
+		panic(err)
+	}
+	return runtime.Server
+}
+
+func buildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions, requireReadiness bool) (*Runtime, error) {
 	requestLogEvidenceStore, requestLogCloser := configureRequestLogSink(cfg)
+	closers := []func(){}
+	if requestLogCloser != nil {
+		closers = append(closers, requestLogCloser)
+	}
 	var relayPricingStore *relay.PricingStore
 	var relayPool *relay.ChannelPool
 	var relayStore *relay.RelayStore
@@ -61,14 +116,68 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	alertRoutingRuleStore := observability.NewSQLAlertRoutingRuleStore(database)
 	alertProviderConfigStore := observability.NewSQLAlertProviderConfigStore(database)
 	alertingCloser := configureHTTPAlerting(cfg, alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
+	if alertingCloser != nil {
+		closers = append(closers, alertingCloser)
+	}
 	workflowService := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())
-	scheduleAgentGateway := newAgentGateway(cfg)
-	agentService := agent.NewService(agent.NewSQLStore(database), scheduleAgentGateway)
-	if provider := buildAgentWebSearchProvider(cfg); provider != nil {
-		agentService.SetWebSearchProvider(provider)
+	var agentService *agent.Service
+	var mcpClient *mcp.Client
+	if requireReadiness {
+		runtimeCarrier := agent.ToolRuntimeOptions{
+			Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects, HTTPClient: stdhttp.DefaultClient,
+		}
+		var err error
+		mcpClient, err = mcp.NewClientWithOptions(mcp.NewSQLStore(database), mcp.ClientRuntimeOptions{
+			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+		})
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime MCP client: %w", err)
+		}
+		scheduleAgentGateway, err := newReadinessAgentGateway(cfg, options)
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime Agent gateway: %w", err)
+		}
+		agentService, err = agent.NewServiceWithRuntimeOptions(agent.NewSQLStore(database), scheduleAgentGateway, mcpClient, runtimeCarrier)
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime Agent service: %w", err)
+		}
+		provider, err := buildAgentWebSearchProviderWithOptions(cfg, mcp.WebSearchRuntimeOptions{
+			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+		})
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime Agent web search: %w", err)
+		}
+		if provider != nil {
+			agentService.SetWebSearchProvider(provider)
+		}
+	} else {
+		agentService = agent.NewService(agent.NewSQLStore(database), newAgentGateway(cfg))
+		if provider := buildAgentWebSearchProvider(cfg); provider != nil {
+			agentService.SetWebSearchProvider(provider)
+		}
 	}
 	registerWorkflowAgentExecutor(workflowService, agentService)
 	scheduleService := newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
+	var channelService *publishingchannel.Service
+	if requireReadiness {
+		var err error
+		channelService, err = publishingchannel.NewReadinessServiceWithOptions(
+			publishingchannel.NewAdapterRegistry(nil), options.Guard, options.Authorities, options.Effects,
+			publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
+		)
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime channel service: %w", err)
+		}
+	} else {
+		channelService = publishingchannel.NewServiceWithOptions(
+			publishingchannel.NewAdapterRegistry(nil), publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
+		)
+	}
 
 	var relayConfigApplier admin.RelayConfigApplier
 	if relayStore != nil && relayPool != nil {
@@ -81,14 +190,24 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 
 	var relayEngine stdhttp.Handler
 	var relayInstance *relay.Relay
+	var relayQuotaService *quota.Service
+	var relayAPITokenStore *relay.RelayAPITokenSQLStore
 	var closeRateLimiter func() error
-	var cancelRelayHealthChecks context.CancelFunc
 	if cfg.RelayEnabled {
 		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
 		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
 		rateLimiter, rateLimiterCloser := buildRelayRateLimiter(cfg)
 		closeRateLimiter = rateLimiterCloser
-		createdRelay, err := relay.NewRelay(buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore))
+		var createdRelay *relay.Relay
+		var err error
+		if requireReadiness {
+			createdRelay, err = relay.NewRelayWithOptions(
+				buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore),
+				relay.RouterRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects},
+			)
+		} else {
+			createdRelay, err = relay.NewRelay(buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore))
+		}
 		if err != nil {
 			if closeRateLimiter != nil {
 				if closeErr := closeRateLimiter(); closeErr != nil {
@@ -99,22 +218,26 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 			handleRelayStartupError(cfg, fmt.Errorf("create relay: %w", err))
 		} else {
 			relayInstance = createdRelay
-			quotaStore := quota.NewSQLStore(database)
-			quotaService := quota.NewService(quotaStore)
-			relayInstance.Router().SetQuotaManager(quotaService)
-			relayInstance.Router().SetAPITokenQuotaManager(apiTokenStore)
+			relayQuotaService = quota.NewService(quota.NewSQLStore(database))
+			relayAPITokenStore = apiTokenStore
+			relayInstance.Router().SetQuotaManager(relayQuotaService)
+			relayInstance.Router().SetAPITokenQuotaManager(relayAPITokenStore)
 			relayInstance.Router().SetUsageLogger(usage.NewSQLRecorder(database))
-			relayInstance.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
-			relayHealthCheckCtx, cancelHealthChecks := context.WithCancel(context.Background())
-			cancelRelayHealthChecks = cancelHealthChecks
-			relayInstance.StartHealthChecks(relayHealthCheckCtx)
+			relayInstance.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(relayQuotaService))
 			relayEngine = relayInstance.Engine()
 		}
 	}
 
 	// Create main router after Relay is prepared so gateway proxy routes can
 	// forward session-authenticated traffic into the same Relay engine.
-	mainHandler := NewRouterWithOptions(cfg, database, RouterOptions{
+	routerOptions := RouterOptions{
+		Readiness:                   options.Readiness,
+		Guard:                       options.Guard,
+		Effects:                     options.Effects,
+		Authorities:                 options.Authorities,
+		AgentService:                agentService,
+		MCPClient:                   mcpClient,
+		ChannelService:              channelService,
 		RelayPricingStore:           relayPricingStore,
 		RelayPool:                   relayPool,
 		GatewayRelayHandler:         relayEngine,
@@ -126,7 +249,18 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		AlertStateStore:             alertStateStore,
 		AlertRoutingRuleStore:       alertRoutingRuleStore,
 		AlertProviderConfigStore:    alertProviderConfigStore,
-	})
+	}
+	var mainHandler stdhttp.Handler
+	if requireReadiness {
+		var err error
+		mainHandler, err = NewReadinessRouterWithOptions(cfg, database, routerOptions)
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime router: %w", err)
+		}
+	} else {
+		mainHandler = NewRouterWithOptions(cfg, database, routerOptions)
+	}
 
 	if relayEngine != nil {
 		// Mount Relay under /v1/*.
@@ -138,29 +272,60 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		Handler:           mainHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	runners := []func(context.Context){}
+	if relayInstance != nil {
+		runners = append(runners, relayInstance.StartHealthChecks)
+	}
 	if cfg.ScheduleWorkerEnabled {
-		workerCtx, cancelWorker := context.WithCancel(context.Background())
-		worker := schedule.NewWorker(scheduleService, schedule.WorkerConfig{
+		workerConfig := schedule.WorkerConfig{
 			Interval: time.Duration(cfg.ScheduleWorkerIntervalMS) * time.Millisecond,
 			Limit:    cfg.ScheduleWorkerClaimLimit,
 			OnError: func(err error) {
 				log.Printf("warning: scheduled task worker failed: %v", err)
 			},
-		})
-		go worker.Run(workerCtx)
-		server.RegisterOnShutdown(cancelWorker)
+		}
+		var worker *schedule.Worker
+		var err error
+		if requireReadiness {
+			workerConfig.Guard, workerConfig.Authorities, workerConfig.Effects = options.Guard, options.Authorities, options.Effects
+			worker, err = schedule.NewReadinessWorker(scheduleService, workerConfig)
+		} else {
+			worker = schedule.NewWorker(scheduleService, workerConfig)
+		}
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime schedule worker: %w", err)
+		}
+		runners = append(runners, worker.Run)
 	}
-	startRelayBatchPollingWorkerIfEnabled(server, cfg, relayStore, nil, nil, nil, func(store relay.BatchPollingWorkerStore, client relay.BatchStatusClient, workerConfig relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner {
-		return relay.NewBatchPollingWorker(store, client, workerConfig)
-	})
+	if cfg.RelayEnabled && cfg.RelayBatchPollingWorkerEnabled && relayStore != nil && relayPool != nil {
+		batchFinalizer := relay.NewBatchUsageFinalizer(usage.NewSQLRecorder(database), relay.BatchUsageFinalizerConfig{
+			PricingStore: relayPricingStore, QuotaManager: relayQuotaService, APITokenQuotaManager: relayAPITokenStore,
+		})
+		batchConfig := relay.BatchPollingWorkerConfig{
+			Interval: time.Duration(cfg.RelayBatchPollingWorkerIntervalMS) * time.Millisecond,
+			Limit:    cfg.RelayBatchPollingWorkerClaimLimit, CompletionFinalizer: batchFinalizer, FailureFinalizer: batchFinalizer,
+			OnError: func(err error) { log.Printf("warning: relay batch polling worker failed: %v", err) },
+		}
+		batchClient := relay.NewOpenAIBatchStatusClient(defaultRelayAdapter(relayPool))
+		var batchWorker *relay.BatchPollingWorker
+		var err error
+		if requireReadiness {
+			batchConfig.Guard, batchConfig.Authorities, batchConfig.Effects = options.Guard, options.Authorities, options.Effects
+			batchWorker, err = relay.NewReadinessBatchPollingWorker(relayStore, batchClient, batchConfig)
+		} else {
+			batchWorker = relay.NewBatchPollingWorker(relayStore, batchClient, batchConfig)
+		}
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime Relay batch worker: %w", err)
+		}
+		runners = append(runners, batchWorker.Run)
+	}
 	if cfg.Env != "test" {
-		channelRetryWorkerCtx, cancelChannelRetryWorker := context.WithCancel(context.Background())
 		channelRetryStore := publishingchannel.NewSQLStore(database)
 		channelRetryWorker := publishingchannel.NewRetryWorker(
-			publishingchannel.NewServiceWithOptions(
-				publishingchannel.NewAdapterRegistry(nil),
-				publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
-			),
+			channelService,
 			channelRetryStore,
 			publishingchannel.RetryWorkerConfig{
 				OnError: func(err error) {
@@ -168,49 +333,145 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 				},
 			},
 		)
-		go channelRetryWorker.Run(channelRetryWorkerCtx)
-		server.RegisterOnShutdown(cancelChannelRetryWorker)
+		runners = append(runners, channelRetryWorker.Run)
 	}
 	if cfg.Env != "test" && cfg.ChannelMessageLogArchiveEnabled {
 		archiveSink, archiveSinkErr := buildChannelMessageLogArchiveSink(cfg)
 		if archiveSinkErr != nil {
 			log.Printf("warning: channel message log archive worker disabled: %v", archiveSinkErr)
 		} else {
-			channelArchiveWorkerCtx, cancelChannelArchiveWorker := context.WithCancel(context.Background())
-			channelArchiveWorker := publishingchannel.NewArchiveWorker(
-				publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
-				publishingchannel.NewSQLStore(database),
-				archiveSink,
-				publishingchannel.ArchiveWorkerConfig{
-					Interval:  time.Duration(cfg.ChannelMessageLogArchiveIntervalMS) * time.Millisecond,
-					Retention: time.Duration(cfg.ChannelMessageLogRetentionHours) * time.Hour,
-					Limit:     cfg.ChannelMessageLogArchiveLimit,
-					OnError: func(err error) {
-						log.Printf("warning: channel message log archive worker failed: %v", err)
-					},
+			archiveConfig := publishingchannel.ArchiveWorkerConfig{
+				Interval:  time.Duration(cfg.ChannelMessageLogArchiveIntervalMS) * time.Millisecond,
+				Retention: time.Duration(cfg.ChannelMessageLogRetentionHours) * time.Hour,
+				Limit:     cfg.ChannelMessageLogArchiveLimit,
+				OnError: func(err error) {
+					log.Printf("warning: channel message log archive worker failed: %v", err)
 				},
-			)
-			go channelArchiveWorker.Run(channelArchiveWorkerCtx)
-			server.RegisterOnShutdown(cancelChannelArchiveWorker)
+			}
+			var channelArchiveWorker *publishingchannel.ArchiveWorker
+			if requireReadiness {
+				archiveConfig.Guard, archiveConfig.Authorities, archiveConfig.Effects = options.Guard, options.Authorities, options.Effects
+				channelArchiveWorker, archiveSinkErr = publishingchannel.NewReadinessArchiveWorker(
+					publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)), publishingchannel.NewSQLStore(database), archiveSink, archiveConfig,
+				)
+			} else {
+				channelArchiveWorker = publishingchannel.NewArchiveWorker(
+					publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)), publishingchannel.NewSQLStore(database), archiveSink, archiveConfig,
+				)
+			}
+			if archiveSinkErr != nil {
+				closeRuntimeResources(closers)
+				return nil, fmt.Errorf("build runtime channel archive worker: %w", archiveSinkErr)
+			}
+			runners = append(runners, channelArchiveWorker.Run)
 		}
 	}
 	if closeRateLimiter != nil {
-		server.RegisterOnShutdown(func() {
+		closers = append(closers, func() {
 			if err := closeRateLimiter(); err != nil {
 				log.Printf("warning: failed to close relay rate limiter: %v", err)
 			}
 		})
 	}
-	if cancelRelayHealthChecks != nil {
-		server.RegisterOnShutdown(cancelRelayHealthChecks)
+
+	lifecycle := &runtimeLifecycle{server: server, runners: runners, closers: closers}
+	runtime := &Runtime{Server: server}
+	runtime.StartBackground = lifecycle.startBackground
+	runtime.Close = lifecycle.closeRuntime
+	return runtime, nil
+}
+
+func (l *runtimeLifecycle) startBackground(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("start background: context is required")
 	}
-	if requestLogCloser != nil {
-		server.RegisterOnShutdown(requestLogCloser)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return fmt.Errorf("start background: runtime is closed")
 	}
-	if alertingCloser != nil {
-		server.RegisterOnShutdown(alertingCloser)
+	if l.started {
+		return fmt.Errorf("start background: already started")
 	}
-	return server
+	l.started = true
+	backgroundCtx, cancel := context.WithCancel(ctx)
+	l.cancel = cancel
+	for _, run := range l.runners {
+		if run == nil {
+			continue
+		}
+		l.wait.Add(1)
+		go func(run func(context.Context)) {
+			defer l.wait.Done()
+			run(backgroundCtx)
+		}(run)
+	}
+	return nil
+}
+
+func (l *runtimeLifecycle) closeRuntime(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("close runtime: context is required")
+	}
+	l.close.Do(func() {
+		l.mu.Lock()
+		l.closed = true
+		if l.cancel != nil {
+			l.cancel()
+		}
+		l.mu.Unlock()
+	})
+
+	shutdownErr := l.server.Shutdown(ctx)
+	done := make(chan struct{})
+	go func() {
+		l.wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	l.resources.Do(func() { closeRuntimeResources(l.closers) })
+	if shutdownErr == stdhttp.ErrServerClosed {
+		return nil
+	}
+	return shutdownErr
+}
+
+func defaultRelayAdapter(pool *relay.ChannelPool) *relaychannel.OpenAIAdapter {
+	if pool != nil {
+		for _, configured := range pool.ListChannels() {
+			if configured != nil && configured.Enabled {
+				return relaychannel.NewOpenAICompatibleAdapter(configured.Provider, configured.BaseURL, configured.APIKey)
+			}
+		}
+	}
+	return relaychannel.NewOpenAIAdapter("", "")
+}
+
+func closeRuntimeResources(closers []func()) {
+	for index := len(closers) - 1; index >= 0; index-- {
+		if closers[index] != nil {
+			closers[index]()
+		}
+	}
+}
+
+func newReadinessAgentGateway(cfg config.Config, options RuntimeOptions) (chat.ChatGateway, error) {
+	runtime := chat.RelayGatewayRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects}
+	primary, err := chat.NewReadinessRelayGateway(runtime,
+		chat.WithRelayURL(configuredChatRelayBaseURL(cfg)), chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.RelayEnabled && cfg.Env != "production" {
+		fallback := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		return chat.NewCompositeGatewayWithOptions(primary, fallback, runtime)
+	}
+	return primary, nil
 }
 
 func handleRelayPoolConfigurationError(cfg config.Config, err error) {

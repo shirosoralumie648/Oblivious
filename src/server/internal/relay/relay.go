@@ -61,6 +61,17 @@ type Config struct {
 }
 
 func NewRelay(cfg *Config) (*Relay, error) {
+	return newRelay(cfg, RouterRuntimeOptions{}, false)
+}
+
+// NewRelayWithOptions constructs the production Relay with the single
+// startup-built readiness carrier. It never starts health checks; lifecycle
+// ownership remains with the caller.
+func NewRelayWithOptions(cfg *Config, options RouterRuntimeOptions) (*Relay, error) {
+	return newRelay(cfg, options, true)
+}
+
+func newRelay(cfg *Config, runtimeOptions RouterRuntimeOptions, requireReadiness bool) (*Relay, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -123,7 +134,15 @@ func NewRelay(cfg *Config) (*Relay, error) {
 	seenIdem := make(map[string]bool)
 	billingHook := NewBillingHook(pricing, &seenIdem)
 
-	r.router = NewRouterWithBilling(r.pool, lb, cbs, tb, hc, billingHook, "")
+	if requireReadiness {
+		var err error
+		r.router, err = NewRouterWithBillingOptions(r.pool, lb, cbs, tb, hc, billingHook, "", runtimeOptions)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		r.router = NewRouterWithBilling(r.pool, lb, cbs, tb, hc, billingHook, "")
+	}
 	r.router.rateLimiter = cfg.RateLimiter
 	r.router.affinityStore = cfg.ConversationAffinityStore
 	if !cfg.SemanticCacheDisabled {
