@@ -4,6 +4,29 @@
   "routes": [
     {
       "method": "GET",
+      "path": "/api/v1/admin/readiness",
+      "samplePath": "/api/v1/admin/readiness",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAdminReadinessInventory",
+      "tags": [
+        "Admin",
+        "Readiness"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/app/readiness/capabilities",
+      "samplePath": "/api/v1/app/readiness/capabilities",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "getAppReadinessCapabilities",
+      "tags": [
+        "Readiness"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/api-tokens",
       "samplePath": "/api/v1/admin/api-tokens",
       "security": "cookie",

@@ -157,7 +157,9 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 
 		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("/readyz", readinessHandler(cfg, database))
+	if !strict {
+		mux.HandleFunc("/readyz", readinessHandler(cfg, database))
+	}
 	// workflowMetricsHandler calls RefreshExecutionHealthMetrics before serving the Prometheus scrape.
 	mux.Handle("/metrics", workflowMetricsHandler(workflowService))
 
@@ -167,6 +169,13 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	authService := auth.NewService(authStore)
 	authMiddleware := newAuthMiddleware(cfg, authService)
+	if strict {
+		readinessViews := NewReadinessHandlers(ReadinessHandlerOptions{Readiness: options.Readiness, Authorities: options.Authorities})
+		mux.HandleFunc("/livez", readinessViews.Livez)
+		mux.HandleFunc("/readyz", readinessViews.Readyz)
+		mux.Handle("/api/v1/admin/readiness", authMiddleware.requireAdmin(stdhttp.HandlerFunc(readinessViews.Admin)))
+		mux.Handle("/api/v1/app/readiness/capabilities", authMiddleware.requireSession(stdhttp.HandlerFunc(readinessViews.App)))
+	}
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
