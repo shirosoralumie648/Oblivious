@@ -84,7 +84,7 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: 7/10 plans executed
+**Plans**: 8/10 plans executed
 
 **Planning envelope exception:** checker-requested closure requires complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites do not fit the original 6-8 target while retaining the nine-file hard cap, so the decomposition uses ten focused plans without shrinking coverage or trusting executable/environment identity.
 
@@ -110,7 +110,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 shared preflight)*
 
-- [ ] 31.1-09-PLAN.md - Apply the same immutable source-authored entrypoint handoff to the remaining eight standalone composition roots.
+- [x] 31.1-09-PLAN.md - Apply the same immutable source-authored entrypoint handoff to the remaining eight standalone composition roots.
 
 **Wave 6** *(blocked on all runtime consumers and standalone roots)*
 
@@ -331,7 +331,7 @@ Cross-cutting constraints:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 7/10 | In Progress|  |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 8/10 | In Progress|  |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |

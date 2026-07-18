@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-02-PLAN.md
-last_updated: "2026-07-18T15:10:00.000Z"
+stopped_at: Completed 31.1-09-PLAN.md
+last_updated: "2026-07-18T15:45:00.000Z"
 last_activity: 2026-07-18
-last_activity_desc: Completed Phase 31.1 Plan 02 runtime composition and ordered startup
+last_activity_desc: Completed Phase 31.1 Plan 09 standalone entrypoint preflight
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 32
-  completed_plans: 14
-  percent: 44
+  completed_plans: 15
+  percent: 47
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 2 of 10
-Status: Plan 31.1-02 complete; Wave 5 standalone entrypoint handoff is next
-Last activity: 2026-07-18 — Completed Phase 31.1 Plan 02 runtime composition and ordered startup
+Plan: 9 of 10
+Status: Plan 31.1-09 complete; Wave 6 control-plane and effect inventory is next
+Last activity: 2026-07-18 — Completed Phase 31.1 Plan 09 standalone entrypoint preflight
 
-Progress: [████░░░░░░] 44%
+Progress: [█████░░░░░] 47%
 
 ## Performance Metrics
 
@@ -43,9 +43,9 @@ Progress: [████░░░░░░] 44%
 - Average duration: 35 min
 - Total execution time: 5.8 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 7 plans in 274 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 8 plans in 294 minutes.
 
-**Recent Trend:** Plan 31.1-02 closed runtime composition and listener-before-background lifecycle in 40 minutes.
+**Recent Trend:** Plan 31.1-09 closed eight standalone entrypoint preflight paths in 20 minutes.
 
 ## Accumulated Context
 
@@ -107,6 +107,7 @@ None yet.
 | Phase 31.1 P07 | 36 min | 3 tasks | 8 files |
 | Phase 31.1 P10 | 70 min | 2 tasks | 10 files |
 | Phase 31.1 P02 | 40 min | 3 tasks | 11 files |
+| Phase 31.1 P09 | 20 min | 2 tasks | 9 files |
 
 ### Roadmap Evolution
 
@@ -120,7 +121,7 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 ## Session Continuity
 
 Last session: 2026-07-18T04:10:59.564Z
-Stopped at: Completed 31.1-02-PLAN.md
+Stopped at: Completed 31.1-09-PLAN.md
 Resume file: None
 
 ## Performance Metrics
