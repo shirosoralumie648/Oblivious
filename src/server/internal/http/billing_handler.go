@@ -9,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"oblivious/server/internal/marketplace"
 	"oblivious/server/internal/payment"
 	"oblivious/server/internal/quota"
+	"oblivious/server/internal/releasecontract"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
@@ -20,6 +22,44 @@ type billingHandler struct {
 	paymentStore     stripebilling.PaymentIntentStore
 	quotaService     *quota.Service
 	providerRegistry *payment.Registry
+	readiness        *billingFinancialReadiness
+}
+
+type billingFinancialReadiness struct {
+	guard         releasecontract.Guard
+	checkout      releasecontract.CapabilityID
+	configuration error
+}
+
+func newBillingFinancialReadiness(financial marketplace.FinancialReadiness) (*billingFinancialReadiness, error) {
+	return newCheckoutFinancialReadiness(financial, "http.billing.checkout", "http.billingHandler")
+}
+
+func newCheckoutFinancialReadiness(financial marketplace.FinancialReadiness, descriptorID, owner string) (*billingFinancialReadiness, error) {
+	if financial.Guard == nil || financial.Effects == nil || !financial.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "http.billing"}
+	}
+	checkout, err := financial.Authorities.CapabilityBindings.Resolve(releasecontract.EffectBillingCheckout)
+	if err != nil {
+		return nil, err
+	}
+	if err := financial.Effects.Register(releasecontract.EffectDescriptor{
+		ID: descriptorID, CapabilityID: string(checkout),
+		Boundary: releasecontract.BoundaryFinancial, Owner: owner,
+	}); err != nil {
+		return nil, err
+	}
+	return &billingFinancialReadiness{guard: financial.Guard, checkout: checkout}, nil
+}
+
+func (r *billingFinancialReadiness) require(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	if r.configuration != nil {
+		return r.configuration
+	}
+	return r.guard.Require(ctx, string(r.checkout), releasecontract.BoundaryFinancial)
 }
 
 type billingCheckoutRequest struct {
@@ -51,6 +91,22 @@ func newBillingHandler(checkoutCreator stripebilling.CheckoutCreator, checkoutCo
 		quotaService:     quotaService,
 		providerRegistry: providerRegistry,
 	}
+}
+
+// newBillingHandlerWithReadiness is the production constructor. The legacy
+// constructor remains for isolated tests that do not exercise financial flow.
+func newBillingHandlerWithReadiness(checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig, paymentStore stripebilling.PaymentIntentStore, quotaService *quota.Service, providerRegistry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator, financial marketplace.FinancialReadiness) (billingHandler, error) {
+	handler := newBillingHandler(checkoutCreator, checkoutConfig, paymentStore, quotaService, providerRegistry, checkoutCreators)
+	readiness, err := newBillingFinancialReadiness(financial)
+	if err != nil {
+		return billingHandler{}, err
+	}
+	handler.readiness = readiness
+	return handler, nil
+}
+
+func newBillingHandlerWithFinancialReadiness(checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig, paymentStore stripebilling.PaymentIntentStore, quotaService *quota.Service, providerRegistry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator, financial marketplace.FinancialReadiness) (billingHandler, error) {
+	return newBillingHandlerWithReadiness(checkoutCreator, checkoutConfig, paymentStore, quotaService, providerRegistry, checkoutCreators, financial)
 }
 
 func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -97,6 +153,10 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	checkoutCreator := h.checkoutCreators[provider.Name]
 	if checkoutCreator == nil {
 		writeError(w, stdhttp.StatusNotImplemented, payment.CodeProviderNotConfigured, "payment provider checkout is not configured")
+		return
+	}
+	if err := h.readiness.require(r.Context()); err != nil {
+		writeBillingReadinessError(w, err)
 		return
 	}
 
@@ -184,6 +244,10 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 	}
 
+	if err := h.readiness.require(r.Context()); err != nil {
+		writeBillingReadinessError(w, err)
+		return
+	}
 	checkoutSession, err := checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)
 	if err != nil {
 		if failErr := h.markCheckoutCreationFailed(r.Context(), session.OrganizationID, paymentIntentID, kind, err.Error()); failErr != nil {
@@ -218,6 +282,15 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		CheckoutSessionID: checkoutSession.ID,
 		URL:               checkoutSession.URL,
 	})
+}
+
+func writeBillingReadinessError(w stdhttp.ResponseWriter, err error) {
+	var readinessErr *releasecontract.ReadinessError
+	if errors.As(err, &readinessErr) {
+		writeError(w, stdhttp.StatusServiceUnavailable, string(readinessErr.Code), "financial operation is not available")
+		return
+	}
+	writeError(w, stdhttp.StatusServiceUnavailable, "readiness_unavailable", "financial operation is not available")
 }
 
 func (h billingHandler) markCheckoutCreationFailed(ctx context.Context, organizationID string, paymentIntentID string, kind string, reason string) error {

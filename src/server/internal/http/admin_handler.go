@@ -14,6 +14,7 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/marketplace"
 	"oblivious/server/internal/quota"
+	"oblivious/server/internal/releasecontract"
 )
 
 type adminQuotaSettingsService interface {
@@ -36,10 +37,58 @@ type adminHandler struct {
 	quotaService     adminQuotaSettingsService
 	payoutService    adminMarketplacePayoutService
 	reviewSLAService adminReviewSLAEnforcer
+	financial        *adminFinancialReadiness
+}
+
+type adminFinancialReadiness struct {
+	guard         releasecontract.Guard
+	refund        releasecontract.CapabilityID
+	configuration error
+}
+
+func newAdminFinancialReadiness(financial marketplace.FinancialReadiness) (*adminFinancialReadiness, error) {
+	if financial.Guard == nil || financial.Effects == nil || !financial.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "http.admin.billing"}
+	}
+	refund, err := financial.Authorities.CapabilityBindings.Resolve(releasecontract.EffectAdminRefund)
+	if err != nil {
+		return nil, err
+	}
+	if err := financial.Effects.Register(releasecontract.EffectDescriptor{
+		ID: "http.admin.refund", CapabilityID: string(refund),
+		Boundary: releasecontract.BoundaryFinancial, Owner: "http.adminHandler",
+	}); err != nil {
+		return nil, err
+	}
+	return &adminFinancialReadiness{guard: financial.Guard, refund: refund}, nil
+}
+
+func (r *adminFinancialReadiness) require(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	if r.configuration != nil {
+		return r.configuration
+	}
+	return r.guard.Require(ctx, string(r.refund), releasecontract.BoundaryFinancial)
 }
 
 func newAdminHandler(service *admin.Service) adminHandler {
 	return adminHandler{service: service}
+}
+
+// newAdminHandlerWithFinancialReadiness is the production constructor for
+// operator refund mutations. Validation remains ahead of the readiness guard.
+func newAdminHandlerWithFinancialReadiness(service *admin.Service, financial marketplace.FinancialReadiness) (adminHandler, error) {
+	readiness, err := newAdminFinancialReadiness(financial)
+	if err != nil {
+		return adminHandler{}, err
+	}
+	return adminHandler{service: service, financial: readiness}, nil
+}
+
+func newAdminHandlerWithReadiness(service *admin.Service, financial marketplace.FinancialReadiness) (adminHandler, error) {
+	return newAdminHandlerWithFinancialReadiness(service, financial)
 }
 
 func newAdminHandlerWithQuota(service *admin.Service, quotaService adminQuotaSettingsService) adminHandler {
@@ -1305,6 +1354,10 @@ func (h adminHandler) recordTopupRefund(w stdhttp.ResponseWriter, r *stdhttp.Req
 	}
 	if err := admin.ValidateTopupRefundRequest(request); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := h.financial.require(r.Context()); err != nil {
+		writeBillingReadinessError(w, err)
 		return
 	}
 	refund, err := h.service.RecordTopupRefund(r.Context(), topupID, request)
