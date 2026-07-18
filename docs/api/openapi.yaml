@@ -6898,6 +6898,23 @@ x-oblivious-outbound-webhooks:
               $ref: "#/components/schemas/MarketplacePayoutDispatchWebhookResponse"
 
 paths:
+
+  /api/v1/app/readiness/capabilities:
+    get:
+      summary: 获取当前可用能力投影
+      operationId: getAppReadinessCapabilities
+      tags: [Readiness]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 当前进程的非敏感能力投影
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   # ---- 健康检查 ----
   /healthz:
     get:
@@ -14970,6 +14987,23 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/readiness:
+    get:
+      summary: 获取完整 readiness inventory
+      operationId: getAdminReadinessInventory
+      tags: [Admin, Readiness]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 当前 manager generation 的完整运维视图
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/v1/admin/api-tokens:
     get:
