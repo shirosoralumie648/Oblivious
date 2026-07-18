@@ -88,9 +88,6 @@ func NewReadinessReport(
 		ValidUntil: snapshot.ValidUntil.UTC().Format(time.RFC3339Nano),
 	}
 	registry := NewDetailsRegistry()
-	if err := RegisterReadinessDetails(registry); err != nil {
-		return SurfaceReportV1{}, err
-	}
 	rawDetails, err := registry.MarshalDetails(ReadinessSurfaceID, details)
 	if err != nil {
 		return SurfaceReportV1{}, err
