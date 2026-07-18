@@ -147,7 +147,7 @@
 
 ### Release And Evidence
 
-- [x] **RELS-01**: capability/deployment manifest 明确列出承诺的模块、集成和运行模式，未承诺能力保持禁用。
+- [ ] **RELS-01**: capability/deployment manifest 明确列出承诺的模块、集成和运行模式，未承诺能力保持禁用。
 - [ ] **RELS-02**: OpenAPI、protobuf、migration、前端 client 和当前 runtime 一致，contract drift 会阻断发布。
 - [ ] **RELS-03**: CI 运行 production build、unit、integration、contract、race、lint、security、dependency、migration、restore 和必要 load gate，关键项不得静默 skip。
 - [ ] **RELS-04**: Release operator 可以运行不拦截产品 API 的真实 Identity、Chat 和 Admin 浏览器旅程。
@@ -310,7 +310,7 @@
 | OPER-06 | Phase 38 | Pending |
 | OPER-07 | Phase 37 | Pending |
 | OPER-08 | Phase 38 | Pending |
-| RELS-01 | Phase 31, Phase 31.1 | Complete |
+| RELS-01 | Phase 31, Phase 31.1 | Pending |
 | RELS-02 | Phase 31.2 | Pending |
 | RELS-03 | Phase 39 | Pending |
 | RELS-04 | Phase 35 | Pending |
