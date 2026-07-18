@@ -1,20 +1,74 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	stdhttp "net/http"
 	"strings"
 	"time"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
 
 type mcpHandler struct {
-	client *mcp.Client
+	client    *mcp.Client
+	readiness *mcpMutationReadiness
+}
+
+type MCPHandlerRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type mcpMutationReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+}
+
+func newMCPMutationReadiness(options MCPHandlerRuntimeOptions) (*mcpMutationReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "http.mcpHandler"}
+	}
+	mutation, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectHTTPMutation)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           "http.mcp.mutation",
+		CapabilityID: string(mutation),
+		Boundary:     releasecontract.BoundaryHTTP,
+		Owner:        "http.mcpHandler",
+	}); err != nil {
+		return nil, err
+	}
+	return &mcpMutationReadiness{authorities: options.Authorities}, nil
+}
+
+func (r *mcpMutationReadiness) authorize(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	_, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind:    releasecontract.CatalogSubjectRuntime,
+		ID:      "mcp",
+		Runtime: releasecontract.CatalogRuntimeMCP,
+	}, releasecontract.BoundaryHTTP)
+	return err
 }
 
 func newMCPHandler(client *mcp.Client) mcpHandler {
 	return mcpHandler{client: client}
+}
+
+func newMCPHandlerWithOptions(client *mcp.Client, options MCPHandlerRuntimeOptions) (mcpHandler, error) {
+	readiness, err := newMCPMutationReadiness(options)
+	if err != nil {
+		return mcpHandler{}, err
+	}
+	return mcpHandler{client: client, readiness: readiness}, nil
 }
 
 // GET /api/v1/app/mcp-local-servers
@@ -82,7 +136,7 @@ func (h mcpHandler) addServer(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 
 	var req AddServerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeStrictJSON(r, &req); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
@@ -104,6 +158,12 @@ func (h mcpHandler) addServer(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Name:           req.Name,
 		URL:            req.URL,
 		AuthToken:      req.AuthToken,
+	}
+	if h.readiness != nil {
+		if err := h.readiness.authorize(r.Context()); err != nil {
+			writeReadinessError(w, err)
+			return
+		}
 	}
 
 	created, err := h.client.AddServer(r.Context(), session.User.ID, session.OrganizationID, server)
@@ -340,7 +400,7 @@ func (h mcpHandler) executeTool(w stdhttp.ResponseWriter, r *stdhttp.Request, se
 	}
 
 	var req executeToolRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeStrictJSON(r, &req); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
@@ -357,4 +417,29 @@ func (h mcpHandler) executeTool(w stdhttp.ResponseWriter, r *stdhttp.Request, se
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, result)
+}
+
+func decodeStrictJSON(r *stdhttp.Request, destination any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return io.ErrUnexpectedEOF
+		}
+		return err
+	}
+	return nil
+}
+
+func writeReadinessError(w stdhttp.ResponseWriter, err error) {
+	var readinessErr *releasecontract.ReadinessError
+	if errors.As(err, &readinessErr) {
+		writeError(w, stdhttp.StatusServiceUnavailable, string(readinessErr.Code), "readiness denied")
+		return
+	}
+	writeError(w, stdhttp.StatusServiceUnavailable, "readiness_unavailable", "readiness denied")
 }

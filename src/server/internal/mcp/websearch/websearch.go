@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
 
 // Config selects and configures a provider for NewProviderFromConfig.
@@ -37,6 +38,58 @@ type Config struct {
 	Client *http.Client
 }
 
+// RuntimeOptions supplies the startup-built authority for guarded provider
+// construction. It is intentionally optional here so the existing provider
+// factory remains useful for non-effectful unit clients; callers that execute
+// production web search use the strict constructor option.
+type RuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type searchReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+	webSearch   releasecontract.CapabilityID
+}
+
+func newSearchReadiness(options RuntimeOptions, descriptorID, owner string) (*searchReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "mcp.websearch"}
+	}
+	webSearch, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectToolWebSearch)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           descriptorID,
+		CapabilityID: string(webSearch),
+		Boundary:     releasecontract.BoundaryOutbound,
+		Owner:        owner,
+	}); err != nil {
+		return nil, err
+	}
+	return &searchReadiness{authorities: options.Authorities, webSearch: webSearch}, nil
+}
+
+func (r *searchReadiness) authorize(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	capabilityID, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind:    releasecontract.CatalogSubjectTool,
+		ID:      "web_search",
+		Runtime: releasecontract.CatalogRuntimeNetwork,
+	}, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if capabilityID != r.webSearch {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "mcp.websearchCapability"}
+	}
+	return nil
+}
+
 // ProviderNames lists every supported single-provider name.
 func ProviderNames() []string {
 	return []string{
@@ -46,7 +99,14 @@ func ProviderNames() []string {
 }
 
 // NewProviderFromConfig builds a provider (or fallback chain) from cfg.
-func NewProviderFromConfig(cfg Config) (mcp.WebSearchProvider, error) {
+func NewProviderFromConfig(cfg Config, runtime ...RuntimeOptions) (mcp.WebSearchProvider, error) {
+	var options *RuntimeOptions
+	if len(runtime) > 1 {
+		return nil, errors.New("websearch: multiple runtime authority carriers")
+	}
+	if len(runtime) == 1 {
+		options = &runtime[0]
+	}
 	name := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if name == "" {
 		return nil, errors.New("websearch: provider name is required")
@@ -69,43 +129,64 @@ func NewProviderFromConfig(cfg Config) (mcp.WebSearchProvider, error) {
 		if len(providers) == 0 {
 			return nil, errors.New("websearch: provider chain is empty")
 		}
-		return &Chain{Providers: providers}, nil
+		chain := &Chain{Providers: providers}
+		if options != nil {
+			readiness, err := newSearchReadiness(*options, "mcp.websearch.chain", "mcp.websearch.Chain")
+			if err != nil {
+				return nil, err
+			}
+			chain.readiness = readiness
+		}
+		return chain, nil
 	}
 
+	var provider mcp.WebSearchProvider
+	var err error
 	switch name {
 	case "tavily":
-		return NewTavily(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewTavily(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "brave":
-		return NewBrave(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewBrave(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "serper":
-		return NewSerper(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewSerper(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "serpapi":
-		return NewSerpAPI(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewSerpAPI(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "bing":
-		return NewBing(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewBing(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "google_cse":
-		return NewGoogleCSE(cfg.APIKey, cfg.GoogleCSEID, cfg.Endpoint, cfg.Client)
+		provider, err = NewGoogleCSE(cfg.APIKey, cfg.GoogleCSEID, cfg.Endpoint, cfg.Client)
 	case "duckduckgo":
-		return NewDuckDuckGo(cfg.Endpoint, cfg.Client)
+		provider, err = NewDuckDuckGo(cfg.Endpoint, cfg.Client)
 	case "searxng":
-		return NewSearXNG(cfg.Endpoint, cfg.Client)
+		provider, err = NewSearXNG(cfg.Endpoint, cfg.Client)
 	case "exa":
-		return NewExa(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewExa(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "you":
-		return NewYou(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewYou(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "kagi":
-		return NewKagi(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewKagi(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "mojeek":
-		return NewMojeek(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewMojeek(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "jina":
-		return NewJina(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewJina(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "bocha":
-		return NewBocha(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewBocha(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	case "baidu":
-		return NewBaidu(cfg.APIKey, cfg.Endpoint, cfg.Client)
+		provider, err = NewBaidu(cfg.APIKey, cfg.Endpoint, cfg.Client)
 	default:
 		return nil, fmt.Errorf("websearch: unknown provider %q", cfg.Provider)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if options == nil {
+		return provider, nil
+	}
+	readiness, err := newSearchReadiness(*options, "mcp.websearch.provider", "mcp.websearch.Provider")
+	if err != nil {
+		return nil, err
+	}
+	return &guardedProvider{provider: provider, readiness: readiness}, nil
 }
 
 // NewFromEnv builds a provider from OBLIVIOUS_WEBSEARCH_* environment
@@ -141,6 +222,7 @@ func NewFromEnv() (mcp.WebSearchProvider, bool) {
 // Chain tries providers in order, returning the first successful response.
 type Chain struct {
 	Providers []mcp.WebSearchProvider
+	readiness *searchReadiness
 }
 
 func (c *Chain) Search(ctx context.Context, query string) ([]mcp.WebSearchResult, error) {
@@ -149,6 +231,12 @@ func (c *Chain) Search(ctx context.Context, query string) ([]mcp.WebSearchResult
 	}
 	var errs []error
 	for _, provider := range c.Providers {
+		if c.readiness != nil {
+			if err := c.readiness.authorize(ctx); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		}
 		results, err := provider.Search(ctx, query)
 		if err == nil {
 			return results, nil
@@ -156,6 +244,18 @@ func (c *Chain) Search(ctx context.Context, query string) ([]mcp.WebSearchResult
 		errs = append(errs, err)
 	}
 	return nil, fmt.Errorf("websearch: all chain providers failed: %w", errors.Join(errs...))
+}
+
+type guardedProvider struct {
+	provider  mcp.WebSearchProvider
+	readiness *searchReadiness
+}
+
+func (p *guardedProvider) Search(ctx context.Context, query string) ([]mcp.WebSearchResult, error) {
+	if err := p.readiness.authorize(ctx); err != nil {
+		return nil, err
+	}
+	return p.provider.Search(ctx, query)
 }
 
 const defaultTimeout = 15 * time.Second
