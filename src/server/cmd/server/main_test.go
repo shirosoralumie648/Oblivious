@@ -3,16 +3,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"oblivious/server/internal/buildinfo"
+	serverconfig "oblivious/server/internal/config"
+	serverhttp "oblivious/server/internal/http"
 	"oblivious/server/internal/releasecontract"
 	sharedconfig "oblivious/server/pkg/config"
 )
@@ -114,6 +118,98 @@ func TestStandaloneProfilePreflightGroupOneContract(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeBuildAndBackgroundLifecycleContract(t *testing.T) {
+	root, err := filepath.Abs("../../../../")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := releasecontract.Load(context.Background(), root, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var profile releasecontract.DeploymentProfile
+	for _, candidate := range contract.Profiles {
+		if candidate.ID == "monolith" {
+			profile = candidate
+			break
+		}
+	}
+	guard := &runtimeGuardSpy{}
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects := &runtimeEffectRegistrarSpy{}
+	manager := runtimeReadinessManagerStub{}
+	database, err := sql.Open("postgres", "postgres://unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	runtime, err := serverhttp.BuildRuntime(serverconfig.Config{
+		Port: 0, Env: "test", ModelDefaultName: "demo-reply", RelayDefaultModel: "gpt-4o-mini", DatabaseURL: "postgres://unused",
+	}, database, serverhttp.RuntimeOptions{Readiness: manager, Guard: guard, Effects: effects, Authorities: authorities})
+	if err != nil {
+		t.Fatalf("BuildRuntime: %v", err)
+	}
+	if len(effects.descriptors) == 0 {
+		t.Fatal("strict runtime constructors did not register any effect descriptors")
+	}
+	if len(guard.calls) != 0 {
+		t.Fatalf("BuildRuntime called readiness guard %d times", len(guard.calls))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := runtime.StartBackground(ctx); err != nil {
+		t.Fatalf("StartBackground: %v", err)
+	}
+	if err := runtime.StartBackground(ctx); err == nil {
+		t.Fatal("duplicate StartBackground unexpectedly succeeded")
+	}
+	if err := runtime.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := runtime.Close(context.Background()); err != nil {
+		t.Fatalf("idempotent Close: %v", err)
+	}
+	if err := runtime.StartBackground(context.Background()); err == nil {
+		t.Fatal("StartBackground after Close unexpectedly succeeded")
+	}
+	if len(guard.calls) != 0 {
+		t.Fatalf("lifecycle test observed readiness effects despite disabled workers: %d", len(guard.calls))
+	}
+	if _, err := serverhttp.BuildRuntime(serverconfig.Config{Env: "test"}, database, serverhttp.RuntimeOptions{Readiness: manager, Guard: guard, Effects: effects}); err == nil {
+		t.Fatal("zero RuntimeAuthorities unexpectedly accepted")
+	}
+}
+
+type runtimeGuardSpy struct{ calls []string }
+
+func (g *runtimeGuardSpy) Require(_ context.Context, capabilityID string, _ releasecontract.Boundary) error {
+	g.calls = append(g.calls, capabilityID)
+	return nil
+}
+
+type runtimeEffectRegistrarSpy struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *runtimeEffectRegistrarSpy) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+type runtimeReadinessManagerStub struct{}
+
+func (runtimeReadinessManagerStub) Bootstrap(context.Context) error { return nil }
+func (runtimeReadinessManagerStub) StartRefresh(context.Context)    {}
+func (runtimeReadinessManagerStub) Require(string) error            { return nil }
+func (runtimeReadinessManagerStub) Evaluate() releasecontract.Evaluation {
+	return releasecontract.Evaluation{}
+}
+func (runtimeReadinessManagerStub) ExportAudit(string) error { return nil }
 
 type entrypointPreflightSpies struct {
 	contract releasecontract.AuthoredContractV1

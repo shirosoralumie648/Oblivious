@@ -85,6 +85,9 @@ type RouterOptions struct {
 	AlertProviderConfigStore    observability.AlertProviderConfigStore
 	AuthStore                   auth.Store
 	AdminQuotaSettingsService   adminQuotaSettingsService
+	AgentService                *agent.Service
+	MCPClient                   *mcp.Client
+	ChannelService              *publishingchannel.Service
 }
 
 func (o RouterOptions) ValidateReadinessAuthorities() error {
@@ -122,6 +125,24 @@ func (a stripeMarketplaceSettlementAdapter) ApplyMarketplaceRefund(ctx context.C
 }
 
 func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
+	handler, err := newRouterWithOptions(cfg, database, options, false)
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+// NewReadinessRouterWithOptions is the production composition entrypoint. It
+// requires the startup-built authority carrier and wires strict consumer
+// constructors without allowing compatibility fallbacks.
+func NewReadinessRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) (stdhttp.Handler, error) {
+	if err := options.ValidateReadinessAuthorities(); err != nil {
+		return nil, err
+	}
+	return newRouterWithOptions(cfg, database, options, true)
+}
+
+func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions, strict bool) (stdhttp.Handler, error) {
 	mux := stdhttp.NewServeMux()
 	notificationService := notification.NewService(notification.NewSQLStore(database))
 	workflowService := options.WorkflowService
@@ -149,16 +170,62 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
-	replyGenerator, agentGateway := newConfiguredChatGateways(cfg)
+	var replyGenerator chat.ReplyGenerator
+	var agentGateway chat.ChatGateway
+	if strict {
+		var err error
+		replyGenerator, agentGateway, err = newConfiguredChatGatewaysWithReadiness(cfg, chat.RelayGatewayRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		replyGenerator, agentGateway = newConfiguredChatGateways(cfg)
+	}
 	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
-	chatHandler := newChatHandler(chatService)
+	var chatHandler chatHandler
+	if strict {
+		var err error
+		chatHandler, err = newReadinessChatHandler(chatService, options.Authorities)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		chatHandler = newChatHandler(chatService)
+	}
 	knowledgeStore := knowledge.NewSQLStore(database)
 	knowledgeService := newKnowledgeService(cfg, knowledgeStore)
 	knowledgeHandler := newKnowledgeHandler(knowledgeService)
 	preferencesHandler := newPreferencesHandler(preferencesService)
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
-	agentService := agent.NewService(agent.NewSQLStore(database), agentGateway)
+	var agentService *agent.Service
+	var mcpClient *mcp.Client
+	if strict {
+		var err error
+		mcpClient = options.MCPClient
+		if mcpClient == nil {
+			mcpClient, err = mcp.NewClientWithOptions(mcp.NewSQLStore(database), mcp.ClientRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+			if err != nil {
+				return nil, err
+			}
+		}
+		agentService = options.AgentService
+		if agentService == nil {
+			agentService, err = agent.NewServiceWithRuntimeOptions(agent.NewSQLStore(database), agentGateway, mcpClient, agent.ToolRuntimeOptions{
+				Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects, HTTPClient: stdhttp.DefaultClient,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if provider, providerErr := buildAgentWebSearchProviderWithOptions(cfg, mcp.WebSearchRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects}); providerErr != nil {
+				return nil, providerErr
+			} else if provider != nil {
+				agentService.SetWebSearchProvider(provider)
+			}
+		}
+	} else {
+		agentService = agent.NewService(agent.NewSQLStore(database), agentGateway)
+	}
 	registerWorkflowAgentExecutor(workflowService, agentService)
 	agentHandler := newAgentHandler(agentService)
 
@@ -179,8 +246,19 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	agentRunsHandler := newAgentRunsHandler(agentService)
 
 	// MCP client
-	mcpClient := mcp.NewClient(mcp.NewSQLStore(database))
-	mcpHandler := newMCPHandler(mcpClient)
+	if !strict {
+		mcpClient = mcp.NewClient(mcp.NewSQLStore(database))
+	}
+	var mcpHandler mcpHandler
+	if strict {
+		var err error
+		mcpHandler, err = newMCPHandlerWithOptions(mcpClient, MCPHandlerRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		mcpHandler = newMCPHandler(mcpClient)
+	}
 
 	// Inject MCP client into agent service
 	agentService.SetMCPClient(mcpClient)
@@ -193,7 +271,16 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	if options.MarketplacePayoutProvider != nil {
 		marketplaceSettlementOptions = append(marketplaceSettlementOptions, marketplace.WithMarketplacePayoutProvider(options.MarketplacePayoutProvider))
 	}
-	marketplaceSettlementService := marketplace.NewSettlementService(marketplaceStore, marketplaceSettlementOptions...)
+	var marketplaceSettlementService *marketplace.SettlementService
+	if strict {
+		var err error
+		marketplaceSettlementService, err = marketplace.NewSettlementServiceWithFinancialReadiness(marketplaceStore, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects}, marketplaceSettlementOptions...)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		marketplaceSettlementService = marketplace.NewSettlementService(marketplaceStore, marketplaceSettlementOptions...)
+	}
 	checkoutCreator := options.CheckoutCreator
 	if checkoutCreator == nil {
 		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
@@ -207,12 +294,23 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		),
 		preferencesService,
 	)
-	billingHandler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{
-		SecretKey:     cfg.StripeSecretKey,
-		SuccessURL:    cfg.StripeSuccessURL,
-		CancelURL:     cfg.StripeCancelURL,
-		WebhookSecret: cfg.StripeWebhookSecret,
-	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators)
+	var billingHandler billingHandler
+	if strict {
+		var err error
+		billingHandler, err = newBillingHandlerWithReadiness(checkoutCreator, stripebilling.CheckoutConfig{
+			SecretKey: cfg.StripeSecretKey, SuccessURL: cfg.StripeSuccessURL, CancelURL: cfg.StripeCancelURL, WebhookSecret: cfg.StripeWebhookSecret,
+		}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		billingHandler = newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{
+			SecretKey:     cfg.StripeSecretKey,
+			SuccessURL:    cfg.StripeSuccessURL,
+			CancelURL:     cfg.StripeCancelURL,
+			WebhookSecret: cfg.StripeWebhookSecret,
+		}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators)
+	}
 	billingLifecycleService := stripebilling.NewLifecycleService(
 		stripebilling.NewSQLLifecycleStore(database),
 		stripebilling.WithMarketplaceSettlementApplier(stripeMarketplaceSettlementAdapter{service: marketplaceSettlementService}),
@@ -255,7 +353,19 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	if adminQuotaSettingsService == nil {
 		adminQuotaSettingsService = quotaService
 	}
-	adminHandler := newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
+	var adminHandler adminHandler
+	if strict {
+		var err error
+		adminHandler, err = newAdminHandlerWithFinancialReadiness(adminService, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		if err != nil {
+			return nil, err
+		}
+		adminHandler.quotaService = adminQuotaSettingsService
+		adminHandler.payoutService = marketplaceSettlementService
+		adminHandler.reviewSLAService = marketplaceService
+	} else {
+		adminHandler = newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
+	}
 	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg, database, options.RequestLogEvidenceStore))
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
@@ -272,10 +382,20 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	// Notification service
 	notificationHandler := newNotificationHandler(notificationService)
 	channelStore := publishingchannel.NewSQLStore(database)
-	channelHandler := newChannelHandler(channelStore, publishingchannel.NewServiceWithOptions(
-		publishingchannel.NewAdapterRegistry(nil),
-		publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
-	))
+	var channelService *publishingchannel.Service
+	if strict {
+		channelService = options.ChannelService
+		if channelService == nil {
+			var err error
+			channelService, err = publishingchannel.NewReadinessServiceWithOptions(publishingchannel.NewAdapterRegistry(nil), options.Guard, options.Authorities, options.Effects, publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier))
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		channelService = publishingchannel.NewServiceWithOptions(publishingchannel.NewAdapterRegistry(nil), publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier))
+	}
+	channelHandler := newChannelHandler(channelStore, channelService)
 	workflowHandler := newWorkflowHandler(newWorkflowServiceAdapter(workflowService))
 	chatService.SetSemanticWorkflowTriggerer(workflowSemanticTriggerDispatcher{service: newWorkflowServiceAdapter(workflowService)})
 	scheduleService := options.ScheduleService
@@ -1560,7 +1680,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 	})
 
-	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins)), nil
 }
 
 func readinessHandler(cfg config.Config, database *sql.DB) stdhttp.HandlerFunc {
@@ -1626,6 +1746,24 @@ func newConfiguredChatGateways(cfg config.Config) (chat.ReplyGenerator, chat.Cha
 	}
 	localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 	return localGenerator, chat.NewLocalGateway(localGenerator)
+}
+
+func newConfiguredChatGatewaysWithReadiness(cfg config.Config, runtime chat.RelayGatewayRuntimeOptions) (chat.ReplyGenerator, chat.ChatGateway, error) {
+	primary, err := chat.NewReadinessRelayGateway(runtime,
+		chat.WithRelayURL(configuredChatRelayBaseURL(cfg)), chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg.RelayEnabled && cfg.Env != "production" {
+		fallback := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		composite, err := chat.NewCompositeGatewayWithOptions(primary, fallback, runtime)
+		if err != nil {
+			return nil, nil, err
+		}
+		return composite, composite, nil
+	}
+	return primary, primary, nil
 }
 
 func configuredChatRelayBaseURL(cfg config.Config) string {
