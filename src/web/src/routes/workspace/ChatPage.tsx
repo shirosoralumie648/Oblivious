@@ -1062,7 +1062,7 @@ export function ChatPage() {
     const trimmedContent = messageDraft.trim();
     const attachments = messageAttachments;
 
-    if (!conversationId || (trimmedContent === '' && attachments.length === 0)) {
+    if (isLoading || !conversationId || (trimmedContent === '' && attachments.length === 0)) {
       return;
     }
 
@@ -1610,11 +1610,16 @@ export function ChatPage() {
               {isCollaboratorTyping ? <p role="status">A collaborator is typing...</p> : null}
               <label>
                 Message draft
-                <textarea onChange={(event) => setMessageDraft(event.target.value)} value={messageDraft} />
+                <textarea
+                  disabled={isLoading}
+                  onChange={(event) => setMessageDraft(event.target.value)}
+                  value={messageDraft}
+                />
               </label>
               <label>
                 Attach images/files
                 <input
+                  disabled={isLoading}
                   multiple
                   onChange={(event) => updateMessageAttachments(event.target.files)}
                   type="file"
@@ -1631,7 +1636,7 @@ export function ChatPage() {
                   ))}
                 </ul>
               ) : null}
-              <button disabled={isSending} onClick={() => void handleSendMessage()} type="button">
+              <button disabled={isLoading || isSending} onClick={() => void handleSendMessage()} type="button">
                 Send message
               </button>
             </>

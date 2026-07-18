@@ -296,6 +296,46 @@ describe('ChatPage', () => {
     expect(listMessages).toHaveBeenLastCalledWith('conversation_1');
   });
 
+  it('keeps message dispatch disabled until the active conversation finishes loading', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+
+    let resolveMessages!: (messages: Array<{ content: string; id: string; role: string }>) => void;
+    listMessages.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMessages = resolve;
+      })
+    );
+
+    render(<ChatPage />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading chat workspace...');
+    expect(screen.getByLabelText('Message draft')).toBeDisabled();
+    expect(screen.getByLabelText('Attach images/files')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+
+    await act(async () => {
+      resolveMessages([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Message draft')).toBeEnabled();
+      expect(screen.getByLabelText('Attach images/files')).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
+    });
+  });
+
   it('joins the active realtime conversation and sends typing presence', async () => {
     mockActiveConversation();
 
