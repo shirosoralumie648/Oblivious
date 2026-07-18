@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/releasecontract"
 )
 
 // Category classifies a tool by its origin.
@@ -40,13 +41,58 @@ type ToolExecutor func(ctx context.Context, args map[string]any) (*mcp.ToolResul
 type registryEntry struct {
 	metadata ToolMetadata
 	executor ToolExecutor
+	runtime  releasecontract.CatalogRuntimeClass
 }
 
 // Registry is a thread-safe tool registry supporting registration, discovery,
 // and categorisation of builtin, custom, and MCP tools.
 type Registry struct {
-	mu      sync.RWMutex
-	entries map[string]registryEntry
+	mu        sync.RWMutex
+	entries   map[string]registryEntry
+	readiness *registryReadiness
+}
+
+// RegistryRuntimeOptions is the startup-only authority carrier for this
+// independent registry API. The production Agent ToolExecutor has its own
+// dispatch seam and is guarded by a later plan.
+type RegistryRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type registryReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+	effects     map[Category]releasecontract.CapabilityID
+}
+
+func newRegistryReadiness(options RegistryRuntimeOptions) (*registryReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.tools.registry"}
+	}
+	effectIDs := map[Category]releasecontract.EffectID{
+		CategoryBuiltin: releasecontract.EffectAgentToolBuiltin,
+		CategoryCustom:  releasecontract.EffectAgentToolCustomAPIHTTP,
+		CategoryMCP:     releasecontract.EffectAgentToolMCP,
+	}
+	capabilities := make(map[Category]releasecontract.CapabilityID, len(effectIDs))
+	for category, effectID := range effectIDs {
+		capabilityID, err := options.Authorities.CapabilityBindings.Resolve(effectID)
+		if err != nil {
+			return nil, err
+		}
+		capabilities[category] = capabilityID
+		descriptor := releasecontract.EffectDescriptor{
+			ID:           "agent.tool.registry." + string(category),
+			CapabilityID: string(capabilityID),
+			Boundary:     releasecontract.BoundaryOutbound,
+			Owner:        "agent.tools.Registry",
+		}
+		if err := options.Effects.Register(descriptor); err != nil {
+			return nil, err
+		}
+	}
+	return &registryReadiness{authorities: options.Authorities, effects: capabilities}, nil
 }
 
 // NewRegistry creates an empty Registry.
@@ -56,6 +102,16 @@ func NewRegistry() *Registry {
 	}
 }
 
+// NewRegistryWithOptions constructs the independent registry with immutable
+// startup readiness wiring and exact once-per-category effect descriptors.
+func NewRegistryWithOptions(options RegistryRuntimeOptions) (*Registry, error) {
+	readiness, err := newRegistryReadiness(options)
+	if err != nil {
+		return nil, err
+	}
+	return &Registry{entries: make(map[string]registryEntry), readiness: readiness}, nil
+}
+
 // NewDefaultRegistry creates a Registry pre-loaded with all builtin tools.
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
@@ -63,6 +119,19 @@ func NewDefaultRegistry() *Registry {
 		r.RegisterBuiltin(name, tool)
 	}
 	return r
+}
+
+// NewDefaultRegistryWithOptions is the readiness-bound counterpart of
+// NewDefaultRegistry.
+func NewDefaultRegistryWithOptions(options RegistryRuntimeOptions) (*Registry, error) {
+	r, err := NewRegistryWithOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	for name, tool := range mcp.BuiltinTools {
+		r.RegisterBuiltin(name, tool)
+	}
+	return r, nil
 }
 
 // RegisterBuiltin registers a builtin tool.
@@ -82,6 +151,7 @@ func (r *Registry) RegisterBuiltin(name string, tool mcp.BuiltinTool) {
 		executor: func(ctx context.Context, args map[string]any) (*mcp.ToolResult, error) {
 			return tool.Execute(ctx, args)
 		},
+		runtime: releasecontract.CatalogRuntimeBuiltin,
 	}
 }
 
@@ -96,6 +166,7 @@ func (r *Registry) RegisterCustom(meta ToolMetadata, executor ToolExecutor) {
 	r.entries[meta.Name] = registryEntry{
 		metadata: meta,
 		executor: executor,
+		runtime:  releasecontract.CatalogRuntimeCustom,
 	}
 }
 
@@ -110,6 +181,7 @@ func (r *Registry) RegisterMCP(meta ToolMetadata, executor ToolExecutor) {
 	r.entries[meta.Name] = registryEntry{
 		metadata: meta,
 		executor: executor,
+		runtime:  releasecontract.CatalogRuntimeMCP,
 	}
 }
 
@@ -123,6 +195,7 @@ func (r *Registry) Register(meta ToolMetadata, executor ToolExecutor) {
 	r.entries[meta.Name] = registryEntry{
 		metadata: meta,
 		executor: executor,
+		runtime:  registryRuntimeForCategory(meta.Category),
 	}
 }
 
@@ -235,7 +308,50 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 	if entry.executor == nil {
 		return nil, fmt.Errorf("tool %s has no executor", name)
 	}
+	if r.readiness != nil {
+		if err := r.readiness.authorize(ctx, entry); err != nil {
+			return nil, err
+		}
+	}
 	return entry.executor(ctx, args)
+}
+
+func registryRuntimeForCategory(category Category) releasecontract.CatalogRuntimeClass {
+	switch category {
+	case CategoryBuiltin:
+		return releasecontract.CatalogRuntimeBuiltin
+	case CategoryCustom:
+		return releasecontract.CatalogRuntimeCustom
+	case CategoryMCP:
+		return releasecontract.CatalogRuntimeMCP
+	default:
+		return ""
+	}
+}
+
+func (r *registryReadiness) authorize(ctx context.Context, entry registryEntry) error {
+	if r == nil {
+		return nil
+	}
+	var subject releasecontract.CatalogSubject
+	switch entry.metadata.Category {
+	case CategoryBuiltin:
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectTool, ID: strings.TrimSpace(entry.metadata.Name), Runtime: entry.runtime}
+	case CategoryCustom:
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "custom", Runtime: releasecontract.CatalogRuntimeCustom}
+	case CategoryMCP:
+		subject = releasecontract.CatalogSubject{Kind: releasecontract.CatalogSubjectRuntime, ID: "mcp", Runtime: releasecontract.CatalogRuntimeMCP}
+	default:
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.tools.category"}
+	}
+	capabilityID, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, subject, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if expected := r.effects[entry.metadata.Category]; expected != capabilityID {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "agent.tools.runtimeCapability"}
+	}
+	return nil
 }
 
 // ToOpenAITools converts all registered tools to OpenAI function-calling format.
