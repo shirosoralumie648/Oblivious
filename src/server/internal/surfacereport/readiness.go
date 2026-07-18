@@ -147,7 +147,17 @@ func validateReadinessSnapshotAuthority(contract releasecontract.AuthoredContrac
 		return reportError("evidence.details.identity", nil)
 	}
 	now := time.Now().UTC()
-	evaluated, evaluateErr := releasecontract.NewEvaluator().Evaluate(contract, identity, profile, snapshot.Generation, snapshot.Observations, now)
+	evaluationTime := now
+	if outcome.Result == ResultPass {
+		if now.UnixNano() > snapshot.ValidUntil.UTC().UnixNano() {
+			return reportError("evidence.details.evaluation", &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "snapshot"})
+		}
+		// Re-evaluate a passing offline snapshot at its authored observation time.
+		// The current clock still enforces freshness above, while using checkedAt
+		// keeps the derived validUntil byte-exact with the runtime snapshot.
+		evaluationTime = snapshot.CheckedAt
+	}
+	evaluated, evaluateErr := releasecontract.NewEvaluator().Evaluate(contract, identity, profile, snapshot.Generation, snapshot.Observations, evaluationTime)
 	if evaluateErr != nil {
 		var readinessErr *releasecontract.ReadinessError
 		if !errors.As(evaluateErr, &readinessErr) || outcome.Result != ResultFail || !containsString(outcome.ErrorCodes, string(readinessErr.Code)) {
