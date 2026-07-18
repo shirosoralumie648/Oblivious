@@ -17,6 +17,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"oblivious/server/internal/admin"
+	"oblivious/server/internal/buildinfo"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/db"
 	"oblivious/server/internal/memory"
@@ -28,6 +29,7 @@ import (
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/usage"
 )
 
@@ -38,117 +40,126 @@ type relayBatchPollingWorkerRunner interface {
 type relayBatchPollingWorkerFactory func(relay.BatchPollingWorkerStore, relay.BatchStatusClient, relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-	if !cfg.RelayEnabled {
-		log.Fatal("Relay service requires RELAY_ENABLED=true")
-	}
+	if err := config.RunEntrypoint(context.Background(), releasecontract.EntrypointID("relay"), config.EntrypointPreflightOptions{
+		RepoRoot: "/app", ContractPath: "config/release/contract.v1.json", SchemaPath: "config/release/contract.schema.json",
+		ProfileID: os.Getenv("OBLIVIOUS_DEPLOYMENT_PROFILE"), Contracts: config.FileContractLoader{},
+		Identities: buildinfo.NewEmbeddedProvider(), Profiles: releasecontract.NewFileProfileResolver(),
+	}, func(context.Context, config.ResolvedEntrypointInputs) error {
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		if !cfg.RelayEnabled {
+			log.Fatal("Relay service requires RELAY_ENABLED=true")
+		}
 
-	databaseURL := relayDatabaseURL(cfg)
-	database, err := db.Open(databaseURL)
-	if err != nil {
-		log.Fatalf("open relay database: %v", err)
-	}
-	defer database.Close()
+		databaseURL := relayDatabaseURL(cfg)
+		database, err := db.Open(databaseURL)
+		if err != nil {
+			log.Fatalf("open relay database: %v", err)
+		}
+		defer database.Close()
 
-	migrationCtx, cancelMigrations := context.WithTimeout(context.Background(), 10*time.Minute)
-	migrationResult, err := migrations.Apply(migrationCtx, database, "migrations")
-	cancelMigrations()
-	if err != nil {
-		log.Fatalf("apply relay database migrations: %v", err)
-	}
-	log.Printf("relay migrations ready: applied=%d skipped=%d", migrationResult.Applied, migrationResult.Skipped)
+		migrationCtx, cancelMigrations := context.WithTimeout(context.Background(), 10*time.Minute)
+		migrationResult, err := migrations.Apply(migrationCtx, database, "migrations")
+		cancelMigrations()
+		if err != nil {
+			log.Fatalf("apply relay database migrations: %v", err)
+		}
+		log.Printf("relay migrations ready: applied=%d skipped=%d", migrationResult.Applied, migrationResult.Skipped)
 
-	gin.SetMode(gin.ReleaseMode)
+		gin.SetMode(gin.ReleaseMode)
 
-	relayStore := relay.NewRelayStore(database)
-	pool := relay.NewChannelPool()
-	if err := relayStore.LoadPoolFromStore(pool); err != nil {
-		log.Fatalf("load relay channels from database: %v", err)
-	}
-	ensureDefaultChannel(relayStore, pool, cfg)
+		relayStore := relay.NewRelayStore(database)
+		pool := relay.NewChannelPool()
+		if err := relayStore.LoadPoolFromStore(pool); err != nil {
+			log.Fatalf("load relay channels from database: %v", err)
+		}
+		ensureDefaultChannel(relayStore, pool, cfg)
 
-	pricingStore := loadRelayPricingStore(cfg, database)
+		pricingStore := loadRelayPricingStore(cfg, database)
 
-	apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
-	apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
-	rateLimiter, closeRateLimiter := buildRelayRateLimiter(cfg)
-	if closeRateLimiter != nil {
-		defer func() {
-			if err := closeRateLimiter(); err != nil {
-				log.Printf("warning: failed to close relay rate limiter: %v", err)
+		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
+		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
+		rateLimiter, closeRateLimiter := buildRelayRateLimiter(cfg)
+		if closeRateLimiter != nil {
+			defer func() {
+				if err := closeRateLimiter(); err != nil {
+					log.Printf("warning: failed to close relay rate limiter: %v", err)
+				}
+			}()
+		}
+
+		relayCfg := buildStandaloneRelayConfig(
+			cfg,
+			pool,
+			pricingStore,
+			apiTokenAuthenticator,
+			rateLimiter,
+			relayStore,
+			observability.NewSQLAlertStateStore(database),
+		)
+		applyRelaySemanticCacheConfig(relayCfg, cfg, database)
+
+		r, err := relay.NewRelay(relayCfg)
+		if err != nil {
+			log.Fatalf("Failed to create relay: %v", err)
+		}
+
+		quotaStore := quota.NewSQLStore(database)
+		quotaService := quota.NewService(quotaStore)
+		r.Router().SetQuotaManager(quotaService)
+		r.Router().SetAPITokenQuotaManager(apiTokenStore)
+		r.Router().SetUsageLogger(usage.NewSQLRecorder(database))
+		r.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
+
+		relayHealthCtx, cancelHealthChecks := context.WithCancel(context.Background())
+		defer cancelHealthChecks()
+		r.StartHealthChecks(relayHealthCtx)
+		batchFinalizer := relay.NewBatchUsageFinalizer(usage.NewSQLRecorder(database), relay.BatchUsageFinalizerConfig{
+			PricingStore:         pricingStore,
+			QuotaManager:         quotaService,
+			APITokenQuotaManager: apiTokenStore,
+		})
+		cancelBatchPollingWorker, batchPollingWorkerStarted := startStandaloneRelayBatchPollingWorker(
+			cfg,
+			relayStore,
+			relay.NewOpenAIBatchStatusClient(relayInstanceDefaultAdapter(pool)),
+			batchFinalizer,
+			batchFinalizer,
+			nil,
+		)
+		if batchPollingWorkerStarted {
+			defer cancelBatchPollingWorker()
+		}
+
+		srv := &http.Server{
+			Addr:    fmt.Sprintf(":%d", cfg.Port),
+			Handler: r.Engine(),
+		}
+
+		go func() {
+			log.Printf("Relay service listening on port %d env=%s dbMode=%s", cfg.Port, cfg.Env, cfg.DBMode)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Server error: %v", err)
 			}
 		}()
-	}
 
-	relayCfg := buildStandaloneRelayConfig(
-		cfg,
-		pool,
-		pricingStore,
-		apiTokenAuthenticator,
-		rateLimiter,
-		relayStore,
-		observability.NewSQLAlertStateStore(database),
-	)
-	applyRelaySemanticCacheConfig(relayCfg, cfg, database)
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
 
-	r, err := relay.NewRelay(relayCfg)
-	if err != nil {
-		log.Fatalf("Failed to create relay: %v", err)
-	}
-
-	quotaStore := quota.NewSQLStore(database)
-	quotaService := quota.NewService(quotaStore)
-	r.Router().SetQuotaManager(quotaService)
-	r.Router().SetAPITokenQuotaManager(apiTokenStore)
-	r.Router().SetUsageLogger(usage.NewSQLRecorder(database))
-	r.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
-
-	relayHealthCtx, cancelHealthChecks := context.WithCancel(context.Background())
-	defer cancelHealthChecks()
-	r.StartHealthChecks(relayHealthCtx)
-	batchFinalizer := relay.NewBatchUsageFinalizer(usage.NewSQLRecorder(database), relay.BatchUsageFinalizerConfig{
-		PricingStore:         pricingStore,
-		QuotaManager:         quotaService,
-		APITokenQuotaManager: apiTokenStore,
-	})
-	cancelBatchPollingWorker, batchPollingWorkerStarted := startStandaloneRelayBatchPollingWorker(
-		cfg,
-		relayStore,
-		relay.NewOpenAIBatchStatusClient(relayInstanceDefaultAdapter(pool)),
-		batchFinalizer,
-		batchFinalizer,
-		nil,
-	)
-	if batchPollingWorkerStarted {
-		defer cancelBatchPollingWorker()
-	}
-
-	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: r.Engine(),
-	}
-
-	go func() {
-		log.Printf("Relay service listening on port %d env=%s dbMode=%s", cfg.Port, cfg.Env, cfg.DBMode)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cancelHealthChecks()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
 		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cancelHealthChecks()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		log.Println("Relay service stopped")
+		return nil
+	}); err != nil {
+		log.Fatalf("relay preflight failed: %v", err)
 	}
-	log.Println("Relay service stopped")
 }
 
 func startStandaloneRelayBatchPollingWorker(
