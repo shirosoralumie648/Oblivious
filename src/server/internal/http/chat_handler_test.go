@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
+	"oblivious/server/internal/releasecontract"
 )
 
 type chatFakeStore struct {
@@ -28,6 +31,7 @@ type chatFakeStore struct {
 	lastKnowledgeBaseIDs  []string
 	personaUpdateErr      error
 	personaDeleteErr      error
+	updateConfigCalls     int
 }
 
 type chatRealtimeNotification struct {
@@ -116,6 +120,7 @@ func (f *chatFakeStore) UpdateConversationConfig(
 	knowledgeBaseIDs []string,
 	personaIDs ...string,
 ) (chat.ConversationConfig, error) {
+	f.updateConfigCalls++
 	f.lastConversationID = conversationID
 	f.lastWorkspaceID = workspaceID
 	f.lastKnowledgeBaseIDs = append([]string(nil), knowledgeBaseIDs...)
@@ -134,6 +139,112 @@ func (f *chatFakeStore) UpdateConversationConfig(
 		KnowledgeBaseIDs:     append([]string(nil), knowledgeBaseIDs...),
 		UpdatedAt:            time.Date(2026, time.April, 3, 14, 0, 0, 0, time.UTC),
 	}, nil
+}
+
+func TestModelCatalogMutationContract(t *testing.T) {
+	contract, profile := loadHTTPModelReadinessAuthority(t)
+	newHandler := func(t *testing.T, store *chatFakeStore, guard releasecontract.Guard) chatHandler {
+		t.Helper()
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		handler, err := newReadinessChatHandler(chat.NewService(store, noopReplyGenerator{}, "gpt-4o-mini", nil), authorities)
+		if err != nil {
+			t.Fatalf("construct readiness handler: %v", err)
+		}
+		return handler
+	}
+	requestWithSession := func(body string) *stdhttp.Request {
+		return httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/conversations/conversation_1/config", strings.NewReader(body)).WithContext(
+			context.WithValue(context.Background(), sessionContextKey, auth.Session{WorkspaceID: "workspace_1"}),
+		)
+	}
+
+	t.Run("caller capability is rejected before store mutation", func(t *testing.T) {
+		store := &chatFakeStore{}
+		handler := newHandler(t, store, &httpModelGuardSpy{})
+		recorder := httptest.NewRecorder()
+		handler.updateConversationConfig(recorder, requestWithSession(`{"modelId":"gpt-4o-mini","capabilityId":"relay.provider_inference"}`), "conversation_1")
+		if recorder.Code != stdhttp.StatusBadRequest || store.updateConfigCalls != 0 {
+			t.Fatalf("caller capability reached store: status=%d calls=%d body=%s", recorder.Code, store.updateConfigCalls, recorder.Body.String())
+		}
+	})
+
+	t.Run("unknown model is rejected before store mutation", func(t *testing.T) {
+		store := &chatFakeStore{}
+		handler := newHandler(t, store, &httpModelGuardSpy{})
+		recorder := httptest.NewRecorder()
+		handler.updateConversationConfig(recorder, requestWithSession(`{"modelId":"caller-capability"}`), "conversation_1")
+		if recorder.Code != stdhttp.StatusBadRequest || store.updateConfigCalls != 0 {
+			t.Fatalf("unknown model reached store: status=%d calls=%d body=%s", recorder.Code, store.updateConfigCalls, recorder.Body.String())
+		}
+	})
+
+	t.Run("current model is guarded before store mutation", func(t *testing.T) {
+		store := &chatFakeStore{}
+		guard := &httpModelGuardSpy{}
+		handler := newHandler(t, store, guard)
+		recorder := httptest.NewRecorder()
+		handler.updateConversationConfig(recorder, requestWithSession(`{"modelId":"gpt-4o-mini"}`), "conversation_1")
+		if recorder.Code != stdhttp.StatusOK || store.updateConfigCalls != 1 || len(guard.calls) != 1 {
+			t.Fatalf("valid model mutation was not independently guarded: status=%d store=%d guard=%#v body=%s", recorder.Code, store.updateConfigCalls, guard.calls, recorder.Body.String())
+		}
+	})
+
+	t.Run("model response has exact server derived contract", func(t *testing.T) {
+		store := &chatFakeStore{}
+		handler := newHandler(t, store, &httpModelGuardSpy{})
+		recorder := httptest.NewRecorder()
+		handler.listModels(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/models", nil))
+		var envelope struct {
+			Data []map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode model response: %v", err)
+		}
+		if recorder.Code != stdhttp.StatusOK || len(envelope.Data) != 1 {
+			t.Fatalf("unexpected current model response: status=%d data=%#v", recorder.Code, envelope.Data)
+		}
+		model := envelope.Data[0]
+		if len(model) != 3 || model["id"] != "gpt-4o-mini" || model["label"] != "gpt-4o-mini" || model["capabilityId"] != "relay.provider_inference" {
+			t.Fatalf("model response is not exact/server-derived: %#v", model)
+		}
+	})
+}
+
+type httpModelGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type httpModelGuardSpy struct {
+	calls []httpModelGuardCall
+}
+
+func (g *httpModelGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, httpModelGuardCall{capabilityID: capabilityID, boundary: boundary})
+	return nil
+}
+
+func loadHTTPModelReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve HTTP readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
 }
 
 func (f *chatFakeStore) ForkConversation(ctx context.Context, organizationID, workspaceID, sourceConversationID, title, branchFromMessageID string) (chat.Conversation, error) {

@@ -189,6 +189,7 @@ export type ConvertConversationToTaskResponse = {
 export type ModelOption = {
   id: string;
   label: string;
+  capabilityId: string;
 };
 
 export type KnowledgeRetrievalMode = 'vector_only' | 'hybrid' | 'hybrid_rerank';

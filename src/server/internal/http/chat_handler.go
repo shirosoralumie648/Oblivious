@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,12 +10,14 @@ import (
 	"strings"
 
 	"oblivious/server/internal/chat"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/ws"
 )
 
 type chatHandler struct {
 	notifyConversation func(conversationID, eventType string, payload any)
 	service            *chat.Service
+	authorities        releasecontract.RuntimeAuthorities
 }
 
 type createConversationRequest struct {
@@ -52,6 +55,12 @@ type updateConversationConfigRequest struct {
 	ToolsEnabled         bool     `json:"toolsEnabled"`
 }
 
+type modelOptionResponse struct {
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	CapabilityID string `json:"capabilityId"`
+}
+
 type createPersonaRequest struct {
 	Name               string   `json:"name"`
 	Role               string   `json:"role"`
@@ -80,6 +89,48 @@ func newChatHandler(service *chat.Service) chatHandler {
 		notifyConversation: ws.NotifyConversation,
 		service:            service,
 	}
+}
+
+// newReadinessChatHandler binds model mutation/response mapping to the
+// startup-built catalog authority. The legacy constructor remains available
+// for isolated tests that do not exercise runtime dispatch.
+func newReadinessChatHandler(service *chat.Service, authorities releasecontract.RuntimeAuthorities) (chatHandler, error) {
+	if service == nil || !authorities.Valid() {
+		return chatHandler{}, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "http.chat"}
+	}
+	return chatHandler{notifyConversation: ws.NotifyConversation, service: service, authorities: authorities}, nil
+}
+
+func (h chatHandler) resolveModel(ctx context.Context, modelID string) (releasecontract.CapabilityID, error) {
+	if !h.authorities.Valid() {
+		return "", nil
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return "", &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "modelId"}
+	}
+	return h.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind: releasecontract.CatalogSubjectModel, ID: modelID, Runtime: releasecontract.CatalogRuntimeServerModel,
+	}, releasecontract.BoundaryHTTP)
+}
+
+func writeChatReadinessError(w stdhttp.ResponseWriter, err error) {
+	var readinessErr *releasecontract.ReadinessError
+	if errors.As(err, &readinessErr) {
+		status := stdhttp.StatusServiceUnavailable
+		if readinessErr.Code == releasecontract.CodeCapabilityUnknown {
+			status = stdhttp.StatusBadRequest
+		}
+		writeError(w, status, string(readinessErr.Code), "model is not available")
+		return
+	}
+	writeError(w, stdhttp.StatusServiceUnavailable, "readiness_unavailable", "model is not available")
+}
+
+func decodeStrictChatMutation(r *stdhttp.Request, target any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
 }
 
 func (h chatHandler) publishChatMessagesSynced(sessionUserID, conversationID string, messages []chat.Message) {
@@ -217,8 +268,23 @@ func (h chatHandler) listConversations(w stdhttp.ResponseWriter, r *stdhttp.Requ
 	writeSuccess(w, stdhttp.StatusOK, conversations)
 }
 
-func (h chatHandler) listModels(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-	writeSuccess(w, stdhttp.StatusOK, h.service.ListModels())
+func (h chatHandler) listModels(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	models := h.service.ListModels()
+	resolved := make([]modelOptionResponse, 0, len(models))
+	for _, model := range models {
+		capabilityID := releasecontract.CapabilityID("")
+		if h.authorities.Valid() {
+			var err error
+			capabilityID, err = h.resolveModel(r.Context(), model.ID)
+			if err != nil {
+				// The catalog is the server-owned inventory. Unknown legacy aliases
+				// are omitted rather than returning caller-selectable authority.
+				continue
+			}
+		}
+		resolved = append(resolved, modelOptionResponse{ID: model.ID, Label: model.Label, CapabilityID: string(capabilityID)})
+	}
+	writeSuccess(w, stdhttp.StatusOK, resolved)
 }
 
 func (h chatHandler) listMessages(w stdhttp.ResponseWriter, r *stdhttp.Request, conversationID string) {
@@ -265,9 +331,15 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 	}
 
 	var payload updateConversationConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := decodeStrictChatMutation(r, &payload); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
+	}
+	if strings.TrimSpace(payload.ModelID) != "" {
+		if _, err := h.resolveModel(r.Context(), payload.ModelID); err != nil {
+			writeChatReadinessError(w, err)
+			return
+		}
 	}
 
 	config, err := h.service.UpdateConversationConfig(
@@ -318,9 +390,15 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 	}
 
 	var payload sendMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := decodeStrictChatMutation(r, &payload); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
+	}
+	if payload.Overrides != nil && payload.Overrides.ModelID != nil && strings.TrimSpace(*payload.Overrides.ModelID) != "" {
+		if _, err := h.resolveModel(r.Context(), *payload.Overrides.ModelID); err != nil {
+			writeChatReadinessError(w, err)
+			return
+		}
 	}
 	if strings.TrimSpace(payload.Content) == "" {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "content is required")

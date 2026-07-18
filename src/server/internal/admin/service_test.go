@@ -4,14 +4,131 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"oblivious/server/internal/auth"
 	relaytypes "oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
+
+func TestModelCatalogMutationContract(t *testing.T) {
+	contract, profile := loadAdminModelReadinessAuthority(t)
+	newService := func(t *testing.T, store Store, guard releasecontract.Guard, registrar releasecontract.EffectRegistrar) *Service {
+		t.Helper()
+		authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+		if err != nil {
+			t.Fatalf("compile runtime authorities: %v", err)
+		}
+		service, err := NewReadinessService(store, ModelCatalogRuntimeOptions{Guard: guard, Authorities: authorities, Effects: registrar})
+		if err != nil {
+			t.Fatalf("construct readiness Admin service: %v", err)
+		}
+		return service
+	}
+	actor := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "admin_1", Email: "admin@example.com"}}
+
+	t.Run("constructor fails closed without startup authority", func(t *testing.T) {
+		_, err := NewReadinessService(&syncChannelModelsStore{}, ModelCatalogRuntimeOptions{})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("expected readiness unavailable, got %v", err)
+		}
+	})
+
+	t.Run("unknown upstream model is rejected atomically", func(t *testing.T) {
+		store := &syncChannelModelsStore{testResult: &ChannelTestResult{Success: true, Models: []string{"caller-capability"}}}
+		service := newService(t, store, &adminModelGuardSpy{}, &adminModelRegistrar{})
+		_, err := service.SyncChannelModels(context.Background(), actor, "channel_1", httptest.NewRequest("POST", "/sync", nil))
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) || store.updateCalls != 0 {
+			t.Fatalf("unknown model reached persistence: err=%v calls=%d", err, store.updateCalls)
+		}
+	})
+
+	t.Run("ambiguous upstream models are rejected before normalization", func(t *testing.T) {
+		store := &syncChannelModelsStore{testResult: &ChannelTestResult{Success: true, Models: []string{"gpt-4o-mini", " gpt-4o-mini "}}}
+		service := newService(t, store, &adminModelGuardSpy{}, &adminModelRegistrar{})
+		_, err := service.SyncChannelModels(context.Background(), actor, "channel_1", httptest.NewRequest("POST", "/sync", nil))
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) || store.updateCalls != 0 {
+			t.Fatalf("ambiguous models reached persistence: err=%v calls=%d", err, store.updateCalls)
+		}
+	})
+
+	t.Run("current catalog models are guarded and then persisted", func(t *testing.T) {
+		store := &syncChannelModelsStore{testResult: &ChannelTestResult{Success: true, Models: []string{" gpt-4o-mini "}}}
+		guard := &adminModelGuardSpy{}
+		registrar := &adminModelRegistrar{}
+		service := newService(t, store, guard, registrar)
+		result, err := service.SyncChannelModels(context.Background(), actor, "channel_1", httptest.NewRequest("POST", "/sync", nil))
+		if err != nil || store.updateCalls != 1 || len(store.updatedModels) != 1 || store.updatedModels[0] != "gpt-4o-mini" {
+			t.Fatalf("valid model sync failed: err=%v calls=%d models=%#v", err, store.updateCalls, store.updatedModels)
+		}
+		if result == nil || result.TestResult == nil || len(result.TestResult.Models) != 1 || len(guard.calls) != 2 {
+			t.Fatalf("valid model sync did not derive safe response/guards: result=%#v guard=%#v", result, guard.calls)
+		}
+		if len(registrar.descriptors) != 1 || registrar.descriptors[0].CapabilityID != "gateway.request_admission" {
+			t.Fatalf("unexpected mutation descriptor: %#v", registrar.descriptors)
+		}
+	})
+
+	t.Run("unknown persisted model blocks apply before a write", func(t *testing.T) {
+		store := &syncChannelModelsStore{
+			currentModels: []string{"stale-persisted-capability"},
+			testResult:    &ChannelTestResult{Success: true, Models: []string{"gpt-4o-mini"}},
+		}
+		service := newService(t, store, &adminModelGuardSpy{}, &adminModelRegistrar{})
+		_, err := service.ApplyChannelModelUpdates(context.Background(), actor, "channel_1", ChannelModelUpdateApplyRequest{Mode: "replace"}, httptest.NewRequest("POST", "/apply", nil))
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) || store.updateCalls != 0 {
+			t.Fatalf("stale persisted model authorized apply: err=%v calls=%d", err, store.updateCalls)
+		}
+	})
+}
+
+type adminModelGuardCall struct {
+	capabilityID string
+	boundary     releasecontract.Boundary
+}
+
+type adminModelGuardSpy struct {
+	calls []adminModelGuardCall
+}
+
+func (g *adminModelGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	g.calls = append(g.calls, adminModelGuardCall{capabilityID: capabilityID, boundary: boundary})
+	return nil
+}
+
+type adminModelRegistrar struct {
+	descriptors []releasecontract.EffectDescriptor
+}
+
+func (r *adminModelRegistrar) Register(descriptor releasecontract.EffectDescriptor) error {
+	r.descriptors = append(r.descriptors, descriptor)
+	return nil
+}
+
+func loadAdminModelReadinessAuthority(t *testing.T) (releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve Admin readiness test source")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	contract, err := releasecontract.Load(context.Background(), repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json")
+	if err != nil {
+		t.Fatalf("load release contract: %v", err)
+	}
+	for _, profile := range contract.Profiles {
+		if profile.ID == "monolith" {
+			return contract, profile
+		}
+	}
+	t.Fatal("monolith profile missing")
+	return releasecontract.AuthoredContractV1{}, releasecontract.DeploymentProfile{}
+}
 
 func TestSystemStatsStruct(t *testing.T) {
 	stats := &SystemStats{
@@ -628,6 +745,7 @@ type syncChannelModelsStore struct {
 	updatedModels []string
 	diagnostics   *ChannelDiagnosticsUpdate
 	auditEntry    *AuditEntry
+	updateCalls   int
 }
 
 func (s *syncChannelModelsStore) GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error) {
@@ -639,6 +757,7 @@ func (s *syncChannelModelsStore) TestChannel(ctx context.Context, organizationID
 }
 
 func (s *syncChannelModelsStore) UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+	s.updateCalls++
 	if input.Models != nil {
 		s.updatedModels = append([]string{}, (*input.Models)...)
 	}
