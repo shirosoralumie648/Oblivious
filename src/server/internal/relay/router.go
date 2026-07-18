@@ -13,6 +13,7 @@ import (
 	relaycache "oblivious/server/internal/relay/cache"
 	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/releasecontract"
 )
 
 const maxRouteBillingAttempts = 4
@@ -38,6 +39,95 @@ type Router struct {
 	apiTokenQuotaManager APITokenQuotaManager
 	usageLogger          UsageLogger
 	retrySleep           func(time.Duration)
+	readiness            *routerReadiness
+}
+
+// RouterRuntimeOptions is the one startup-built readiness carrier accepted by
+// the Relay router. The router never loads a contract or selects capability
+// IDs from request/persisted data.
+type RouterRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type routerReadiness struct {
+	guard          releasecontract.Guard
+	authorities    releasecontract.RuntimeAuthorities
+	providerEffect releasecontract.CapabilityID
+}
+
+func newRouterReadiness(options RouterRuntimeOptions) (*routerReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "relay.router"}
+	}
+	providerEffect, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectRelayProvider)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           "relay.provider.dispatch",
+		CapabilityID: string(providerEffect),
+		Boundary:     releasecontract.BoundaryOutbound,
+		Owner:        "relay.Router",
+	}); err != nil {
+		return nil, err
+	}
+	return &routerReadiness{guard: options.Guard, authorities: options.Authorities, providerEffect: providerEffect}, nil
+}
+
+func (r *routerReadiness) requireModel(ctx context.Context, model string) error {
+	if r == nil {
+		return nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "relay.model"}
+	}
+	capabilityID, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind:    releasecontract.CatalogSubjectModel,
+		ID:      model,
+		Runtime: releasecontract.CatalogRuntimeServerModel,
+	}, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if capabilityID != r.providerEffect {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "relay.modelCapability"}
+	}
+	return nil
+}
+
+func (r *routerReadiness) requireProvider(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.providerEffect), releasecontract.BoundaryOutbound)
+}
+
+// NewRouterWithOptions constructs a Relay router with immutable startup
+// readiness authority. It fails closed when the carrier or provider binding is
+// incomplete.
+func NewRouterWithOptions(pool *ChannelPool, lb *LoadBalancer, cbs map[string]*CircuitBreaker, tb *TokenBucket, hc *HealthChecker, options RouterRuntimeOptions) (*Router, error) {
+	readiness, err := newRouterReadiness(options)
+	if err != nil {
+		return nil, err
+	}
+	router := NewRouter(pool, lb, cbs, tb, hc)
+	router.readiness = readiness
+	return router, nil
+}
+
+// NewRouterWithBillingOptions is the billing-enabled counterpart used by the
+// runtime composition layer.
+func NewRouterWithBillingOptions(pool *ChannelPool, lb *LoadBalancer, cbs map[string]*CircuitBreaker, tb *TokenBucket, hc *HealthChecker, billingHook *BillingHook, billingRedisAddr string, options RouterRuntimeOptions) (*Router, error) {
+	readiness, err := newRouterReadiness(options)
+	if err != nil {
+		return nil, err
+	}
+	router := NewRouterWithBilling(pool, lb, cbs, tb, hc, billingHook, billingRedisAddr)
+	router.readiness = readiness
+	return router, nil
 }
 
 func NewRouter(
@@ -97,6 +187,27 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 	return ch
 }
 
+func (r *Router) requireModel(ctx context.Context, model string) error {
+	if r == nil || r.readiness == nil {
+		return nil
+	}
+	return r.readiness.requireModel(ctx, model)
+}
+
+func (r *Router) requireProvider(ctx context.Context) error {
+	if r == nil || r.readiness == nil {
+		return nil
+	}
+	return r.readiness.requireProvider(ctx)
+}
+
+func readinessRouteModel(ch *types.RouteChannel) (string, error) {
+	if ch == nil || ch.Channel == nil || len(ch.Channel.Models) != 1 || strings.TrimSpace(ch.Channel.Models[0]) == "" {
+		return "", &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "relay.routeModel"}
+	}
+	return strings.TrimSpace(ch.Channel.Models[0]), nil
+}
+
 func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model string, usage *types.Usage, excluded map[string]bool) *types.RouteChannel {
 	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
@@ -135,6 +246,18 @@ func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.Ro
 			RetryAfter: 30,
 			ErrorCode:  "no_available_channel",
 		}
+	}
+	if r.readiness != nil {
+		model, err := readinessRouteModel(ch)
+		if err != nil {
+			return nil, err
+		}
+		if err := r.requireModel(ctx, model); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.requireProvider(ctx); err != nil {
+		return nil, err
 	}
 
 	resp, err := fn(ch)
@@ -313,6 +436,9 @@ func (r *Router) RouteWithBilling(
 			}
 			return nil, routeErr
 		}
+		if err := r.requireModel(ctx, model); err != nil {
+			return nil, err
+		}
 		selectedChannelID := routeChannelID(ch)
 		billingChannelID := channelID
 		if billingChannelID == "" {
@@ -440,6 +566,20 @@ func (r *Router) RouteWithBilling(
 				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
 				return nil, routeErr
 			}
+		}
+
+		// A readiness generation may expire while billing/pending usage work is
+		// in progress. Re-authorize immediately before the provider callback and
+		// only refund effects that have already started.
+		if err := r.requireProvider(ctx); err != nil {
+			releaseRateLimit()
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+			}
+			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+			}
+			return nil, err
 		}
 
 		resp, err := fn(ch)
