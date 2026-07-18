@@ -19,6 +19,7 @@ test('commercial journey covers onboarding Chat Knowledge Agent Marketplace Admi
   await page.getByRole('button', { name: 'Create first conversation' }).click();
   await expect(page).toHaveURL(/\/chat\/conv_commercial$/);
   await expect(page.getByRole('heading', { name: 'Conversation transcript' })).toBeVisible();
+  await expect(page.getByText('Loading chat workspace...')).toBeHidden();
   await page.getByLabel('Message draft').fill('Prove the commercial Relay journey.');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByText('Relay settled this chat with quota, billing, and monitoring metadata attached.')).toBeVisible();
