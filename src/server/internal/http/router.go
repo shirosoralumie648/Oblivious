@@ -169,13 +169,15 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	authService := auth.NewService(authStore)
 	authMiddleware := newAuthMiddleware(cfg, authService)
+	readinessViews := NewReadinessHandlers(ReadinessHandlerOptions{Readiness: options.Readiness, Authorities: options.Authorities})
 	if strict {
-		readinessViews := NewReadinessHandlers(ReadinessHandlerOptions{Readiness: options.Readiness, Authorities: options.Authorities})
 		mux.HandleFunc("/livez", readinessViews.Livez)
 		mux.HandleFunc("/readyz", readinessViews.Readyz)
-		mux.Handle("/api/v1/admin/readiness", authMiddleware.requireAdmin(stdhttp.HandlerFunc(readinessViews.Admin)))
-		mux.Handle("/api/v1/app/readiness/capabilities", authMiddleware.requireSession(stdhttp.HandlerFunc(readinessViews.App)))
+	} else {
+		mux.HandleFunc("/livez", readinessViews.Livez)
 	}
+	mux.Handle("/api/v1/admin/readiness", authMiddleware.requireAdmin(stdhttp.HandlerFunc(readinessViews.Admin)))
+	mux.Handle("/api/v1/app/readiness/capabilities", authMiddleware.requireSession(stdhttp.HandlerFunc(readinessViews.App)))
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
