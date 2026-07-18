@@ -21,6 +21,10 @@ resources_started=false
 
 fail() {
   local code="$1"
+  if [[ -n "${output_dir:-}" && -d "${output_dir:-}" ]]; then
+    docker logs "$postgres_name" >"$output_dir/postgres-failure.log" 2>&1 || true
+    docker logs "$server_name" >"$output_dir/server-failure.log" 2>&1 || true
+  fi
   printf '{"error":{"code":"%s"}}\n' "$code" >&2
   exit 1
 }
