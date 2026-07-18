@@ -9,8 +9,8 @@ import (
 
 func TestReadinessEffectCoverageContract(t *testing.T) {
 	registry := NewEffectRegistry()
-	first := EffectDescriptor{ID: "test.effect.one", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "test.Owner"}
-	second := EffectDescriptor{ID: "test.effect.two", CapabilityID: "mcp.custom_execution", Boundary: BoundaryOutbound, Owner: "test.Owner"}
+	first := EffectDescriptor{ID: "agent.tool.builtin", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "test.Owner"}
+	second := EffectDescriptor{ID: "agent.tool.mcp", CapabilityID: "mcp.custom_execution", Boundary: BoundaryOutbound, Owner: "test.Owner"}
 	if err := registry.Register(first); err != nil {
 		t.Fatalf("register first: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestReadinessEffectCoverageContract(t *testing.T) {
 	if err := registry.Register(first); !IsEffectCoverageCode(err, "effect_registry_duplicate") {
 		t.Fatalf("duplicate error = %v", err)
 	}
-	if err := registry.Register(EffectDescriptor{ID: "test.unknown", CapabilityID: "caller.capability", Boundary: BoundaryOutbound, Owner: "test.Owner"}); !IsEffectCoverageCode(err, "effect_registry_unknown_capability") {
+	if err := registry.Register(EffectDescriptor{ID: "caller.effect", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "test.Owner"}); !IsEffectCoverageCode(err, "effect_registry_unknown") {
 		t.Fatalf("unknown error = %v", err)
 	}
 	if len(before) != 1 || len(registry.Snapshot()) != 2 {
@@ -51,9 +51,9 @@ func TestReadinessEffectCoverageContract(t *testing.T) {
 	}
 
 	minimal := EffectSurfaceManifest{SchemaVersion: EffectSurfaceSchemaV1, Surfaces: []EffectSurface{{
-		SeamID: "test.effect.one@test.Owner", OwnerPackage: "test", OwnerSymbol: "test.Owner", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, ASTCall: "runtime", ProfileDisposition: CommitmentCommitted,
+		SeamID: "agent.tool.builtin@test.Owner", OwnerPackage: "test", OwnerSymbol: "test.Owner", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, ASTCall: "runtime", ProfileDisposition: CommitmentCommitted,
 	}, {
-		SeamID: "test.effect.two@test.Owner", OwnerPackage: "test", OwnerSymbol: "test.Owner", CapabilityID: "mcp.custom_execution", Boundary: BoundaryOutbound, ASTCall: "runtime", ProfileDisposition: CommitmentConditional,
+		SeamID: "agent.tool.mcp@test.Owner", OwnerPackage: "test", OwnerSymbol: "test.Owner", CapabilityID: "mcp.custom_execution", Boundary: BoundaryOutbound, ASTCall: "runtime", ProfileDisposition: CommitmentConditional,
 	}}}
 	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: minimal, Runtime: registry.Snapshot()}); err != nil {
 		t.Fatalf("valid exact join: %v", err)

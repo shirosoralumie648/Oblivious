@@ -79,6 +79,9 @@ func (r *EffectRegistry) Register(descriptor EffectDescriptor) error {
 	if strings.TrimSpace(descriptor.ID) == "" || strings.TrimSpace(descriptor.CapabilityID) == "" || strings.TrimSpace(descriptor.Owner) == "" || !validBoundary(descriptor.Boundary) {
 		return &EffectCoverageError{Code: "effect_registry_invalid", Field: descriptor.ID}
 	}
+	if !isKnownEffectDescriptorID(descriptor.ID) {
+		return &EffectCoverageError{Code: "effect_registry_unknown", Field: descriptor.ID}
+	}
 	if !isKnownCapability(descriptor.CapabilityID) {
 		return &EffectCoverageError{Code: "effect_registry_unknown_capability", Field: descriptor.CapabilityID}
 	}
@@ -633,6 +636,22 @@ func isKnownCapability(capability string) bool {
 		}
 	}
 	return false
+}
+
+func isKnownEffectDescriptorID(id string) bool {
+	if _, ok := authoredEffectCapabilities[EffectID(id)]; ok {
+		return true
+	}
+	for _, known := range []string{
+		"mcp.transport.dispatch", "channel.delivery.send", "worker.schedule.workflow.start", "worker.schedule.workflow.continue", "worker.schedule.agent.start",
+		"worker.relay_batch.retrieve", "worker.relay_batch.complete.finalize", "worker.relay_batch.failure.finalize", "worker.relay_batch.succeeded", "worker.relay_batch.dead_letter",
+		"marketplace.settlement.intent", "marketplace.payout.dispatch", "http.mcp.mutation", "http.admin.refund", "agent.tool.web_search",
+	} {
+		if id == known {
+			return true
+		}
+	}
+	return strings.HasPrefix(id, "agent.tool.registry.") || strings.HasPrefix(id, "websearch.") || strings.HasPrefix(id, "chat.") || strings.HasPrefix(id, "http.billing.")
 }
 
 func knownCapabilityForEffect(id string) string {
