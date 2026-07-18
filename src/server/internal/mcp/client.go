@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"oblivious/server/internal/releasecontract"
 )
 
 // Server 表示一个 MCP Server 配置
@@ -52,6 +54,39 @@ type Client struct {
 	servers    map[string]*serverConnection
 	httpClient *http.Client
 	store      Store
+	readiness  *clientReadiness
+}
+
+// ClientRuntimeOptions carries the immutable startup authority for MCP
+// transport. Request data is never allowed to provide capability authority.
+type ClientRuntimeOptions struct {
+	Guard       releasecontract.Guard
+	Authorities releasecontract.RuntimeAuthorities
+	Effects     releasecontract.EffectRegistrar
+}
+
+type clientReadiness struct {
+	authorities releasecontract.RuntimeAuthorities
+	transport   releasecontract.CapabilityID
+}
+
+func newClientReadiness(options ClientRuntimeOptions) (*clientReadiness, error) {
+	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
+		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "mcp.client"}
+	}
+	transport, err := options.Authorities.CapabilityBindings.Resolve(releasecontract.EffectMCPDispatch)
+	if err != nil {
+		return nil, err
+	}
+	if err := options.Effects.Register(releasecontract.EffectDescriptor{
+		ID:           "mcp.transport.dispatch",
+		CapabilityID: string(transport),
+		Boundary:     releasecontract.BoundaryOutbound,
+		Owner:        "mcp.Client",
+	}); err != nil {
+		return nil, err
+	}
+	return &clientReadiness{authorities: options.Authorities, transport: transport}, nil
 }
 
 type serverConnection struct {
@@ -76,6 +111,22 @@ func NewClient(store Store) *Client {
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		store:      store,
 	}
+}
+
+// NewClientWithOptions constructs an MCP client bound to the startup
+// RuntimeAuthorities carrier. A missing or incomplete carrier fails closed at
+// construction instead of installing a local fallback authority.
+func NewClientWithOptions(store Store, options ClientRuntimeOptions) (*Client, error) {
+	readiness, err := newClientReadiness(options)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{
+		servers:    make(map[string]*serverConnection),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		store:      store,
+		readiness:  readiness,
+	}, nil
 }
 
 // AddServer 添加 MCP Server
@@ -333,6 +384,9 @@ func (c *Client) listToolsFromServer(ctx context.Context, server *Server) ([]Too
 
 // sendRequest 发送 JSON-RPC 请求
 func (c *Client) sendRequest(ctx context.Context, server *Server, req any) ([]byte, error) {
+	if server == nil {
+		return nil, fmt.Errorf("mcp server is required")
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -348,6 +402,12 @@ func (c *Client) sendRequest(ctx context.Context, server *Server, req any) ([]by
 		httpReq.Header.Set("Authorization", "Bearer "+server.AuthToken)
 	}
 
+	if c.readiness != nil {
+		if err := c.readiness.authorize(ctx, server, req); err != nil {
+			return nil, err
+		}
+	}
+
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -359,6 +419,30 @@ func (c *Client) sendRequest(ctx context.Context, server *Server, req any) ([]by
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+// authorize resolves the server-owned MCP runtime immediately before the
+// transport attempt. The request body is diagnostic protocol data only; it
+// cannot select a capability or carry a cached verdict/generation.
+func (r *clientReadiness) authorize(ctx context.Context, server *Server, req any) error {
+	if r == nil {
+		return nil
+	}
+	if strings.TrimSpace(server.ID) == "" || strings.TrimSpace(server.URL) == "" {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "mcp.server"}
+	}
+	capabilityID, err := r.authorities.CatalogAuthorizer.ResolveAndRequire(ctx, releasecontract.CatalogSubject{
+		Kind:    releasecontract.CatalogSubjectRuntime,
+		ID:      "mcp",
+		Runtime: releasecontract.CatalogRuntimeMCP,
+	}, releasecontract.BoundaryOutbound)
+	if err != nil {
+		return err
+	}
+	if capabilityID != r.transport {
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "mcp.runtimeCapability"}
+	}
+	return nil
 }
 
 // GetServerStatus 获取服务器状态
