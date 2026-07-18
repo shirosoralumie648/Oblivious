@@ -188,6 +188,17 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 			return err
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok && isRunEntrypointCall(call) {
+				entrypoint := runEntrypointLiteral(call)
+				if entrypoint != "" {
+					position := fset.Position(call.Pos())
+					relative, _ := filepath.Rel(repoRoot, path)
+					discovered = append(discovered, discoveredEffect{EffectSurface: EffectSurface{
+						SeamID: "entrypoint." + entrypoint, OwnerPackage: filepath.ToSlash(filepath.Dir(relative)), OwnerSymbol: "main",
+						CapabilityID: "deployment.operations", Boundary: BoundaryOperation, ASTCall: "RunEntrypoint", EntrypointID: entrypoint,
+					}, File: relative, Line: position.Line})
+				}
+			}
 			literal, ok := node.(*ast.CompositeLit)
 			if !ok || (!isEffectDescriptorType(literal.Type) && !looksLikeEffectDescriptor(literal)) {
 				return true
@@ -233,6 +244,26 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 		result = append(result, value.EffectSurface)
 	}
 	return result, nil
+}
+
+func isRunEntrypointCall(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && selector.Sel != nil && selector.Sel.Name == "RunEntrypoint"
+}
+
+func runEntrypointLiteral(call *ast.CallExpr) string {
+	if len(call.Args) < 2 {
+		return ""
+	}
+	var value string
+	ast.Inspect(call.Args[1], func(node ast.Node) bool {
+		if literal, ok := node.(*ast.BasicLit); ok && literal.Kind == token.STRING && value == "" {
+			value, _ = strconv.Unquote(literal.Value)
+			return false
+		}
+		return true
+	})
+	return value
 }
 
 func appendExecutorEffectSurfaces(repoRoot string, discovered *[]discoveredEffect) {
@@ -510,7 +541,7 @@ func joinStatic(expected, discovered []EffectSurface) error {
 	}
 	expectedByKey := make(map[string]EffectSurface, len(expected))
 	for _, surface := range expected {
-		if surface.ASTCall == "RunEntrypoint" || surface.ASTCall == "runtime" {
+		if surface.ASTCall == "runtime" {
 			continue
 		}
 		expectedByKey[surface.SeamID] = surface

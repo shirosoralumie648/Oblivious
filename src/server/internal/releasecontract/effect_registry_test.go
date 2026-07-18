@@ -37,6 +37,14 @@ func TestReadinessEffectCoverageContract(t *testing.T) {
 	if len(manifest.Surfaces) < 12 {
 		t.Fatalf("expected standalone roots in inventory, got %d rows", len(manifest.Surfaces))
 	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..", "..", ".."))
+	discovered, err := DiscoverEffectSurfaces(repoRoot)
+	if err != nil {
+		t.Fatalf("discover production effect surfaces: %v", err)
+	}
+	if err := joinStatic(manifest.Surfaces, discovered); err != nil {
+		t.Fatalf("expected/static exact join: %v", err)
+	}
 	for _, owner := range []string{"agent.ToolExecutor.builtin", "agent.ToolExecutor.custom_api_http", "agent.ToolExecutor.local_python", "agent.ToolExecutor.python_sandbox", "agent.ToolExecutor.mcp"} {
 		found := false
 		for _, surface := range manifest.Surfaces {

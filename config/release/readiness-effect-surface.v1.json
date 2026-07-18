@@ -1,6 +1,7 @@
 {
   "schemaVersion": "readiness-effect-surface/v1",
   "surfaces": [
+    {"seamId":"entrypoint.server","ownerPackage":"src/server/cmd/server","ownerSymbol":"main","capabilityId":"deployment.operations","boundary":"operation_dispatch","astCall":"RunEntrypoint","entrypointId":"server","profileDisposition":"committed"},
     {"seamId":"entrypoint.admin","ownerPackage":"src/server/cmd/admin","ownerSymbol":"main","capabilityId":"deployment.operations","boundary":"operation_dispatch","astCall":"RunEntrypoint","entrypointId":"admin","profileDisposition":"excluded"},
     {"seamId":"entrypoint.agent","ownerPackage":"src/server/cmd/agent","ownerSymbol":"main","capabilityId":"deployment.operations","boundary":"operation_dispatch","astCall":"RunEntrypoint","entrypointId":"agent","profileDisposition":"excluded"},
     {"seamId":"entrypoint.billing","ownerPackage":"src/server/cmd/billing","ownerSymbol":"main","capabilityId":"deployment.operations","boundary":"operation_dispatch","astCall":"RunEntrypoint","entrypointId":"billing","profileDisposition":"excluded"},
