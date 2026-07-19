@@ -141,10 +141,17 @@ func buildRuntimeWithRouter(
 	var agentService *agent.Service
 	var mcpClient *mcp.Client
 	if requireReadiness {
-		runtimeCarrier := agent.ToolRuntimeOptions{
-			Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects, HTTPClient: stdhttp.DefaultClient,
+		provider, err := buildAgentWebSearchProviderWithOptions(cfg, mcp.WebSearchRuntimeOptions{
+			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+		})
+		if err != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime Agent web search: %w", err)
 		}
-		var err error
+		runtimeCarrier := agent.ToolRuntimeOptions{
+			Authorities: options.Authorities, Guard: options.Guard, Effects: options.Effects,
+			HTTPClient: stdhttp.DefaultClient, WebSearchProvider: provider,
+		}
 		mcpClient, err = mcp.NewClientWithOptions(mcp.NewSQLStore(database), mcp.ClientRuntimeOptions{
 			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
 		})
@@ -161,16 +168,6 @@ func buildRuntimeWithRouter(
 		if err != nil {
 			closeRuntimeResources(closers)
 			return nil, fmt.Errorf("build runtime Agent service: %w", err)
-		}
-		provider, err := buildAgentWebSearchProviderWithOptions(cfg, mcp.WebSearchRuntimeOptions{
-			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
-		})
-		if err != nil {
-			closeRuntimeResources(closers)
-			return nil, fmt.Errorf("build runtime Agent web search: %w", err)
-		}
-		if provider != nil {
-			agentService.SetWebSearchProvider(provider)
 		}
 	} else {
 		agentService = agent.NewService(agent.NewSQLStore(database), newAgentGateway(cfg))
