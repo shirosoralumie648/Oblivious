@@ -18,6 +18,112 @@ import (
 	"oblivious/server/internal/releasecontract"
 )
 
+func TestCompatibilityToolExecutorFailClosedContract(t *testing.T) {
+	assertUnavailable := func(t *testing.T, err error) {
+		t.Helper()
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessUnavailable) {
+			t.Fatalf("compatibility executor error = %v, want %s", err, releasecontract.CodeReadinessUnavailable)
+		}
+	}
+
+	t.Run("builtin", func(t *testing.T) {
+		var calls atomic.Int32
+		executor := NewToolExecutor(nil)
+		executor.builtinTools = map[string]mcp.BuiltinTool{"calculator": countingBuiltinTool{calls: &calls}}
+		_, err := executor.Execute(t.Context(), &Agent{Tools: []Tool{{Name: "calculator", Type: "builtin", Enabled: true}}}, &ToolCall{Name: "calculator"})
+		assertUnavailable(t, err)
+		if calls.Load() != 0 {
+			t.Fatalf("builtin downstream calls = %d, want 0", calls.Load())
+		}
+	})
+
+	t.Run("http", func(t *testing.T) {
+		var calls atomic.Int32
+		executor := NewToolExecutor(nil)
+		executor.httpClient = &http.Client{Transport: countingRoundTripper{calls: &calls}}
+		_, err := executor.Execute(t.Context(), &Agent{Tools: []Tool{{Name: "api", Type: "custom", Runtime: "api", ServerID: "https://example.invalid", Enabled: true}}}, &ToolCall{Name: "api"})
+		assertUnavailable(t, err)
+		if calls.Load() != 0 {
+			t.Fatalf("HTTP downstream calls = %d, want 0", calls.Load())
+		}
+	})
+
+	t.Run("process", func(t *testing.T) {
+		t.Setenv("APP_ENV", "development")
+		t.Setenv("OBLIVIOUS_CUSTOM_PYTHON_BIN", "/bin/sh")
+		var calls atomic.Int32
+		executor := NewToolExecutor(nil)
+		executor.pythonProcessRunner = func(context.Context, string, io.Reader) ([]byte, error) {
+			calls.Add(1)
+			return []byte(`{"ok":true}`), nil
+		}
+		_, err := executor.Execute(t.Context(), &Agent{Tools: []Tool{{Name: "python", Type: "custom", Runtime: "python", SourceCode: "def main(args): return 1", Enabled: true}}}, &ToolCall{Name: "python"})
+		assertUnavailable(t, err)
+		if calls.Load() != 0 {
+			t.Fatalf("process downstream calls = %d, want 0", calls.Load())
+		}
+	})
+
+	t.Run("sandbox", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		var calls atomic.Int32
+		executor := NewToolExecutor(nil)
+		executor.customPythonSandboxRunner = liveSandboxRunner{calls: &calls}
+		_, err := executor.Execute(t.Context(), &Agent{Tools: []Tool{{Name: "sandbox", Type: "custom", Runtime: "python", SourceCode: "def main(args): return 1", Enabled: true}}}, &ToolCall{Name: "sandbox"})
+		assertUnavailable(t, err)
+		if calls.Load() != 0 {
+			t.Fatalf("sandbox downstream calls = %d, want 0", calls.Load())
+		}
+	})
+
+	t.Run("mcp", func(t *testing.T) {
+		var calls atomic.Int32
+		store := &countingMCPStore{getCalls: &calls}
+		executor := NewToolExecutor(mcp.NewClient(store))
+		_, err := executor.Execute(t.Context(), &Agent{OrganizationID: "org_1", Tools: []Tool{{Name: "remote", Type: "mcp", ServerID: "server_1", Enabled: true}}}, &ToolCall{Name: "remote"})
+		assertUnavailable(t, err)
+		if calls.Load() != 0 {
+			t.Fatalf("MCP downstream calls = %d, want 0", calls.Load())
+		}
+	})
+}
+
+type countingBuiltinTool struct{ calls *atomic.Int32 }
+
+func (t countingBuiltinTool) Name() string        { return "calculator" }
+func (t countingBuiltinTool) Description() string { return "test" }
+func (t countingBuiltinTool) InputSchema() any    { return map[string]any{} }
+func (t countingBuiltinTool) Execute(context.Context, map[string]any) (*mcp.ToolResult, error) {
+	t.calls.Add(1)
+	return &mcp.ToolResult{Content: "ok"}, nil
+}
+
+type countingRoundTripper struct{ calls *atomic.Int32 }
+
+func (t countingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls.Add(1)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: make(http.Header)}, nil
+}
+
+type countingMCPStore struct{ getCalls *atomic.Int32 }
+
+func (*countingMCPStore) CreateServer(context.Context, string, string, *mcp.Server) (*mcp.Server, error) {
+	return nil, fmt.Errorf("unexpected CreateServer")
+}
+func (s *countingMCPStore) GetServer(context.Context, string, string) (*mcp.Server, error) {
+	s.getCalls.Add(1)
+	return &mcp.Server{ID: "server_1", OrganizationID: "org_1", URL: "https://example.invalid", Status: "connected"}, nil
+}
+func (*countingMCPStore) ListServers(context.Context, string, string) ([]*mcp.Server, error) {
+	return nil, fmt.Errorf("unexpected ListServers")
+}
+func (*countingMCPStore) UpdateServerStatus(context.Context, string, string, string) error {
+	return fmt.Errorf("unexpected UpdateServerStatus")
+}
+func (*countingMCPStore) DeleteServer(context.Context, string, string) error {
+	return fmt.Errorf("unexpected DeleteServer")
+}
+
 func TestLiveAgentToolExecutorReadinessContract(t *testing.T) {
 	guard := &liveExecutorGuard{}
 	guard.allow.Store(true)
@@ -282,7 +388,7 @@ func TestToolExecutorExecutesCustomAPITool(t *testing.T) {
 	}))
 	defer server.Close()
 
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	agent := &Agent{
 		ID:             "agent_custom_api",
 		OrganizationID: "org_1",
@@ -324,7 +430,7 @@ func TestToolExecutorExecutesCustomAPITool(t *testing.T) {
 }
 
 func TestToolExecutorExecutesCustomPythonTool(t *testing.T) {
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	agent := &Agent{
 		ID:             "agent_custom_python",
 		OrganizationID: "org_1",
@@ -392,7 +498,7 @@ func TestToolExecutorUsesCustomPythonSandboxRunnerInProduction(t *testing.T) {
 	runner := &recordingCustomPythonSandboxRunner{
 		result: &CustomPythonSandboxResult{Stdout: `{"total":7}`, ExitCode: 0},
 	}
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	executor.SetCustomPythonSandboxRunner(runner)
 	agent := &Agent{
 		ID:             "agent_custom_python_production_sandbox",
@@ -492,7 +598,7 @@ func TestToolExecutorOmitsCustomPythonDefinitionsInProduction(t *testing.T) {
 }
 
 func TestToolExecutorBlocksCustomPythonImports(t *testing.T) {
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	agent := &Agent{
 		ID:             "agent_custom_python_sandbox",
 		OrganizationID: "org_1",
@@ -523,7 +629,7 @@ func TestToolExecutorBlocksCustomPythonImports(t *testing.T) {
 }
 
 func TestToolExecutorRejectsCustomPythonOversizedOutput(t *testing.T) {
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	agent := &Agent{
 		ID:             "agent_custom_python_output_limit",
 		OrganizationID: "org_1",
@@ -627,13 +733,15 @@ func (r *recordingCustomPythonSandboxRunner) RunCustomPython(ctx context.Context
 }
 
 func TestToolExecutorAllowsWebSearchWhenProviderConfigured(t *testing.T) {
-	executor := NewToolExecutor(nil)
-	executor.SetWebSearchProvider(fakeAgentWebSearchProvider{
+	provider := fakeAgentWebSearchProvider{
 		results: []mcp.WebSearchResult{{
 			Title:   "Agent search result",
 			URL:     "https://search.example.test/result",
 			Snippet: "provider-backed search",
 		}},
+	}
+	executor := newAuthorizedToolExecutorForTest(t, nil, func(options *ToolRuntimeOptions) {
+		options.WebSearchProvider = provider
 	})
 	agent := &Agent{
 		ID: "agent_search",

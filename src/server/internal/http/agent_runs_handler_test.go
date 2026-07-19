@@ -2216,7 +2216,7 @@ func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *tes
 			ApprovalStatus: agent.ApprovalStatusNotRequired,
 		},
 	}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
 	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"reason":"reviewed"}`), "run_1")
@@ -2348,7 +2348,7 @@ func TestAgentRunsHandlerApproveToolAcceptsMatchingToolRunIDAliases(t *testing.T
 		Status:         agent.ToolRunStatusPendingApproval,
 		ApprovalStatus: agent.ApprovalStatusPending,
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
 	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"tool_run_id":"tool_run_pending","toolRunId":"tool_run_pending","reason":"reviewed"}`), "run_1")
@@ -2802,7 +2802,7 @@ func TestAgentRunsHandlerRetryToolAcceptsSnakeCaseID(t *testing.T) {
 		AttemptCount:   1,
 		Error:          "failed",
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
 	handler.retryTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool", `{"tool_run_id":"tool_run_failed"}`), "run_1")
@@ -2926,7 +2926,7 @@ func TestAgentRunsHandlerApproveToolReturnsRecoverableRunDetail(t *testing.T) {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
 	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"toolRunId":"tool_run_pending","reason":"ok"}`), "run_1")
@@ -2978,7 +2978,7 @@ func TestAgentRunsHandlerRetryToolSelectsOnlyFailedWhenOmitted(t *testing.T) {
 		{ID: "tool_run_completed", OrganizationID: "org_1", RunID: "run_1", Status: agent.ToolRunStatusCompleted, ApprovalStatus: agent.ApprovalStatusNotRequired},
 		{ID: "tool_run_failed", OrganizationID: "org_1", RunID: "run_1", ConversationID: "conv_1", AgentID: "agent_1", ToolCallID: "call_datetime_failed", ToolName: "datetime", ToolType: "builtin", Arguments: map[string]any{}, Status: agent.ToolRunStatusFailed, ApprovalStatus: agent.ApprovalStatusNotRequired, AttemptCount: 1, Error: "failed"},
 	}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
 	handler.retryTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool", `{}`), "run_1")

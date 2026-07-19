@@ -222,7 +222,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *Tool
 
 func (e *ToolExecutor) authorizeTool(ctx context.Context, tool *Tool) error {
 	if !e.strict {
-		return nil
+		return &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.toolExecutor.authority"}
 	}
 	if !e.authorities.Valid() {
 		return &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "agent.toolExecutor.authority"}
@@ -312,10 +312,8 @@ func (e *ToolExecutor) executeBuiltin(ctx context.Context, persistedTool *Tool, 
 
 // executeMCP 执行 MCP 工具
 func (e *ToolExecutor) executeMCP(ctx context.Context, organizationID, serverID string, toolCall *ToolCall) (*ExecuteResult, error) {
-	if e.strict {
-		if err := e.authorizeTool(ctx, &Tool{Name: toolCall.Name, Type: "mcp", ServerID: serverID, Enabled: true}); err != nil {
-			return nil, err
-		}
+	if err := e.authorizeTool(ctx, &Tool{Name: toolCall.Name, Type: "mcp", ServerID: serverID, Enabled: true}); err != nil {
+		return nil, err
 	}
 	if e.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not configured")
