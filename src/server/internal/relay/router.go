@@ -393,6 +393,10 @@ func (r *Router) RouteWithBilling(
 	userGroup, _ := types.TrustedUserGroupFromContext(ctx)
 	streamingResponse, _ := types.TrustedStreamingFromContext(ctx)
 
+	if err := r.requireModel(ctx, model); err != nil {
+		return nil, err
+	}
+
 	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
 		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
 		if err != nil {
