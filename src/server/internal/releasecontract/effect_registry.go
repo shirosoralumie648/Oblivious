@@ -381,7 +381,7 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 			}, File: registration.File, Line: registration.Line})
 			continue
 		}
-		present, err := descriptorStructurePresent(repoRoot, registration.DescriptorID, spec)
+		present, err := descriptorRegistrationStructurePresent(repoRoot, registration, spec)
 		if err != nil {
 			return nil, &EffectCoverageError{Code: "effect_discovery_failed", Field: registration.DescriptorID, Err: err}
 		}
@@ -454,6 +454,7 @@ type sourceCall struct {
 
 type sourceRegistration struct {
 	DescriptorID       string
+	EffectID           EffectID
 	OwnerPackage       string
 	Owner              string
 	CapabilityID       string
@@ -461,6 +462,20 @@ type sourceRegistration struct {
 	RegistrationSymbol string
 	File               string
 	Line               int
+}
+
+type sourceRegistrationEnvironment struct {
+	values             map[string]string
+	registrationSymbol string
+	file               string
+	line               int
+}
+
+type sourceCapabilityBinding struct {
+	reference       string
+	object          *ast.Object
+	effectReference string
+	position        token.Pos
 }
 
 type packageSourceFunction struct {
@@ -549,15 +564,22 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 			if !ok || !isDescriptorLiteral(literal) || !descriptorLiteralFeedsRegister(function.declaration, literal) {
 				return true
 			}
-			environments := []map[string]string{nil}
-			environments = append(environments, descriptorParameterEnvironments(function.declaration, functions, constants, effectValues)...)
-			environments = append(environments, descriptorRangeEnvironments(function.declaration, literal, constants, effectValues)...)
+			position := fset.Position(literal.Pos())
+			environments := []sourceRegistrationEnvironment{{
+				registrationSymbol: packageFunctionSymbol(function.declaration), file: function.file, line: position.Line,
+			}}
+			environments = append(environments, descriptorParameterEnvironments(function, literal, functions, fset, constants, effectValues)...)
+			for _, values := range descriptorRangeEnvironments(function.declaration, literal, constants, effectValues) {
+				environments = append(environments, sourceRegistrationEnvironment{
+					values: values, registrationSymbol: packageFunctionSymbol(function.declaration), file: function.file, line: position.Line,
+				})
+			}
 			for _, environment := range environments {
-				registration, ok := sourceRegistrationFromLiteral(repoRoot, literal, function, fset, ownerPackage, environment, constants, effectValues, resolved)
+				registration, ok := sourceRegistrationFromLiteral(repoRoot, literal, ownerPackage, environment, constants, effectValues, resolved)
 				if !ok {
 					continue
 				}
-				key := registration.DescriptorID + "\x00" + registration.Owner + "\x00" + registration.File + "\x00" + strconv.Itoa(registration.Line)
+				key := registration.DescriptorID + "\x00" + string(registration.EffectID) + "\x00" + registration.Owner + "\x00" + registration.RegistrationSymbol + "\x00" + registration.File + "\x00" + strconv.Itoa(registration.Line)
 				if _, duplicate := seen[key]; duplicate {
 					continue
 				}
@@ -716,16 +738,16 @@ func descriptorAppendedToCollection(function *ast.FuncDecl, collection string, d
 	return appended
 }
 
-func descriptorParameterEnvironments(function *ast.FuncDecl, functions []packageSourceFunction, constants, effectValues map[string]string) []map[string]string {
-	parameters := functionParameterNames(function)
-	if len(parameters) == 0 {
+func descriptorParameterEnvironments(function packageSourceFunction, descriptor *ast.CompositeLit, functions []packageSourceFunction, fset *token.FileSet, constants, effectValues map[string]string) []sourceRegistrationEnvironment {
+	parameters := functionParameterNames(function.declaration)
+	if len(parameters) == 0 || !descriptorUsesFunctionParameter(descriptor, parameters) {
 		return nil
 	}
-	var environments []map[string]string
+	var environments []sourceRegistrationEnvironment
 	for _, caller := range functions {
 		ast.Inspect(caller.declaration.Body, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
-			if !ok || calledName(call.Fun) != function.Name.Name {
+			if !ok || calledName(call.Fun) != function.declaration.Name.Name {
 				return true
 			}
 			environment := make(map[string]string)
@@ -738,12 +760,31 @@ func descriptorParameterEnvironments(function *ast.FuncDecl, functions []package
 				}
 			}
 			if len(environment) > 0 {
-				environments = append(environments, environment)
+				position := fset.Position(call.Pos())
+				environments = append(environments, sourceRegistrationEnvironment{
+					values:             environment,
+					registrationSymbol: packageFunctionSymbol(caller.declaration) + ">" + packageFunctionSymbol(function.declaration),
+					file:               caller.file,
+					line:               position.Line,
+				})
 			}
 			return true
 		})
 	}
 	return environments
+}
+
+func descriptorUsesFunctionParameter(descriptor *ast.CompositeLit, parameters []string) bool {
+	parameterSet := make(map[string]struct{}, len(parameters))
+	for _, parameter := range parameters {
+		parameterSet[parameter] = struct{}{}
+	}
+	for _, field := range []string{"ID", "Owner"} {
+		if _, ok := parameterSet[expressionReference(descriptorField(descriptor, field))]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func descriptorRangeEnvironments(function *ast.FuncDecl, descriptor *ast.CompositeLit, constants, effectValues map[string]string) []map[string]string {
@@ -881,26 +922,28 @@ func sourceStructFieldNames(source *ast.CompositeLit) []string {
 	return names
 }
 
-func sourceRegistrationFromLiteral(repoRoot string, literal *ast.CompositeLit, function packageSourceFunction, fset *token.FileSet, ownerPackage string, environment, constants, effectValues, resolved map[string]string) (sourceRegistration, bool) {
-	descriptorID, idOK := evaluateSourceString(descriptorField(literal, "ID"), environment, constants, effectValues)
-	owner, ownerOK := evaluateSourceString(descriptorField(literal, "Owner"), environment, constants, effectValues)
+func sourceRegistrationFromLiteral(repoRoot string, literal *ast.CompositeLit, ownerPackage string, environment sourceRegistrationEnvironment, constants, effectValues map[string]string, resolved []sourceCapabilityBinding) (sourceRegistration, bool) {
+	descriptorID, idOK := evaluateSourceString(descriptorField(literal, "ID"), environment.values, constants, effectValues)
+	owner, ownerOK := evaluateSourceString(descriptorField(literal, "Owner"), environment.values, constants, effectValues)
 	boundary, boundaryOK := sourceBoundary(descriptorField(literal, "Boundary"))
 	if !idOK || !ownerOK || !boundaryOK || strings.TrimSpace(descriptorID) == "" || strings.TrimSpace(owner) == "" {
 		return sourceRegistration{}, false
 	}
-	capabilityID, _ := evaluateSourceString(descriptorField(literal, "CapabilityID"), environment, constants, effectValues)
+	capabilityID, _ := evaluateSourceString(descriptorField(literal, "CapabilityID"), environment.values, constants, effectValues)
+	effectReference := resolvedCapabilityEffectReference(descriptorField(literal, "CapabilityID"), literal.Pos(), resolved)
+	effectID := EffectID(sourceReferenceValue(effectReference, environment.values, constants, effectValues))
 	if capabilityID == "" {
-		capabilityReference := expressionReference(descriptorField(literal, "CapabilityID"))
-		effectReference := resolved[capabilityReference]
-		effectID := sourceReferenceValue(effectReference, environment, constants, effectValues)
-		capabilityID = string(authoredEffectCapabilities[EffectID(effectID)])
+		capabilityID = string(authoredEffectCapabilities[effectID])
 	}
-	position := fset.Position(literal.Pos())
-	relative, _ := filepath.Rel(repoRoot, function.file)
+	relative, _ := filepath.Rel(repoRoot, environment.file)
 	return sourceRegistration{
-		DescriptorID: descriptorID, OwnerPackage: ownerPackage, Owner: owner, CapabilityID: capabilityID, Boundary: boundary,
-		RegistrationSymbol: sourceFunctionKey(functionReceiverName(function.declaration), function.declaration.Name.Name), File: filepath.ToSlash(relative), Line: position.Line,
+		DescriptorID: descriptorID, EffectID: effectID, OwnerPackage: ownerPackage, Owner: owner, CapabilityID: capabilityID, Boundary: boundary,
+		RegistrationSymbol: environment.registrationSymbol, File: filepath.ToSlash(relative), Line: environment.line,
 	}, true
+}
+
+func packageFunctionSymbol(function *ast.FuncDecl) string {
+	return sourceFunctionKey(functionReceiverName(function), function.Name.Name)
 }
 
 func functionReceiverName(function *ast.FuncDecl) string {
@@ -984,6 +1027,33 @@ func sourceBoundary(expression ast.Expr) (Boundary, bool) {
 }
 
 func descriptorStructurePresent(repoRoot, descriptorID string, spec runtimeDescriptorSpec) (bool, error) {
+	effectValues, err := effectConstantValues(repoRoot)
+	if err != nil {
+		return false, err
+	}
+	registrations, err := discoverPackageRegistrations(repoRoot, filepath.Join(repoRoot, filepath.FromSlash(spec.OwnerPackage)), effectValues)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, registration := range registrations {
+		if registration.DescriptorID != descriptorID {
+			continue
+		}
+		present, err := descriptorRegistrationStructurePresent(repoRoot, registration, spec)
+		if err != nil || present {
+			return present, err
+		}
+	}
+	return false, nil
+}
+
+func descriptorRegistrationStructurePresent(repoRoot string, registration sourceRegistration, spec runtimeDescriptorSpec) (bool, error) {
+	if !sourceRegistrationMatchesSpec(registration, spec) {
+		return false, nil
+	}
 	functions, err := loadSourceFunctions(filepath.Join(repoRoot, filepath.FromSlash(spec.OwnerPackage)))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -991,18 +1061,17 @@ func descriptorStructurePresent(repoRoot, descriptorID string, spec runtimeDescr
 		}
 		return false, err
 	}
-	anchor := spec.RegistrationAnchor
-	if anchor == "" {
-		anchor = descriptorID
-	}
-	effectSymbol, err := effectConstantSymbol(repoRoot, spec.EffectID)
-	if err != nil {
-		return false, err
-	}
-	if effectSymbol == "" || !registrationContractPresent(functions, spec.RegistrationSymbol, descriptorID, anchor, effectSymbol, spec.Owner, spec.Boundary) {
-		return false, nil
-	}
 	return guardEffectContractPresent(functions, spec.GuardCall, spec.EffectCall), nil
+}
+
+func sourceRegistrationMatchesSpec(registration sourceRegistration, spec runtimeDescriptorSpec) bool {
+	return registration.DescriptorID != "" &&
+		registration.EffectID == spec.EffectID &&
+		registration.OwnerPackage == spec.OwnerPackage &&
+		registration.Owner == spec.Owner &&
+		registration.CapabilityID == string(spec.CapabilityID) &&
+		registration.Boundary == spec.Boundary &&
+		registration.RegistrationSymbol == spec.RegistrationSymbol
 }
 
 func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) {
@@ -1108,84 +1177,6 @@ func calledName(expression ast.Expr) string {
 	return ""
 }
 
-func registrationContractPresent(functions map[string][]sourceFunction, contract, descriptorID, anchor, effectSymbol, owner string, boundary Boundary) bool {
-	path := strings.Split(contract, ">")
-	if len(path) == 0 || len(path) > 2 {
-		return false
-	}
-	if len(path) == 1 {
-		for _, function := range functions[path[0]] {
-			if functionHasExactRegistration(function, descriptorID, anchor, effectSymbol, owner, boundary, nil) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, caller := range functions[path[0]] {
-		for _, helper := range functions[path[1]] {
-			bindings, ok := exactRegistrationCallBindings(caller, helper, path[1], descriptorID, owner)
-			if ok && functionHasExactRegistration(helper, descriptorID, anchor, effectSymbol, owner, boundary, bindings) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func functionHasExactRegistration(function sourceFunction, descriptorID, anchor, effectSymbol, owner string, boundary Boundary, bindings map[string]string) bool {
-	if firstCallPosition(function, "Register") == 0 {
-		return false
-	}
-	resolved := resolvedCapabilityBindings(function.declaration)
-	foundLiteral := false
-	ast.Inspect(function.declaration.Body, func(node ast.Node) bool {
-		if foundLiteral {
-			return false
-		}
-		literal, ok := node.(*ast.CompositeLit)
-		if !ok || !isDescriptorLiteral(literal) {
-			return true
-		}
-		foundLiteral = descriptorLiteralMatches(literal, descriptorID, effectSymbol, owner, boundary, bindings, resolved)
-		return !foundLiteral
-	})
-	if foundLiteral {
-		return true
-	}
-	return bindings == nil && anchor != "" && generatedDescriptorContractPresent(function.declaration, descriptorID, anchor, effectSymbol, owner, boundary)
-}
-
-func descriptorLiteralMatches(literal *ast.CompositeLit, descriptorID, effectSymbol, owner string, boundary Boundary, bindings, resolved map[string]string) bool {
-	idExpression := descriptorField(literal, "ID")
-	ownerExpression := descriptorField(literal, "Owner")
-	boundaryExpression := descriptorField(literal, "Boundary")
-	capabilityExpression := descriptorField(literal, "CapabilityID")
-	if idExpression == nil || ownerExpression == nil || boundaryExpression == nil || capabilityExpression == nil {
-		return false
-	}
-	if bindings != nil {
-		if expressionReference(idExpression) != bindings["ID"] || expressionReference(ownerExpression) != bindings["Owner"] {
-			return false
-		}
-	} else if !expressionIsExactString(idExpression, descriptorID) || !expressionIsExactString(ownerExpression, owner) {
-		return false
-	}
-	if !syntaxContainsAnchor(boundaryExpression, boundarySourceIdentifier(boundary)) {
-		return false
-	}
-	return sourceSymbolMatches(resolved[expressionReference(capabilityExpression)], effectSymbol)
-}
-
-func sourceSymbolMatches(reference, expected string) bool {
-	if reference == expected {
-		return true
-	}
-	if index := strings.LastIndex(reference, "."); index >= 0 {
-		return reference[index+1:] == expected
-	}
-	return false
-}
-
 func descriptorField(literal *ast.CompositeLit, name string) ast.Expr {
 	for _, element := range literal.Elts {
 		keyed, ok := element.(*ast.KeyValueExpr)
@@ -1210,15 +1201,6 @@ func isDescriptorLiteral(literal *ast.CompositeLit) bool {
 	return descriptorField(literal, "ID") != nil && descriptorField(literal, "CapabilityID") != nil && descriptorField(literal, "Boundary") != nil && descriptorField(literal, "Owner") != nil
 }
 
-func expressionIsExactString(expression ast.Expr, expected string) bool {
-	literal, ok := expression.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return false
-	}
-	value, err := strconv.Unquote(literal.Value)
-	return err == nil && value == expected
-}
-
 func expressionReference(expression ast.Expr) string {
 	switch value := expression.(type) {
 	case *ast.Ident:
@@ -1238,8 +1220,8 @@ func expressionReference(expression ast.Expr) string {
 	return ""
 }
 
-func resolvedCapabilityBindings(function *ast.FuncDecl) map[string]string {
-	bindings := make(map[string]string)
+func resolvedCapabilityBindings(function *ast.FuncDecl) []sourceCapabilityBinding {
+	var bindings []sourceCapabilityBinding
 	if function == nil || function.Body == nil {
 		return bindings
 	}
@@ -1252,60 +1234,49 @@ func resolvedCapabilityBindings(function *ast.FuncDecl) map[string]string {
 		if !ok || calledName(call.Fun) != "Resolve" || len(call.Args) != 1 {
 			return true
 		}
-		binding := expressionReference(assignment.Lhs[0])
+		bindingExpression := assignment.Lhs[0]
+		binding := expressionReference(bindingExpression)
 		effect := expressionReference(call.Args[0])
 		if binding != "" && effect != "" {
-			bindings[binding] = effect
+			bindings = append(bindings, sourceCapabilityBinding{
+				reference: binding, object: sourceExpressionObject(bindingExpression), effectReference: effect, position: assignment.Pos(),
+			})
 		}
 		return true
 	})
 	return bindings
 }
 
-func exactRegistrationCallBindings(caller, helper sourceFunction, helperName, descriptorID, owner string) (map[string]string, bool) {
-	parameters := functionParameterNames(helper.declaration)
-	if len(parameters) == 0 {
-		return nil, false
+func resolvedCapabilityEffectReference(expression ast.Expr, before token.Pos, bindings []sourceCapabilityBinding) string {
+	reference := expressionReference(expression)
+	object := sourceExpressionObject(expression)
+	var matched sourceCapabilityBinding
+	for _, binding := range bindings {
+		if binding.reference != reference || binding.position >= before || binding.position <= matched.position {
+			continue
+		}
+		if object != nil && binding.object != nil && object != binding.object {
+			continue
+		}
+		matched = binding
 	}
-	idParameter := ""
-	ownerParameter := ""
-	ast.Inspect(helper.declaration.Body, func(node ast.Node) bool {
-		literal, ok := node.(*ast.CompositeLit)
-		if !ok || !isDescriptorLiteral(literal) {
-			return true
+	return matched.effectReference
+}
+
+func sourceExpressionObject(expression ast.Expr) *ast.Object {
+	switch value := expression.(type) {
+	case *ast.Ident:
+		return value.Obj
+	case *ast.SelectorExpr:
+		return sourceExpressionObject(value.X)
+	case *ast.CallExpr:
+		if len(value.Args) == 1 {
+			return sourceExpressionObject(value.Args[0])
 		}
-		idParameter = expressionReference(descriptorField(literal, "ID"))
-		ownerParameter = expressionReference(descriptorField(literal, "Owner"))
-		return false
-	})
-	idIndex, ownerIndex := -1, -1
-	for index, parameter := range parameters {
-		if parameter == idParameter {
-			idIndex = index
-		}
-		if parameter == ownerParameter {
-			ownerIndex = index
-		}
+	case *ast.ParenExpr:
+		return sourceExpressionObject(value.X)
 	}
-	if idIndex < 0 || ownerIndex < 0 {
-		return nil, false
-	}
-	var bindings map[string]string
-	ast.Inspect(caller.declaration.Body, func(node ast.Node) bool {
-		if bindings != nil {
-			return false
-		}
-		call, ok := node.(*ast.CallExpr)
-		if !ok || calledName(call.Fun) != helperName || idIndex >= len(call.Args) || ownerIndex >= len(call.Args) {
-			return true
-		}
-		if expressionIsExactString(call.Args[idIndex], descriptorID) && expressionIsExactString(call.Args[ownerIndex], owner) {
-			bindings = map[string]string{"ID": idParameter, "Owner": ownerParameter}
-			return false
-		}
-		return true
-	})
-	return bindings, bindings != nil
+	return nil
 }
 
 func functionParameterNames(function *ast.FuncDecl) []string {
@@ -1319,117 +1290,6 @@ func functionParameterNames(function *ast.FuncDecl) []string {
 		}
 	}
 	return names
-}
-
-func generatedDescriptorContractPresent(function *ast.FuncDecl, descriptorID, anchor, effectSymbol, owner string, boundary Boundary) bool {
-	paired := false
-	template := false
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		if keyed, ok := node.(*ast.KeyValueExpr); ok && syntaxContainsAnchor(keyed.Key, anchor) && syntaxContainsAnchor(keyed.Value, effectSymbol) {
-			paired = true
-		}
-		literal, ok := node.(*ast.CompositeLit)
-		if !ok {
-			return true
-		}
-		if isDescriptorLiteral(literal) {
-			idExpression := descriptorField(literal, "ID")
-			ownerExpression := descriptorField(literal, "Owner")
-			capabilityExpression := descriptorField(literal, "CapabilityID")
-			boundaryExpression := descriptorField(literal, "Boundary")
-			ownerBound := expressionIsExactString(ownerExpression, owner) || expressionReference(ownerExpression) == "effect.owner"
-			idBound := expressionReference(idExpression) == "effect.id" || syntaxContainsAnchor(idExpression, "agent.tool.registry.")
-			capabilityBound := expressionReference(capabilityExpression) == "capability" || expressionReference(capabilityExpression) == "capabilityID"
-			template = ownerBound && idBound && capabilityBound && syntaxContainsAnchor(boundaryExpression, boundarySourceIdentifier(boundary))
-			return true
-		}
-		for _, element := range literal.Elts {
-			row, ok := element.(*ast.CompositeLit)
-			if ok && syntaxContainsAnchor(row, anchor) && syntaxContainsAnchor(row, effectSymbol) && syntaxContainsAnchor(row, owner) {
-				paired = true
-			}
-		}
-		return true
-	})
-	_ = descriptorID
-	return paired && template
-}
-
-func boundarySourceIdentifier(boundary Boundary) string {
-	switch boundary {
-	case BoundaryHTTP:
-		return "BoundaryHTTP"
-	case BoundaryGRPC:
-		return "BoundaryGRPC"
-	case BoundaryWorkerClaim:
-		return "BoundaryWorkerClaim"
-	case BoundaryWorkerEffect:
-		return "BoundaryWorkerEffect"
-	case BoundaryOutbound:
-		return "BoundaryOutbound"
-	case BoundaryFinancial:
-		return "BoundaryFinancial"
-	case BoundaryOperation:
-		return "BoundaryOperation"
-	default:
-		return ""
-	}
-}
-
-func effectConstantSymbol(repoRoot string, effect EffectID) (string, error) {
-	path := filepath.Join(repoRoot, "src", "server", "internal", "releasecontract", "catalog.go")
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	for _, declaration := range file.Decls {
-		constants, ok := declaration.(*ast.GenDecl)
-		if !ok || constants.Tok != token.CONST {
-			continue
-		}
-		for _, declarationSpec := range constants.Specs {
-			valueSpec, ok := declarationSpec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for index, expression := range valueSpec.Values {
-				literal, ok := expression.(*ast.BasicLit)
-				if !ok || literal.Kind != token.STRING || index >= len(valueSpec.Names) {
-					continue
-				}
-				value, err := strconv.Unquote(literal.Value)
-				if err == nil && EffectID(value) == effect {
-					return valueSpec.Names[index].Name, nil
-				}
-			}
-		}
-	}
-	return "", nil
-}
-
-func syntaxContainsAnchor(root ast.Node, anchor string) bool {
-	found := false
-	ast.Inspect(root, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		switch value := node.(type) {
-		case *ast.BasicLit:
-			if value.Kind == token.STRING {
-				literal, err := strconv.Unquote(value.Value)
-				found = err == nil && literal == anchor
-			}
-		case *ast.Ident:
-			found = value.Name == anchor
-		case *ast.SelectorExpr:
-			found = value.Sel != nil && value.Sel.Name == anchor
-		}
-		return !found
-	})
-	return found
 }
 
 func guardEffectContractPresent(functions map[string][]sourceFunction, guardContract, effectContract string) bool {
