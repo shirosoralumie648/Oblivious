@@ -1093,15 +1093,68 @@ func parseKafkaBrokersEnv() ([]string, error) {
 		if broker == "" {
 			return nil, fmt.Errorf("invalid KAFKA_BROKERS: blank broker")
 		}
-		host, portRaw, err := net.SplitHostPort(broker)
-		if err != nil || strings.TrimSpace(host) == "" {
-			return nil, fmt.Errorf("invalid KAFKA_BROKERS: malformed broker")
-		}
-		port, err := strconv.Atoi(portRaw)
-		if err != nil || port < 1 || port > 65535 {
-			return nil, fmt.Errorf("invalid KAFKA_BROKERS: malformed broker")
-		}
 		brokers = append(brokers, broker)
 	}
+	if err := ValidateKafkaBrokers(brokers); err != nil {
+		return nil, fmt.Errorf("invalid KAFKA_BROKERS: malformed broker")
+	}
 	return brokers, nil
+}
+
+// ValidateKafkaBrokers validates canonical host:port endpoints stored in Config.
+func ValidateKafkaBrokers(brokers []string) error {
+	for _, broker := range brokers {
+		if err := validateKafkaBrokerEndpoint(broker); err != nil {
+			return fmt.Errorf("invalid kafka broker endpoint")
+		}
+	}
+	return nil
+}
+
+func validateKafkaBrokerEndpoint(broker string) error {
+	if broker == "" || broker != strings.TrimSpace(broker) {
+		return fmt.Errorf("invalid broker")
+	}
+	host, portRaw, err := net.SplitHostPort(broker)
+	if err != nil || host == "" || !validKafkaBrokerPort(portRaw) {
+		return fmt.Errorf("invalid broker")
+	}
+	if net.ParseIP(host) == nil && !validKafkaBrokerDNSName(host) {
+		return fmt.Errorf("invalid broker")
+	}
+	return nil
+}
+
+func validKafkaBrokerPort(portRaw string) bool {
+	if portRaw == "" {
+		return false
+	}
+	for i := range len(portRaw) {
+		if portRaw[i] < '0' || portRaw[i] > '9' {
+			return false
+		}
+	}
+	port, err := strconv.Atoi(portRaw)
+	return err == nil && port >= 1 && port <= 65535
+}
+
+func validKafkaBrokerDNSName(host string) bool {
+	if len(host) == 0 || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || !asciiAlphaNumeric(label[0]) || !asciiAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for i := 1; i < len(label)-1; i++ {
+			if !asciiAlphaNumeric(label[i]) && label[i] != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func asciiAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }

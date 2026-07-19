@@ -78,12 +78,65 @@ func TestLoadReadinessDependencyConfigContract(t *testing.T) {
 		}
 	})
 
-	for _, raw := range []string{"", " ", ",kafka:9092", "kafka:9092,", "kafka:9092,,kafka-2:9092", "kafka-no-port", "http://kafka:9092"} {
-		t.Run("rejects invalid kafka list "+raw, func(t *testing.T) {
-			t.Setenv("KAFKA_BROKERS", raw)
+	for _, test := range []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{name: "dns service", raw: "kafka:9092", want: []string{"kafka:9092"}},
+		{name: "kubernetes service", raw: "oblivious-kafka.oblivious.svc.cluster.local:9092", want: []string{"oblivious-kafka.oblivious.svc.cluster.local:9092"}},
+		{name: "ipv4", raw: "10.24.3.8:9092", want: []string{"10.24.3.8:9092"}},
+		{name: "bracketed ipv6", raw: "[2001:db8::10]:9092", want: []string{"[2001:db8::10]:9092"}},
+		{name: "duplicates retained", raw: "kafka:9092,kafka:9092", want: []string{"kafka:9092", "kafka:9092"}},
+	} {
+		t.Run("accepts "+test.name, func(t *testing.T) {
+			t.Setenv("KAFKA_BROKERS", test.raw)
+			cfg, err := load(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(cfg.KafkaBrokers, test.want) {
+				t.Fatalf("KafkaBrokers = %#v, want %#v", cfg.KafkaBrokers, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "present empty", raw: ""},
+		{name: "present whitespace", raw: " "},
+		{name: "leading member blank", raw: ",kafka:9092"},
+		{name: "trailing member blank", raw: "kafka:9092,"},
+		{name: "middle member blank", raw: "kafka:9092,,kafka-2:9092"},
+		{name: "missing port", raw: "kafka-no-port"},
+		{name: "url scheme", raw: "http://kafka:9092"},
+		{name: "internal space", raw: "kafka .internal:9092"},
+		{name: "internal tab", raw: "kafka\t.internal:9092"},
+		{name: "internal newline", raw: "kafka\n.internal:9092"},
+		{name: "control byte", raw: "kafka\x01.internal:9092"},
+		{name: "path", raw: "kafka.internal/path:9092"},
+		{name: "query", raw: "kafka.internal?rack=1:9092"},
+		{name: "userinfo", raw: "user@kafka.internal:9092"},
+		{name: "blank dns label", raw: "kafka..internal:9092"},
+		{name: "leading hyphen", raw: "-kafka.internal:9092"},
+		{name: "trailing hyphen", raw: "kafka-.internal:9092"},
+		{name: "underscore", raw: "kafka_node.internal:9092"},
+		{name: "non ascii", raw: "kaf\u00e9.internal:9092"},
+		{name: "overlong label", raw: strings.Repeat("a", 64) + ".internal:9092"},
+		{name: "overlong hostname", raw: strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 63) + ":9092"},
+		{name: "nonnumeric port", raw: "kafka.internal:http"},
+		{name: "overflow port", raw: "kafka.internal:65536"},
+	} {
+		t.Run("rejects "+test.name, func(t *testing.T) {
+			t.Setenv("KAFKA_BROKERS", test.raw)
 			_, err := load(t)
 			if err == nil || !strings.Contains(err.Error(), "invalid KAFKA_BROKERS") {
 				t.Fatalf("error = %v, want stable KAFKA_BROKERS error", err)
+			}
+			if strings.TrimSpace(test.raw) != "" && strings.Contains(err.Error(), test.raw) {
+				t.Fatalf("KAFKA_BROKERS error leaked raw broker: %q", err)
 			}
 		})
 	}
