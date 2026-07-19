@@ -471,7 +471,7 @@ func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("released non-cooperative probe did not exit")
 	}
-	time.Sleep(10 * time.Millisecond)
+	waitForManagedProbeLaneEmpty(t, manager, "postgres")
 	if got := manager.Evaluate().Generation; got != blockedGeneration {
 		t.Fatalf("late result changed generation to %d, want %d", got, blockedGeneration)
 	}
@@ -479,14 +479,8 @@ func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
 		t.Fatalf("late result changed blocked snapshot\nbefore=%s\nafter=%s", blockedSnapshot, got)
 	}
 
-	deadline := time.Now().Add(time.Second)
-	for blocking.calls.Load() < 2 && time.Now().Before(deadline) {
-		if err := manager.refresh(context.Background()); err != nil {
-			t.Fatalf("reuse refresh: %v", err)
-		}
-		if blocking.calls.Load() < 2 {
-			time.Sleep(time.Millisecond)
-		}
+	if err := manager.refresh(context.Background()); err != nil {
+		t.Fatalf("reuse refresh: %v", err)
 	}
 	if got := blocking.calls.Load(); got != 2 {
 		t.Fatalf("non-cooperative probe calls after release = %d, want 2", got)
@@ -851,6 +845,29 @@ func assertBlockedDependencyObservation(t *testing.T, generation *readinessGener
 		return
 	}
 	t.Fatalf("dependency %s observation not found", dependency)
+}
+
+func waitForManagedProbeLaneEmpty(t *testing.T, manager *Manager, dependency string) {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		for _, managed := range manager.probes {
+			if managed.probe.DependencyID() == dependency {
+				if len(managed.inFlight) == 0 {
+					return
+				}
+				break
+			}
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("probe lane %s did not become empty", dependency)
+		}
+	}
 }
 
 func marshalCurrentGeneration(t *testing.T, manager *Manager) []byte {
