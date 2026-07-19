@@ -298,6 +298,103 @@ func TestReadinessManagerBootstrapConcurrencyContract(t *testing.T) {
 	}
 }
 
+func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
+	contract, profile, identity := loadReadinessTestAuthority(t)
+	clock := newManagerTestClock(time.Date(2026, time.July, 19, 1, 0, 0, 0, time.UTC))
+	probes := managerTestProbes(t, contract, profile)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	exited := make(chan struct{})
+	blocking := &countedBlockingManagerProbe{
+		id:         "probe.postgres",
+		dependency: "postgres",
+		started:    started,
+		exited:     exited,
+		release:    release,
+	}
+	probes = replaceManagerProbe(probes, "postgres", blocking)
+	writer := &recordingSnapshotWriter{}
+	const probeDeadline = 20 * time.Millisecond
+	manager := newTestManager(t, contract, profile, identity, clock, probes, probeDeadline, writer, filepath.Join(t.TempDir(), "readiness.json"))
+
+	startedAt := time.Now()
+	if err := manager.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("bootstrap with non-cooperative probe: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 10*probeDeadline {
+		t.Fatalf("bootstrap elapsed = %s, want at most %s", elapsed, 10*probeDeadline)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("non-cooperative probe did not start")
+	}
+	assertBlockedDependencyObservation(t, manager.current.Load(), "postgres", len(probes))
+
+	for attempt := 1; attempt <= 5; attempt++ {
+		startedAt = time.Now()
+		if err := manager.refresh(context.Background()); err != nil {
+			t.Fatalf("occupied-lane refresh %d: %v", attempt, err)
+		}
+		if elapsed := time.Since(startedAt); elapsed > 10*probeDeadline {
+			t.Fatalf("occupied-lane refresh %d elapsed = %s, want at most %s", attempt, elapsed, 10*probeDeadline)
+		}
+		assertBlockedDependencyObservation(t, manager.current.Load(), "postgres", len(probes))
+	}
+	if got := blocking.calls.Load(); got != 1 {
+		t.Fatalf("non-cooperative probe calls before release = %d, want 1", got)
+	}
+	for _, probe := range probes {
+		fixed, ok := probe.(*fixedManagerProbe)
+		if !ok {
+			continue
+		}
+		if got := fixed.calls.Load(); got != 6 {
+			t.Fatalf("other probe %s calls = %d, want 6", fixed.DependencyID(), got)
+		}
+	}
+	for index, snapshot := range writer.snapshotCopy() {
+		if len(snapshot.Observations) != len(probes) {
+			t.Fatalf("snapshot %d observations = %d, want %d", index+1, len(snapshot.Observations), len(probes))
+		}
+	}
+
+	blockedGeneration := manager.Evaluate().Generation
+	blockedSnapshot := marshalCurrentGeneration(t, manager)
+	close(release)
+	select {
+	case <-exited:
+	case <-time.After(time.Second):
+		t.Fatal("released non-cooperative probe did not exit")
+	}
+	time.Sleep(10 * time.Millisecond)
+	if got := manager.Evaluate().Generation; got != blockedGeneration {
+		t.Fatalf("late result changed generation to %d, want %d", got, blockedGeneration)
+	}
+	if got := marshalCurrentGeneration(t, manager); string(got) != string(blockedSnapshot) {
+		t.Fatalf("late result changed blocked snapshot\nbefore=%s\nafter=%s", blockedSnapshot, got)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for blocking.calls.Load() < 2 && time.Now().Before(deadline) {
+		if err := manager.refresh(context.Background()); err != nil {
+			t.Fatalf("reuse refresh: %v", err)
+		}
+		if blocking.calls.Load() < 2 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if got := blocking.calls.Load(); got != 2 {
+		t.Fatalf("non-cooperative probe calls after release = %d, want 2", got)
+	}
+	if got := manager.Evaluate(); got.Generation <= blockedGeneration || got.ErrorCode != "" {
+		t.Fatalf("reused lane evaluation = generation %d error %q", got.Generation, got.ErrorCode)
+	}
+	if err := manager.Require("identity.account_session"); err != nil {
+		t.Fatalf("reused lane did not restore enabled capability: %v", err)
+	}
+}
+
 func TestReadinessManagerPublicationRace(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC))
@@ -398,6 +495,27 @@ func (p *gatedManagerProbe) Run(context.Context) (Observation, error) {
 	return Observation{Availability: AvailabilityEnabled}, nil
 }
 
+type countedBlockingManagerProbe struct {
+	id          string
+	dependency  string
+	calls       atomic.Int64
+	startedOnce sync.Once
+	exitedOnce  sync.Once
+	started     chan<- struct{}
+	exited      chan<- struct{}
+	release     <-chan struct{}
+}
+
+func (p *countedBlockingManagerProbe) ID() string           { return p.id }
+func (p *countedBlockingManagerProbe) DependencyID() string { return p.dependency }
+func (p *countedBlockingManagerProbe) Run(context.Context) (Observation, error) {
+	p.calls.Add(1)
+	p.startedOnce.Do(func() { close(p.started) })
+	<-p.release
+	p.exitedOnce.Do(func() { close(p.exited) })
+	return Observation{Availability: AvailabilityEnabled}, nil
+}
+
 type recordingSnapshotWriter struct {
 	mu        sync.Mutex
 	snapshots []ReadinessSnapshotV1
@@ -415,6 +533,12 @@ func (w *recordingSnapshotWriter) snapshotCount() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return len(w.snapshots)
+}
+
+func (w *recordingSnapshotWriter) snapshotCopy() []ReadinessSnapshotV1 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]ReadinessSnapshotV1(nil), w.snapshots...)
 }
 
 type managerTestClock struct {
@@ -525,6 +649,26 @@ func replaceManagerProbe(probes []Probe, dependency string, replacement Probe) [
 		}
 	}
 	return result
+}
+
+func assertBlockedDependencyObservation(t *testing.T, generation *readinessGeneration, dependency string, observationCount int) {
+	t.Helper()
+	if generation == nil {
+		t.Fatal("readiness generation is nil")
+	}
+	if len(generation.observations) != observationCount {
+		t.Fatalf("generation observations = %d, want %d", len(generation.observations), observationCount)
+	}
+	for _, observation := range generation.observations {
+		if observation.DependencyID != dependency {
+			continue
+		}
+		if observation.Availability != AvailabilityBlocked || observation.ReasonCode != "dependency_unproven" {
+			t.Fatalf("dependency %s observation = availability %q reason %q", dependency, observation.Availability, observation.ReasonCode)
+		}
+		return
+	}
+	t.Fatalf("dependency %s observation not found", dependency)
 }
 
 func marshalCurrentGeneration(t *testing.T, manager *Manager) []byte {
