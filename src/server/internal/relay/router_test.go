@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,156 @@ import (
 type codedTestError struct {
 	message string
 	code    string
+}
+
+type relaySemanticCacheStoreSpy struct {
+	inner         *relaycache.InMemorySemanticCacheStore
+	getCalls      int
+	hitIncrements int
+}
+
+func newRelaySemanticCacheStoreSpy() *relaySemanticCacheStoreSpy {
+	return &relaySemanticCacheStoreSpy{inner: relaycache.NewInMemorySemanticCacheStore()}
+}
+
+func (s *relaySemanticCacheStoreSpy) Get(ctx context.Context, key relaycache.SemanticCacheKey) (*relaycache.SemanticCacheEntry, error) {
+	s.getCalls++
+	return s.inner.Get(ctx, key)
+}
+
+func (s *relaySemanticCacheStoreSpy) Put(ctx context.Context, entry relaycache.SemanticCacheEntry) error {
+	return s.inner.Put(ctx, entry)
+}
+
+func (s *relaySemanticCacheStoreSpy) IncrementHit(ctx context.Context, key relaycache.SemanticCacheKey) error {
+	s.hitIncrements++
+	return s.inner.IncrementHit(ctx, key)
+}
+
+func newRelaySemanticCacheReadinessRouter(t *testing.T, guard *batchGuardSpy) *Router {
+	t.Helper()
+	contract, profile := loadBatchReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	pricing := NewPricingStore()
+	for _, dimension := range []types.UsageDimension{types.DimPromptTokens, types.DimCompletionTokens, types.DimTotalTokens} {
+		pricing.SetPrice("gpt-4o-mini", types.APITypeChat, dimension, 0.01)
+	}
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "relay-cache-primary",
+		Provider: "openai",
+		BaseURL:  "https://primary.invalid",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 1)
+	router, err := NewRouterWithBillingOptions(
+		pool,
+		NewLoadBalancer(pool, "priority"),
+		map[string]*CircuitBreaker{"relay-cache-primary": NewCircuitBreaker("relay-cache-primary", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		NewBillingHook(pricing, nil),
+		"",
+		RouterRuntimeOptions{Guard: guard, Authorities: authorities, Effects: &batchEffectRegistrar{}},
+	)
+	if err != nil {
+		t.Fatalf("construct guarded router: %v", err)
+	}
+	router.retrySleep = func(time.Duration) {}
+	return router
+}
+
+func TestRelaySemanticCacheReadinessContract(t *testing.T) {
+	t.Run("stale model denies a seeded hit before cache or success effects", func(t *testing.T) {
+		guard := &batchGuardSpy{
+			denyAtCall: 1,
+			denial: &releasecontract.ReadinessError{
+				Code:  releasecontract.CodeReadinessStale,
+				Field: "generation",
+			},
+		}
+		router := newRelaySemanticCacheReadinessRouter(t, guard)
+		quotaManager := &stubQuotaManager{}
+		usageLogger := &recordingUsageLogger{}
+		router.SetQuotaManager(quotaManager)
+		router.SetUsageLogger(usageLogger)
+
+		store := newRelaySemanticCacheStoreSpy()
+		router.semanticCache = relaycache.NewSemanticCache(store, relaycache.SemanticCacheOptions{
+			Now: func() time.Time { return time.Date(2026, 7, 19, 5, 0, 0, 0, time.UTC) },
+		})
+		cacheReq := relaycache.SemanticCacheRequest{
+			OrganizationID: "org_stale_cache",
+			Model:          "gpt-4o-mini",
+			Query:          "stale cache payload must not escape",
+		}
+		if _, err := router.semanticCache.Store(context.Background(), cacheReq, json.RawMessage(`{"cached":"secret-payload"}`)); err != nil {
+			t.Fatalf("seed semantic cache: %v", err)
+		}
+
+		apiType := types.APITypeChat.String()
+		beforeSuccess := testutil.ToFloat64(metrics.RelayRequestTotal.WithLabelValues("semantic_cache", "semantic_cache", apiType, "success", "hit"))
+		beforeHit := testutil.ToFloat64(metrics.RelaySemanticCacheEventsTotal.WithLabelValues("hit", apiType, cacheReq.Model))
+		providerCalls := 0
+		ctx := types.WithSemanticCacheRequest(context.Background(), cacheReq)
+		resp, err := router.RouteWithBilling(ctx, types.APITypeChat, cacheReq.Model, "", "stale-cache-hit", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return types.NewOKResponse(nil, nil), nil
+		})
+		if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) {
+			t.Fatalf("expected stale readiness denial without cached response, resp=%+v err=%v", resp, err)
+		}
+		if store.getCalls != 0 || store.hitIncrements != 0 {
+			t.Fatalf("readiness denial reached semantic cache: gets=%d hit_increments=%d", store.getCalls, store.hitIncrements)
+		}
+		if providerCalls != 0 || quotaManager.preconsumeCalls != 0 || quotaManager.settleCalls != 0 || quotaManager.refundCalls != 0 || len(usageLogger.records) != 0 {
+			t.Fatalf("readiness denial leaked effects: provider=%d quota=%+v usage=%+v", providerCalls, quotaManager, usageLogger.records)
+		}
+		if got := testutil.ToFloat64(metrics.RelayRequestTotal.WithLabelValues("semantic_cache", "semantic_cache", apiType, "success", "hit")); got != beforeSuccess {
+			t.Fatalf("readiness denial changed cache success metric: before=%v after=%v", beforeSuccess, got)
+		}
+		if got := testutil.ToFloat64(metrics.RelaySemanticCacheEventsTotal.WithLabelValues("hit", apiType, cacheReq.Model)); got != beforeHit {
+			t.Fatalf("readiness denial changed cache hit metric: before=%v after=%v", beforeHit, got)
+		}
+		if err == nil || strings.Contains(err.Error(), "primary.invalid") || strings.Contains(err.Error(), "secret-payload") {
+			t.Fatalf("readiness error leaked provider or cache details: %v", err)
+		}
+	})
+
+	t.Run("unknown model denies a seeded hit before cache lookup", func(t *testing.T) {
+		guard := &batchGuardSpy{}
+		router := newRelaySemanticCacheReadinessRouter(t, guard)
+		usageLogger := &recordingUsageLogger{}
+		router.SetUsageLogger(usageLogger)
+		store := newRelaySemanticCacheStoreSpy()
+		router.semanticCache = relaycache.NewSemanticCache(store, relaycache.SemanticCacheOptions{
+			Now: func() time.Time { return time.Date(2026, 7, 19, 5, 0, 0, 0, time.UTC) },
+		})
+		cacheReq := relaycache.SemanticCacheRequest{
+			OrganizationID: "org_deleted_cache",
+			Model:          "deleted-model",
+			Query:          "deleted model cache payload",
+		}
+		if _, err := router.semanticCache.Store(context.Background(), cacheReq, json.RawMessage(`{"cached":true}`)); err != nil {
+			t.Fatalf("seed semantic cache: %v", err)
+		}
+
+		providerCalls := 0
+		ctx := types.WithSemanticCacheRequest(context.Background(), cacheReq)
+		resp, err := router.RouteWithBilling(ctx, types.APITypeChat, cacheReq.Model, "", "deleted-cache-hit", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return types.NewOKResponse(nil, nil), nil
+		})
+		if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			t.Fatalf("expected unknown-model denial without cached response, resp=%+v err=%v", resp, err)
+		}
+		if store.getCalls != 0 || store.hitIncrements != 0 || providerCalls != 0 || len(usageLogger.records) != 0 {
+			t.Fatalf("unknown model reached effects: gets=%d hits=%d provider=%d usage=%+v", store.getCalls, store.hitIncrements, providerCalls, usageLogger.records)
+		}
+	})
 }
 
 func TestRelayReadinessPerAttemptContract(t *testing.T) {
