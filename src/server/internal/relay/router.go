@@ -398,6 +398,9 @@ func (r *Router) RouteWithBilling(
 	}
 
 	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
+		if strings.TrimSpace(cacheReq.Model) != strings.TrimSpace(model) {
+			return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityUnknown, Field: "relay.semanticCacheModel"}
+		}
 		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
 		if err != nil {
 			return nil, err
