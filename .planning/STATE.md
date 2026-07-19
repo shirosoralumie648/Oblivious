@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Phase 31.1 gap-closure planning complete
-last_updated: "2026-07-19T02:45:19.615Z"
+stopped_at: Completed 31.1-11-PLAN.md
+last_updated: "2026-07-19T04:16:34.802Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plans 11-22 verified; Plan 31.1-11 is next
+last_activity_desc: Phase 31.1 Plan 11 serialized bootstrap and bounded probe work; Plan 31.1-12 is next
 progress:
   total_phases: 11
-  completed_phases: 2
-  total_plans: 32
-  completed_plans: 17
-  percent: 18
+  completed_phases: 1
+  total_plans: 44
+  completed_plans: 18
+  percent: 9
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 10 of 22
-Status: Gap closure planned; Plan 31.1-11 is next
-Last activity: 2026-07-19 — Phase 31.1 Plans 11-22 verified
+Plan: 11 of 22
+Status: Plan 31.1-11 complete; Plan 31.1-12 is next
+Last activity: 2026-07-19 — Serialized bootstrap and bounded non-cooperative probe work
 
-Progress: [████░░░░░░] 45%
+Progress: [████░░░░░░] 41%
 
 ## Performance Metrics
 
@@ -87,6 +87,8 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: MCP, Registry, and web-search effects resolve current server-owned catalog subjects immediately before each attempt; capability-like caller metadata remains non-authoritative.
 - [Phase 31.1]: Financial consumers use startup-bound typed effects and current-generation guards. — Prevents stale or caller-owned authority.
 - [Phase 31.1]: Signed provider events use reconciliation-only verbs. — Prevents inbound events from authorizing new outbound effects.
+- [Phase 31.1]: Bootstrap serialization spans the pre-publication state check through generation-one publication. — This makes the first generation linearizable without changing ordinary refresh publication semantics.
+- [Phase 31.1]: Each managed dependency owns one capacity-one in-flight probe lane. — Occupied lanes publish dependency_unproven candidates without spawning unbounded context-ignoring work.
 
 ### Pending Todos
 
@@ -109,6 +111,7 @@ None yet.
 | Phase 31.1 P02 | 40 min | 3 tasks | 11 files |
 | Phase 31.1 P09 | 20 min | 2 tasks | 9 files |
 | Phase 31.1 P03 | 55 min | 3 tasks | 12 files |
+| Phase 31.1 P11 | 12 min | 2 tasks | 2 files |
 
 ### Roadmap Evolution
 
@@ -121,9 +124,9 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T02:45:19.615Z
-Stopped at: Phase 31.1 gap-closure planning complete
-Resume file: .planning/phases/31.1-readiness-fail-closed/31.1-11-PLAN.md
+Last session: 2026-07-19T04:16:34.792Z
+Stopped at: Completed 31.1-11-PLAN.md
+Resume file: None
 
 ## Performance Metrics
 
