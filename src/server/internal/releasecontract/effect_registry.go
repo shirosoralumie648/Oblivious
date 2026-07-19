@@ -1023,8 +1023,8 @@ func isOptionalDescriptorSkipCondition(function *ast.FuncDecl, loop *ast.RangeSt
 	if !ok || condition.Op != token.LAND {
 		return false
 	}
-	return (isSandboxEffectComparison(condition.X, effectObject) && isCapabilityUnknownCheck(condition.Y, function, effectObject, descriptor)) ||
-		(isSandboxEffectComparison(condition.Y, effectObject) && isCapabilityUnknownCheck(condition.X, function, effectObject, descriptor))
+	return (isSandboxEffectComparison(condition.X, effectObject) && isCapabilityUnknownCheck(condition.Y, function, loop, effectObject, descriptor)) ||
+		(isSandboxEffectComparison(condition.Y, effectObject) && isCapabilityUnknownCheck(condition.X, function, loop, effectObject, descriptor))
 }
 
 func isSandboxEffectComparison(expression ast.Expr, effectObject *ast.Object) bool {
@@ -1038,7 +1038,7 @@ func isSandboxEffectComparison(expression ast.Expr, effectObject *ast.Object) bo
 		(expressionReference(right) == "effect.id" && sourceExpressionObject(right) == effectObject && expressionReference(left) == "releasecontract.EffectAgentToolPythonSandbox")
 }
 
-func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effectObject *ast.Object, descriptor *ast.CompositeLit) bool {
+func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, loop *ast.RangeStmt, effectObject *ast.Object, descriptor *ast.CompositeLit) bool {
 	call, ok := unwrapParentheses(expression).(*ast.CallExpr)
 	if !ok || expressionReference(call.Fun) != "releasecontract.IsReadinessCode" || len(call.Args) != 2 ||
 		expressionReference(unwrapParentheses(call.Args[1])) != "releasecontract.CodeCapabilityUnknown" {
@@ -1056,7 +1056,21 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effec
 	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
 		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos()) &&
 		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos()) &&
-		!hasObjectAddressEscapeBetween(function, effectObject, binding.position, descriptor.Pos())
+		!hasObjectAddressEscapeBetween(function, effectObject, objectAddressEscapeStart(loop, effectObject), descriptor.Pos())
+}
+
+func objectAddressEscapeStart(loop *ast.RangeStmt, object *ast.Object) token.Pos {
+	var start token.Pos
+	if loop != nil && loop.Body != nil {
+		start = loop.Body.Pos()
+	}
+	if object != nil {
+		position := object.Pos()
+		if position > 0 && (start == 0 || position < start) {
+			start = position
+		}
+	}
+	return start
 }
 
 func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorObject *ast.Object, before token.Pos) (sourceCapabilityBinding, bool) {

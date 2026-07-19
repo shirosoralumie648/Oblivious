@@ -1347,6 +1347,85 @@ func register(options Options, overwrite bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox row pre-resolve local pointer alias",
+				packageName: "sandboxrowpreresolvealias",
+				source: `package sandboxrowpreresolvealias
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		pointer := &effect
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		pointer.id = releasecontract.EffectAgentToolPythonSandbox
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.pre.resolve.alias", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowPreResolveAlias"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row pre-resolve selector pointer alias",
+				packageName: "sandboxrowpreresolveselector",
+				source: `package sandboxrowpreresolveselector
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		pointer := &effect.id
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		*pointer = releasecontract.EffectAgentToolPythonSandbox
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.pre.resolve.selector", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowPreResolveSelector"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row conditional pre-resolve helper alias",
+				packageName: "sandboxrowconditionalpreresolve",
+				source: `package sandboxrowconditionalpreresolve
+func mutateID(id *string) {
+	*id = releasecontract.EffectAgentToolPythonSandbox
+}
+func register(options Options, overwrite bool) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		if overwrite { mutateID(&effect.id) }
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.conditional.pre.resolve", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowConditionalPreResolve"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("pre-resolve sandbox alias was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
