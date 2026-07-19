@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-13-PLAN.md
-last_updated: "2026-07-19T07:32:58.495Z"
+stopped_at: Completed 31.1-14-PLAN.md
+last_updated: "2026-07-19T09:15:55.362Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 13 closed strict Admin and Marketplace readiness composition gaps; Plan 31.1-14 is next
+last_activity_desc: Phase 31.1 Plan 14 closed strict Agent web-search construction-order gap; Plan 31.1-15 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 20
-  percent: 9
+  completed_plans: 21
+  percent: 48
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 13 of 22
-Status: Plan 31.1-13 complete; Plan 31.1-14 is next
-Last activity: 2026-07-19 — Strict Admin and Marketplace readiness composition gaps closed
+Plan: 14 of 22
+Status: Plan 31.1-14 complete; Plan 31.1-15 is next
+Last activity: 2026-07-19 — Strict Agent web-search provider is injected before authorized executor construction
 
-Progress: [██████░░░░] 59%
+Progress: [██████░░░░] 64%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 13
-- Average duration: 29 min
-- Total execution time: 6.2 hours
+- Total plans completed: 14
+- Average duration: 28 min
+- Total execution time: 6.6 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 13 plans in 373 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 14 plans in 394 minutes.
 
-**Recent Trend:** Plan 31.1-13 closed strict Admin and Marketplace readiness composition in 25 minutes.
+**Recent Trend:** Plan 31.1-14 closed strict Agent web-search construction order in 21 minutes.
 
 ## Accumulated Context
 
@@ -92,6 +92,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Strict Router composition rejects caller-supplied Admin services and constructs Admin only from the startup authority carrier. — Prevents compatibility injection from bypassing model mutation readiness.
 - [Phase 31.1]: Admin sync, detect, and apply guard once before their first read/probe and still resolve current model subjects before persistence. — Separates generic mutation admission from current catalog authorization without pinning a generation.
 - [Phase 31.1]: Marketplace HTTP checkout and local settlement consume the same startup financial carrier but guard their own effects independently. — Denial precedes local order intent and Provider checkout.
+- [Phase 31.1]: Strict BuildRuntime constructs the authority-aware Agent web-search provider before the authorized executor and passes the exact instance through ToolRuntimeOptions. — Compatibility setters remain outside strict composition; Plan 19 owns global descriptor exactness.
 
 ### Pending Todos
 
@@ -116,6 +117,7 @@ None yet.
 | Phase 31.1 P03 | 55 min | 3 tasks | 12 files |
 | Phase 31.1 P11 | 30 min | 2 tasks + 4 review fixes | 2 files |
 | Phase 31.1-readiness-fail-closed P13 | 25 min | 2 tasks | 6 files |
+| Phase 31.1-readiness-fail-closed P14 | 21 min | 2 tasks | 2 files |
 
 ### Roadmap Evolution
 
@@ -128,8 +130,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T07:32:58.478Z
-Stopped at: Completed 31.1-13-PLAN.md
+Last session: 2026-07-19T09:15:55.343Z
+Stopped at: Completed 31.1-14-PLAN.md
 Resume file: None
 
 ## Performance Metrics
