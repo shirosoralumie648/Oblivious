@@ -780,7 +780,7 @@ func descriptorAppendedToCollection(function *ast.FuncDecl, collection *ast.Iden
 	if function == nil || collection == nil || collection.Obj == nil {
 		return false
 	}
-	state := descriptorMembershipAfterBlock(function.Body, collection.Obj, descriptor, before, descriptorMembershipAbsent)
+	state := descriptorMembershipAfterBlock(function, function.Body, collection.Obj, descriptor, before, descriptorMembershipAbsent)
 	return state == descriptorMembershipPresent
 }
 
@@ -792,7 +792,7 @@ const (
 	descriptorMembershipAmbiguous
 )
 
-func descriptorMembershipAfterBlock(block *ast.BlockStmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+func descriptorMembershipAfterBlock(function *ast.FuncDecl, block *ast.BlockStmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
 	if block == nil || object == nil {
 		return state
 	}
@@ -800,12 +800,12 @@ func descriptorMembershipAfterBlock(block *ast.BlockStmt, object *ast.Object, de
 		if statement == nil || statement.Pos() >= before {
 			break
 		}
-		state = descriptorMembershipAfterStatement(statement, object, descriptor, before, state)
+		state = descriptorMembershipAfterStatement(function, statement, object, descriptor, before, state)
 	}
 	return state
 }
 
-func descriptorMembershipAfterStatement(statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+func descriptorMembershipAfterStatement(function *ast.FuncDecl, statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
 	if statement == nil || statement.Pos() >= before {
 		return state
 	}
@@ -825,40 +825,61 @@ func descriptorMembershipAfterStatement(statement ast.Stmt, object *ast.Object, 
 			}
 		}
 	case *ast.BlockStmt:
-		return descriptorMembershipAfterBlock(value, object, descriptor, before, state)
+		return descriptorMembershipAfterBlock(function, value, object, descriptor, before, state)
 	case *ast.IfStmt:
 		if value.Init != nil {
-			state = descriptorMembershipAfterStatement(value.Init, object, descriptor, before, state)
+			state = descriptorMembershipAfterStatement(function, value.Init, object, descriptor, before, state)
 		}
 		if isStaticFalse(value.Cond) {
-			return descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+			return descriptorMembershipAfterElse(function, value.Else, object, descriptor, before, state)
 		}
 		if isStaticTrue(value.Cond) {
-			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		}
 		if astNodeContainsPosition(value.Body, before) {
-			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		}
 		if astNodeContainsPosition(value.Else, before) {
-			return descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+			return descriptorMembershipAfterElse(function, value.Else, object, descriptor, before, state)
 		}
-		thenState := descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
-		elseState := descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+		thenState := descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		elseState := descriptorMembershipAfterElse(function, value.Else, object, descriptor, before, state)
 		return mergeDescriptorMembership(thenState, elseState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
-			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		}
-		// A descriptor literal appended while ranging over an authored literal
-		// table is the production generated-descriptor pattern. Following the
-		// body once proves the literal-to-collection edge; later registration
-		// still consumes the exact collection object.
-		return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
-	case *ast.ForStmt:
-		bodyState := descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		if iterations, known := knownRangeIterationCount(function, value); known {
+			for range iterations {
+				state = descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+			}
+			return state
+		}
+		bodyState := descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		if hasIdentifierWriteBefore(value.Body, object, before) {
+			return descriptorMembershipAmbiguous
+		}
 		return mergeDescriptorMembership(state, bodyState)
+	case *ast.ForStmt:
+		if value.Init != nil {
+			state = descriptorMembershipAfterStatement(function, value.Init, object, descriptor, before, state)
+		}
+		if isStaticFalse(value.Cond) {
+			return state
+		}
+		if astNodeContainsPosition(value.Body, before) {
+			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		}
+		iterationState := descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		if value.Post != nil {
+			iterationState = descriptorMembershipAfterStatement(function, value.Post, object, descriptor, before, iterationState)
+		}
+		if hasIdentifierWriteBefore(value.Body, object, before) || hasIdentifierWriteBefore(value.Post, object, before) {
+			return descriptorMembershipAmbiguous
+		}
+		return mergeDescriptorMembership(state, iterationState)
 	case *ast.LabeledStmt:
-		return descriptorMembershipAfterStatement(value.Stmt, object, descriptor, before, state)
+		return descriptorMembershipAfterStatement(function, value.Stmt, object, descriptor, before, state)
 	case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
 		if hasIdentifierWriteBefore(statement, object, before) {
 			return descriptorMembershipAmbiguous
@@ -869,15 +890,26 @@ func descriptorMembershipAfterStatement(statement ast.Stmt, object *ast.Object, 
 	return state
 }
 
-func descriptorMembershipAfterElse(statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+func descriptorMembershipAfterElse(function *ast.FuncDecl, statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
 	switch value := statement.(type) {
 	case nil:
 		return state
 	case *ast.BlockStmt:
-		return descriptorMembershipAfterBlock(value, object, descriptor, before, state)
+		return descriptorMembershipAfterBlock(function, value, object, descriptor, before, state)
 	default:
-		return descriptorMembershipAfterStatement(value, object, descriptor, before, state)
+		return descriptorMembershipAfterStatement(function, value, object, descriptor, before, state)
 	}
+}
+
+func knownRangeIterationCount(function *ast.FuncDecl, statement *ast.RangeStmt) (int, bool) {
+	if function == nil || statement == nil {
+		return 0, false
+	}
+	source := assignedCompositeLiteral(function, statement.X, statement.Pos())
+	if source == nil {
+		return 0, false
+	}
+	return len(source.Elts), true
 }
 
 func descriptorMembershipAfterWrite(write ast.Expr, object *ast.Object, descriptor *ast.CompositeLit, state descriptorMembership) descriptorMembership {
@@ -1127,8 +1159,17 @@ func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, befor
 		if value.Init != nil {
 			state = identifierStateAfterStatement(value.Init, object, before, state)
 		}
-		bodyState := identifierStateAfterBlock(value.Body, object, before, state)
-		return mergeSourceIdentifierStates(state, bodyState)
+		if isStaticFalse(value.Cond) {
+			return state
+		}
+		if astNodeContainsPosition(value.Body, before) {
+			return identifierStateAfterBlock(value.Body, object, before, state)
+		}
+		iterationState := identifierStateAfterBlock(value.Body, object, before, state)
+		if value.Post != nil {
+			iterationState = identifierStateAfterStatement(value.Post, object, before, iterationState)
+		}
+		return mergeSourceIdentifierStates(state, iterationState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
 			return identifierStateAfterBlock(value.Body, object, before, state)

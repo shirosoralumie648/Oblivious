@@ -661,6 +661,91 @@ func register(effects Registrar, enabled bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "unknown range append",
+				packageName: "rangeappend",
+				source: `package rangeappend
+func register(effects Registrar, values []int) error {
+	var descriptors []EffectDescriptor
+	for range values {
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.append", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Append"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "unknown range reset and append",
+				packageName: "rangereset",
+				source: `package rangereset
+func register(effects Registrar, values []int) error {
+	descriptors := []EffectDescriptor{{ID: "range.reset", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Reset"}}
+	for range values {
+		descriptors = nil
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.reset", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "range.Reset"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "for post scalar write",
+				packageName: "forpostscalar",
+				source: `package forpostscalar
+func register(effects Registrar, enabled bool) error {
+	descriptor := EffectDescriptor{ID: "for.post.scalar", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "forpost.Scalar"}
+	wrongDescriptor := EffectDescriptor{ID: "for.post.scalar", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "forpost.Scalar"}
+	for ; enabled; descriptor = wrongDescriptor {
+		enabled = false
+	}
+	return effects.Register(descriptor)
+}
+`,
+			},
+			{
+				name:        "for post collection append",
+				packageName: "forpostappend",
+				source: `package forpostappend
+func register(effects Registrar, enabled bool) error {
+	descriptors := []EffectDescriptor{{ID: "for.post.append", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "forpost.Append"}}
+	for ; enabled; descriptors = append(descriptors, EffectDescriptor{ID: "for.post.append", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "forpost.Append"}) {
+		enabled = false
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "for post collection reset",
+				packageName: "forpostreset",
+				source: `package forpostreset
+func register(effects Registrar, enabled bool) error {
+	descriptors := []EffectDescriptor{{ID: "for.post.reset", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "forpost.Reset"}}
+	for ; enabled; descriptors = nil {
+		enabled = false
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("ambiguous loop provenance was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
