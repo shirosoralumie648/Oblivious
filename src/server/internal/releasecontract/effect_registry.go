@@ -1055,7 +1055,8 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effec
 	}
 	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
 		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos()) &&
-		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos())
+		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos()) &&
+		!hasObjectAddressEscapeBetween(function, effectObject, binding.position, descriptor.Pos())
 }
 
 func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorObject *ast.Object, before token.Pos) (sourceCapabilityBinding, bool) {
@@ -1110,6 +1111,23 @@ func hasObjectWriteBetween(function *ast.FuncDecl, object *ast.Object, after, be
 			if statement.Tok == token.ASSIGN {
 				found = writtenExpressionObject(statement.Key) == object || writtenExpressionObject(statement.Value) == object
 			}
+		}
+	})
+	return found
+}
+
+func hasObjectAddressEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
+	if function == nil || function.Body == nil || object == nil || before <= after {
+		return true
+	}
+	found := false
+	inspectReachable(function.Body, func(node ast.Node) {
+		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
+			return
+		}
+		address, ok := node.(*ast.UnaryExpr)
+		if ok && address.Op == token.AND && sourceExpressionObject(unwrapParentheses(address.X)) == object {
+			found = true
 		}
 	})
 	return found
