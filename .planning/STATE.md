@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-11-PLAN.md
+stopped_at: Completed 31.1-12-PLAN.md
 last_updated: "2026-07-19T06:18:00Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 31.1 Plan 12 closed Relay semantic-cache and provider reauthorization gaps; Plan 31.1-13 is next
