@@ -84,7 +84,7 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: 12/22 plans executed
+**Plans**: 13/22 plans executed
 
 **Original planning envelope exception:** checker-requested closure required complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites did not fit the original 6-8 target while retaining the nine-file hard cap, so the executed decomposition used ten focused plans without shrinking coverage or trusting executable/environment identity.
 
@@ -126,7 +126,7 @@ Plans:
 
 - [x] 31.1-11-PLAN.md - Serialize generation-one bootstrap and bound context-ignoring probe work without weakening fail-closed observations.
 - [x] 31.1-12-PLAN.md - Authorize the current server-owned model before Relay semantic-cache success and retain immediate provider guards.
-- [ ] 31.1-13-PLAN.md - Require strict Admin and Marketplace readiness composition and deny mutations before reads, probes, writes, or provider calls.
+- [x] 31.1-13-PLAN.md - Require strict Admin and Marketplace readiness composition and deny mutations before reads, probes, writes, or provider calls.
 - [ ] 31.1-14-PLAN.md - Construct the authority-aware Agent web-search provider before the authorized ToolExecutor and prove exact ID-owner pairs.
 - [ ] 31.1-15-PLAN.md - Make compatibility ToolExecutor construction deny-only and migrate behavior fixtures to explicit authority-backed construction.
 - [ ] 31.1-16-PLAN.md - Fail stale or unavailable Admin/app readiness projections closed at the exact evaluator freshness boundary.
@@ -358,7 +358,7 @@ Cross-cutting constraints:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 12/22 | In Progress|  |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 13/22 | In Progress|  |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
