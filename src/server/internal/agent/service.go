@@ -188,7 +188,10 @@ func NewServiceWithRuntimeOptions(store Store, gateway chat.ChatGateway, mcpClie
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{store: store, gateway: gateway, mcpClient: mcpClient, toolExecutor: executor, runtimeOptions: &options}
+	s := &Service{
+		store: store, gateway: gateway, mcpClient: mcpClient,
+		webSearchProvider: options.WebSearchProvider, toolExecutor: executor, runtimeOptions: &options,
+	}
 	s.initRunner()
 	return s, nil
 }

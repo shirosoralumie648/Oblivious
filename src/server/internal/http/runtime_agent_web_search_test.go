@@ -53,7 +53,7 @@ func TestBuildRuntimeAgentWebSearchCompositionContract(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			globalProvider := &countingGlobalWebSearchProvider{}
 			restoreGlobal := mcp.SetWebSearchProviderForTest(globalProvider)
-			defer restoreGlobal()
+			t.Cleanup(restoreGlobal)
 			constructionBaseline := transportCalls.Load()
 			guard := &factoryReadinessGuard{}
 			guard.allow.Store(true)
@@ -67,7 +67,7 @@ func TestBuildRuntimeAgentWebSearchCompositionContract(t *testing.T) {
 			if err != nil {
 				t.Fatalf("open unopened database handle: %v", err)
 			}
-			defer database.Close()
+			t.Cleanup(func() { _ = database.Close() })
 
 			cfg := testConfig()
 			cfg.AgentWebSearchProvider = tc.provider
