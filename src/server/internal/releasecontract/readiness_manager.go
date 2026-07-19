@@ -361,16 +361,7 @@ func (m *Manager) runBoundedProbes(ctx context.Context) ([]Observation, error) {
 				observation, err := managed.probe.Run(probeCtx)
 				completed <- probeResult{index: index, observation: observation, err: err}
 			}()
-			select {
-			case result := <-completed:
-				results <- result
-			case <-probeCtx.Done():
-				if ctx.Err() != nil {
-					results <- probeResult{index: index, err: ctx.Err()}
-					return
-				}
-				results <- probeResult{index: index, err: context.DeadlineExceeded}
-			}
+			results <- awaitProbeResult(probeCtx, index, completed)
 		}(index, managed)
 	}
 
@@ -394,6 +385,21 @@ func (m *Manager) runBoundedProbes(ctx context.Context) ([]Observation, error) {
 		observations[result.index] = cloneObservation(observation)
 	}
 	return observations, nil
+}
+
+func awaitProbeResult(ctx context.Context, index int, completed <-chan probeResult) probeResult {
+	if err := ctx.Err(); err != nil {
+		return probeResult{index: index, err: err}
+	}
+	select {
+	case result := <-completed:
+		if err := ctx.Err(); err != nil {
+			return probeResult{index: index, err: err}
+		}
+		return result
+	case <-ctx.Done():
+		return probeResult{index: index, err: ctx.Err()}
+	}
 }
 
 func (m *Manager) Require(capabilityID string) error {

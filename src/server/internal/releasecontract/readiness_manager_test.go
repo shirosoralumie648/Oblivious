@@ -395,6 +395,55 @@ func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
 	}
 }
 
+func TestReadinessManagerProbeDeadlinePrecedenceContract(t *testing.T) {
+	t.Run("already canceled context discards buffered enabled completion", func(t *testing.T) {
+		probeCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		completed := make(chan probeResult, 1)
+		completed <- probeResult{
+			index:       7,
+			observation: Observation{Availability: AvailabilityEnabled},
+		}
+
+		result := awaitProbeResult(probeCtx, 7, completed)
+		if result.index != 7 {
+			t.Fatalf("arbitrated probe index = %d, want 7", result.index)
+		}
+		if !errors.Is(result.err, context.Canceled) {
+			t.Fatalf("arbitrated probe error = %v, want context canceled", result.err)
+		}
+		if result.observation.Availability != "" {
+			t.Fatalf("expired completion availability = %q, want discarded", result.observation.Availability)
+		}
+	})
+
+	t.Run("manager blocks enabled result returned after probe deadline", func(t *testing.T) {
+		contract, profile, identity := loadReadinessTestAuthority(t)
+		probes := replaceManagerProbe(
+			managerTestProbes(t, contract, profile),
+			"postgres",
+			&enabledAfterCancellationManagerProbe{id: "probe.postgres", dependency: "postgres"},
+		)
+		manager := newTestManager(
+			t,
+			contract,
+			profile,
+			identity,
+			newManagerTestClock(time.Date(2026, time.July, 19, 2, 0, 0, 0, time.UTC)),
+			probes,
+			5*time.Millisecond,
+			&recordingSnapshotWriter{},
+			filepath.Join(t.TempDir(), "readiness.json"),
+		)
+
+		if err := manager.Bootstrap(context.Background()); err != nil {
+			t.Fatalf("bootstrap with post-deadline enabled result: %v", err)
+		}
+		assertBlockedDependencyObservation(t, manager.current.Load(), "postgres", len(probes))
+		assertReadinessCode(t, manager.Require("identity.account_session"), CodeCapabilityBlocked)
+	})
+}
+
 func TestReadinessManagerPublicationRace(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC))
@@ -513,6 +562,18 @@ func (p *countedBlockingManagerProbe) Run(context.Context) (Observation, error) 
 	p.startedOnce.Do(func() { close(p.started) })
 	<-p.release
 	p.exitedOnce.Do(func() { close(p.exited) })
+	return Observation{Availability: AvailabilityEnabled}, nil
+}
+
+type enabledAfterCancellationManagerProbe struct {
+	id         string
+	dependency string
+}
+
+func (p *enabledAfterCancellationManagerProbe) ID() string           { return p.id }
+func (p *enabledAfterCancellationManagerProbe) DependencyID() string { return p.dependency }
+func (p *enabledAfterCancellationManagerProbe) Run(ctx context.Context) (Observation, error) {
+	<-ctx.Done()
 	return Observation{Availability: AvailabilityEnabled}, nil
 }
 
