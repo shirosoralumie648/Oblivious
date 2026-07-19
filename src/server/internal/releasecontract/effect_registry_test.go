@@ -913,6 +913,85 @@ func register(effects Registrar) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox continue shadowed effect",
+				packageName: "sandboxeffectshadow",
+				source: `package sandboxeffectshadow
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	var err error
+	for _, effect := range effectsRows {
+		{
+			effect := struct{ id string }{}
+			if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				continue
+			}
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.effect.shadow", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "sandbox.EffectShadow"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox continue shadowed error",
+				packageName: "sandboxerrshadow",
+				source: `package sandboxerrshadow
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	var err error
+	var otherErr error
+	for _, effect := range effectsRows {
+		{
+			err := otherErr
+			if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				continue
+			}
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.err.shadow", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "sandbox.ErrShadow"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox continue unrelated error",
+				packageName: "sandboxothererr",
+				source: `package sandboxothererr
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	var err error
+	var otherErr error
+	for _, effect := range effectsRows {
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(otherErr, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.other.err", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "sandbox.OtherErr"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("sandbox identity ambiguity was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
