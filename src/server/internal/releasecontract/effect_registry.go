@@ -46,14 +46,109 @@ func IsEffectCoverageCode(err error, code string) bool {
 // no commitment or profile authority; profileDisposition only classifies how a
 // row is expected to behave in the selected profile.
 type EffectSurface struct {
-	SeamID             string     `json:"seamId"`
-	OwnerPackage       string     `json:"ownerPackage"`
-	OwnerSymbol        string     `json:"ownerSymbol"`
-	CapabilityID       string     `json:"capabilityId"`
-	Boundary           Boundary   `json:"boundary"`
-	ASTCall            string     `json:"astCall"`
-	EntrypointID       string     `json:"entrypointId,omitempty"`
-	ProfileDisposition Commitment `json:"profileDisposition"`
+	SeamID             string                       `json:"seamId"`
+	DescriptorID       string                       `json:"descriptorId,omitempty"`
+	EffectID           EffectID                     `json:"effectId,omitempty"`
+	OwnerPackage       string                       `json:"ownerPackage"`
+	OwnerSymbol        string                       `json:"ownerSymbol"`
+	CapabilityID       string                       `json:"capabilityId"`
+	Boundary           Boundary                     `json:"boundary"`
+	ASTCall            string                       `json:"astCall"`
+	RegistrationSymbol string                       `json:"registrationSymbol,omitempty"`
+	GuardCall          string                       `json:"guardCall,omitempty"`
+	EffectCall         string                       `json:"effectCall,omitempty"`
+	Configuration      *EffectConfigurationSelector `json:"configurationSelector,omitempty"`
+	EntrypointID       string                       `json:"entrypointId,omitempty"`
+	ProfileDisposition Commitment                   `json:"profileDisposition"`
+}
+
+type EffectConfigurationSelector struct {
+	Group string `json:"group"`
+	Value string `json:"value"`
+	Mode  string `json:"mode"`
+}
+
+const (
+	effectSelectorOneOf    = "one_of"
+	effectSelectorOptional = "optional"
+)
+
+type runtimeDescriptorSpec struct {
+	EffectID           EffectID
+	CapabilityID       CapabilityID
+	Owner              string
+	Boundary           Boundary
+	OwnerPackage       string
+	RegistrationSymbol string
+	RegistrationAnchor string
+	GuardCall          string
+	EffectCall         string
+	Configuration      *EffectConfigurationSelector
+	Disposition        Commitment
+}
+
+func descriptorSpec(effect EffectID, owner string, boundary Boundary, ownerPackage, registrationSymbol, registrationAnchor, guardCall, effectCall string, disposition Commitment, configuration *EffectConfigurationSelector) runtimeDescriptorSpec {
+	return runtimeDescriptorSpec{
+		EffectID: effect, CapabilityID: authoredEffectCapabilities[effect], Owner: owner, Boundary: boundary,
+		OwnerPackage: ownerPackage, RegistrationSymbol: registrationSymbol, RegistrationAnchor: registrationAnchor,
+		GuardCall: guardCall, EffectCall: effectCall, Configuration: configuration, Disposition: disposition,
+	}
+}
+
+func selector(group, value, mode string) *EffectConfigurationSelector {
+	return &EffectConfigurationSelector{Group: group, Value: value, Mode: mode}
+}
+
+// runtimeDescriptorSpecs is the sole runtime descriptor allowlist and the
+// sole descriptor-to-EffectID mapping. Source discovery and runtime joining
+// consume the same exact owner, boundary, capability, and selection contract.
+var runtimeDescriptorSpecs = map[string]runtimeDescriptorSpec{
+	"worker.schedule.claim":             descriptorSpec(EffectScheduleClaim, "schedule.Worker", BoundaryWorkerClaim, "src/server/internal/schedule", "newScheduledReadiness", "", "runDueTasks:requireClaim", "runDueTasks:ClaimDueScheduledTaskRuns", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.start":    descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedWorkflowTask:requireWorkflowEffect", "runClaimedWorkflowTask:startClaimedWorkflow", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.continue": descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedWorkflowTask:requireWorkflowEffect", "runClaimedWorkflowTask:RunExecutionUntilBlocked", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.agent.start":       descriptorSpec(EffectScheduleAgent, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedAgentTask:requireAgentEffect", "runClaimedAgentTask:StartRun", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+
+	"worker.channel_retry.claim": descriptorSpec(EffectChannelRetryClaim, "channel.Service", BoundaryWorkerClaim, "src/server/internal/channel", "newChannelReadiness", "", "ClaimDueRetryMessages:requireRetryClaim", "ClaimDueRetryMessages:ClaimDueRetryMessages", CommitmentCommitted, nil),
+	"channel.delivery.send":      descriptorSpec(EffectChannelDelivery, "channel.Service", BoundaryOutbound, "src/server/internal/channel", "newChannelReadiness", "", "Send:requireDelivery", "Send:DeliverOutbound", CommitmentCommitted, nil),
+	"worker.archive.claim":       descriptorSpec(EffectArchiveClaim, "channel.ArchiveWorker", BoundaryWorkerClaim, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireClaim", "archiveExpiredMessageLogs:ListExpiredMessageLogsForArchive", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.write":       descriptorSpec(EffectArchiveWrite, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireWrite", "archiveExpiredMessageLogs:ArchiveMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.delete":      descriptorSpec(EffectArchiveDelete, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireDelete", "archiveExpiredMessageLogs:DeleteArchivedMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+
+	"worker.relay_batch.claim":             descriptorSpec(EffectRelayBatchClaim, "relay.BatchPollingWorker", BoundaryWorkerClaim, "src/server/internal/relay", "newBatchPollingReadiness", "", "runOnce:requireClaim", "runOnce:ClaimBatchPollingJobs", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.retrieve":          descriptorSpec(EffectRelayBatchProvider, "relay.BatchPollingWorker", BoundaryOutbound, "src/server/internal/relay", "newBatchPollingReadiness", "", "runOnce:requireProvider", "runOnce:RetrieveBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.complete.finalize": descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireFinalizer", "recordBatchStatus:FinalizeCompletedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.failure.finalize":  descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireFinalizer", "recordBatchStatus:FinalizeFailedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.succeeded":         descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireTerminal", "recordBatchStatus:MarkBatchPollingJobSucceeded", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.dead_letter":       descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireTerminal", "recordBatchStatus>recordTerminalFailedJob:MarkBatchPollingJobDeadLetter", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+
+	"marketplace.settlement.intent": descriptorSpec(EffectMarketplaceSettlement, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "CreatePaidInstallCheckout:requireSettlement", "CreatePaidInstallCheckout:BeginTx", CommitmentCommitted, nil),
+	"marketplace.payout.dispatch":   descriptorSpec(EffectMarketplacePayout, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "dispatchPersistedPayout:requirePayout", "dispatchPersistedPayout>dispatchPayout:CreatePayout", CommitmentCommitted, nil),
+	"relay.provider.dispatch":       descriptorSpec(EffectRelayProvider, "relay.Router", BoundaryOutbound, "src/server/internal/relay", "newRouterReadiness", "", "Route:requireProvider", "Route:fn", CommitmentCommitted, selector("relay.runtime", "enabled", effectSelectorOptional)),
+	"chat.provider.dispatch":        descriptorSpec(EffectChatProvider, "chat.RelayGateway", BoundaryOutbound, "src/server/internal/chat", "NewRelayGatewayWithOptions>newRelayGatewayReadiness", "", "complete:requireDispatch", "complete:Do", CommitmentCommitted, nil),
+	"chat.provider.fallback":        descriptorSpec(EffectChatProvider, "chat.CompositeGateway", BoundaryOutbound, "src/server/internal/chat", "NewCompositeGatewayWithOptions>newRelayGatewayReadiness", "", "GenerateReply:requireDispatch", "GenerateReply:GenerateReply", CommitmentCommitted, selector("chat.fallback", "enabled", effectSelectorOptional)),
+
+	"admin.channel.model.mutation": descriptorSpec(EffectHTTPMutation, "admin.channel_service", BoundaryHTTP, "src/server/internal/admin", "newModelCatalogReadiness", "", "SyncChannelModels:requireMutation", "SyncChannelModels:TestChannel", CommitmentCommitted, nil),
+	"http.admin.refund":            descriptorSpec(EffectAdminRefund, "http.adminHandler", BoundaryFinancial, "src/server/internal/http", "newAdminFinancialReadiness", "", "recordTopupRefund:require", "recordTopupRefund:RecordTopupRefund", CommitmentCommitted, nil),
+	"http.billing.checkout":        descriptorSpec(EffectBillingCheckout, "http.billingHandler", BoundaryFinancial, "src/server/internal/http", "newBillingFinancialReadiness>newCheckoutFinancialReadiness", "", "checkout:require", "checkout:CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.marketplace.checkout":    descriptorSpec(EffectBillingCheckout, "http.marketplaceHandler", BoundaryFinancial, "src/server/internal/http", "withMarketplaceFinancialReadiness>newCheckoutFinancialReadiness", "", "createPaidInstallCheckout:require", "createPaidInstallCheckout:CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.mcp.mutation":            descriptorSpec(EffectHTTPMutation, "http.mcpHandler", BoundaryHTTP, "src/server/internal/http", "newMCPMutationReadiness", "", "addServer:authorize", "addServer:AddServer", CommitmentCommitted, nil),
+
+	"mcp.transport.dispatch": descriptorSpec(EffectMCPDispatch, "mcp.Client", BoundaryOutbound, "src/server/internal/mcp", "newClientReadiness", "", "sendRequest:authorize", "sendRequest:Do", CommitmentCommitted, nil),
+	"mcp.websearch.builtin":  descriptorSpec(EffectToolWebSearch, "mcp.WebSearchTool", BoundaryOutbound, "src/server/internal/mcp", "NewWebSearchTool>newWebSearchReadiness", "", "Execute:authorize", "Execute:Search", CommitmentConditional, nil),
+	"mcp.websearch.tavily":   descriptorSpec(EffectToolWebSearch, "mcp.TavilyWebSearchProvider", BoundaryOutbound, "src/server/internal/mcp", "newTavilyWebSearchProvider>newWebSearchReadiness", "", "Search:authorize", "Search:Do", CommitmentConditional, selector("websearch.provider", "tavily", effectSelectorOneOf)),
+	"mcp.websearch.chain":    descriptorSpec(EffectToolWebSearch, "mcp.websearch.Chain", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Search:authorize", "Search:Search", CommitmentConditional, selector("websearch.provider", "chain", effectSelectorOneOf)),
+	"mcp.websearch.provider": descriptorSpec(EffectToolWebSearch, "mcp.websearch.Provider", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Search:authorize", "Search:Search", CommitmentConditional, selector("websearch.provider", "provider", effectSelectorOneOf)),
+
+	"agent.tool.builtin":         descriptorSpec(EffectAgentToolBuiltin, "agent.ToolExecutor.builtin", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolBuiltin", "executeBuiltin:authorizeTool", "executeBuiltin:Execute", CommitmentCommitted, nil),
+	"agent.tool.custom_api_http": descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolCustomAPIHTTP", "executeCustomAPI:authorizeTool", "executeCustomAPI:Do", CommitmentConditional, nil),
+	"agent.tool.local_python":    descriptorSpec(EffectAgentToolLocalPython, "agent.ToolExecutor.local_python", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolLocalPython", "executeCustomPython:authorizeTool", "executeCustomPython:pythonProcessRunner", CommitmentConditional, nil),
+	"agent.tool.python_sandbox":  descriptorSpec(EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolPythonSandbox", "executeCustomPythonSandbox:authorizeTool", "executeCustomPythonSandbox:RunCustomPython", CommitmentExcluded, nil),
+	"agent.tool.mcp":             descriptorSpec(EffectAgentToolMCP, "agent.ToolExecutor.mcp", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolMCP", "executeMCP:authorizeTool", "executeMCP:CallTool", CommitmentCommitted, nil),
+
+	"agent.tool.registry.builtin": descriptorSpec(EffectAgentToolBuiltin, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryBuiltin", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.registry.custom":  descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryCustom", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.registry.mcp":     descriptorSpec(EffectAgentToolMCP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryMCP", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.web_search":       descriptorSpec(EffectToolWebSearch, "agent.tools.WebsearchTool", BoundaryOutbound, "src/server/internal/agent/tools", "newWebsearchReadiness", "", "Execute:authorize", "Execute:Search", CommitmentExcluded, nil),
 }
 
 type EffectSurfaceManifest struct {
@@ -79,11 +174,18 @@ func (r *EffectRegistry) Register(descriptor EffectDescriptor) error {
 	if strings.TrimSpace(descriptor.ID) == "" || strings.TrimSpace(descriptor.CapabilityID) == "" || strings.TrimSpace(descriptor.Owner) == "" || !validBoundary(descriptor.Boundary) {
 		return &EffectCoverageError{Code: "effect_registry_invalid", Field: descriptor.ID}
 	}
-	if !isKnownEffectDescriptorID(descriptor.ID) {
+	spec, ok := runtimeDescriptorSpecs[descriptor.ID]
+	if !ok {
 		return &EffectCoverageError{Code: "effect_registry_unknown", Field: descriptor.ID}
 	}
-	if !isKnownCapability(descriptor.CapabilityID) {
-		return &EffectCoverageError{Code: "effect_registry_unknown_capability", Field: descriptor.CapabilityID}
+	if descriptor.Owner != spec.Owner {
+		return &EffectCoverageError{Code: "effect_registry_owner_mismatch", Field: descriptor.ID}
+	}
+	if descriptor.Boundary != spec.Boundary {
+		return &EffectCoverageError{Code: "effect_registry_boundary_mismatch", Field: descriptor.ID}
+	}
+	if descriptor.CapabilityID != string(spec.CapabilityID) {
+		return &EffectCoverageError{Code: "effect_registry_capability_mismatch", Field: descriptor.ID}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -139,10 +241,15 @@ func LoadEffectSurfaceManifest(path string) (EffectSurfaceManifest, error) {
 }
 
 func validateEffectSurfaceManifest(manifest EffectSurfaceManifest) error {
+	return validateEffectSurfaceManifestAgainstSpecs(manifest, runtimeDescriptorSpecs)
+}
+
+func validateEffectSurfaceManifestAgainstSpecs(manifest EffectSurfaceManifest, specs map[string]runtimeDescriptorSpec) error {
 	if manifest.SchemaVersion != EffectSurfaceSchemaV1 || len(manifest.Surfaces) == 0 {
 		return &EffectCoverageError{Code: "effect_manifest_empty"}
 	}
 	seen := make(map[string]struct{}, len(manifest.Surfaces))
+	descriptors := make(map[string]struct{}, len(specs))
 	for _, surface := range manifest.Surfaces {
 		if strings.TrimSpace(surface.SeamID) == "" || strings.TrimSpace(surface.OwnerPackage) == "" || strings.TrimSpace(surface.OwnerSymbol) == "" || strings.TrimSpace(surface.CapabilityID) == "" || !validBoundary(surface.Boundary) || !validCommitment(surface.ProfileDisposition) {
 			return &EffectCoverageError{Code: "effect_manifest_invalid", Field: surface.SeamID}
@@ -151,8 +258,40 @@ func validateEffectSurfaceManifest(manifest EffectSurfaceManifest) error {
 			return &EffectCoverageError{Code: "effect_manifest_duplicate", Field: surface.SeamID}
 		}
 		seen[surface.SeamID] = struct{}{}
+		if surface.DescriptorID == "" {
+			continue
+		}
+		if _, duplicate := descriptors[surface.DescriptorID]; duplicate {
+			return &EffectCoverageError{Code: "effect_manifest_duplicate_descriptor", Field: surface.DescriptorID}
+		}
+		descriptors[surface.DescriptorID] = struct{}{}
+		spec, ok := specs[surface.DescriptorID]
+		if !ok {
+			return &EffectCoverageError{Code: "effect_manifest_unknown_descriptor", Field: surface.DescriptorID}
+		}
+		if strings.TrimSpace(surface.RegistrationSymbol) == "" || strings.TrimSpace(surface.GuardCall) == "" || strings.TrimSpace(surface.EffectCall) == "" {
+			return &EffectCoverageError{Code: "effect_manifest_structural_metadata_missing", Field: surface.DescriptorID}
+		}
+		if surface.Configuration != nil && (strings.TrimSpace(surface.Configuration.Group) == "" || strings.TrimSpace(surface.Configuration.Value) == "" || (surface.Configuration.Mode != effectSelectorOneOf && surface.Configuration.Mode != effectSelectorOptional)) {
+			return &EffectCoverageError{Code: "effect_manifest_selector_invalid", Field: surface.DescriptorID}
+		}
+		if surface.SeamID != surface.DescriptorID+"@"+spec.Owner || surface.EffectID != spec.EffectID || surface.OwnerPackage != spec.OwnerPackage || surface.OwnerSymbol != spec.Owner || surface.CapabilityID != string(spec.CapabilityID) || surface.Boundary != spec.Boundary || surface.ASTCall != "structural" || surface.RegistrationSymbol != spec.RegistrationSymbol || surface.GuardCall != spec.GuardCall || surface.EffectCall != spec.EffectCall || surface.ProfileDisposition != spec.Disposition || !equalEffectSelector(surface.Configuration, spec.Configuration) {
+			return &EffectCoverageError{Code: "effect_manifest_descriptor_drift", Field: surface.DescriptorID}
+		}
+	}
+	for descriptorID := range specs {
+		if _, ok := descriptors[descriptorID]; !ok {
+			return &EffectCoverageError{Code: "effect_manifest_missing_descriptor", Field: descriptorID}
+		}
 	}
 	return nil
+}
+
+func equalEffectSelector(left, right *EffectConfigurationSelector) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Group == right.Group && left.Value == right.Value && left.Mode == right.Mode
 }
 
 type discoveredEffect struct {
@@ -161,9 +300,8 @@ type discoveredEffect struct {
 	Line int    `json:"line"`
 }
 
-// DiscoverEffectSurfaces parses production Go source and extracts each
-// EffectDescriptor composite literal. No environment or executable identity
-// participates in discovery.
+// DiscoverEffectSurfaces proves exact registrations and guard-before-effect
+// call chains from parsed production Go syntax.
 func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 	if strings.TrimSpace(repoRoot) == "" || !filepath.IsAbs(repoRoot) {
 		return nil, &EffectCoverageError{Code: "effect_discovery_repo_invalid"}
@@ -188,42 +326,23 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 			return err
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
-			if call, ok := node.(*ast.CallExpr); ok && isRunEntrypointCall(call) {
-				entrypoint := runEntrypointLiteral(call)
-				if entrypoint != "" {
-					position := fset.Position(call.Pos())
-					relative, _ := filepath.Rel(repoRoot, path)
-					discovered = append(discovered, discoveredEffect{EffectSurface: EffectSurface{
-						SeamID: "entrypoint." + entrypoint, OwnerPackage: filepath.ToSlash(filepath.Dir(relative)), OwnerSymbol: "main",
-						CapabilityID: "deployment.operations", Boundary: BoundaryOperation, ASTCall: "RunEntrypoint", EntrypointID: entrypoint,
-					}, File: relative, Line: position.Line})
-				}
-			}
-			literal, ok := node.(*ast.CompositeLit)
-			if !ok || (!isEffectDescriptorType(literal.Type) && !looksLikeEffectDescriptor(literal)) {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || !isRunEntrypointCall(call) {
 				return true
 			}
-			values := literalEffectFields(literal)
-			id, _ := values["ID"].(string)
-			capability, _ := values["CapabilityID"].(string)
-			boundary, _ := values["Boundary"].(string)
-			owner, _ := values["Owner"].(string)
-			if id == "" || owner == "" {
+			entrypoint := runEntrypointLiteral(call)
+			if entrypoint == "" {
 				return true
 			}
-			if capability == "" {
-				capability = knownCapabilityForEffect(id)
-			}
-			boundary = normalizeBoundary(boundary)
-			if boundary == "" || capability == "" {
-				return true
-			}
-			position := fset.Position(literal.Pos())
+			position := fset.Position(call.Pos())
 			relative, _ := filepath.Rel(repoRoot, path)
-			ownerPackage := filepath.ToSlash(filepath.Dir(relative))
+			disposition := CommitmentExcluded
+			if entrypoint == "server" {
+				disposition = CommitmentCommitted
+			}
 			discovered = append(discovered, discoveredEffect{EffectSurface: EffectSurface{
-				SeamID: id + "@" + owner, OwnerPackage: ownerPackage, OwnerSymbol: owner,
-				CapabilityID: capability, Boundary: Boundary(boundary), ASTCall: "EffectDescriptor",
+				SeamID: "entrypoint." + entrypoint, OwnerPackage: filepath.ToSlash(filepath.Dir(relative)), OwnerSymbol: "main",
+				CapabilityID: "deployment.operations", Boundary: BoundaryOperation, ASTCall: "RunEntrypoint", EntrypointID: entrypoint, ProfileDisposition: disposition,
 			}, File: relative, Line: position.Line})
 			return true
 		})
@@ -232,18 +351,49 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 	if err != nil {
 		return nil, &EffectCoverageError{Code: "effect_discovery_failed", Err: err}
 	}
-	appendExecutorEffectSurfaces(repoRoot, &discovered)
+	descriptorIDs := make([]string, 0, len(runtimeDescriptorSpecs))
+	for descriptorID := range runtimeDescriptorSpecs {
+		descriptorIDs = append(descriptorIDs, descriptorID)
+	}
+	sort.Strings(descriptorIDs)
+	for _, descriptorID := range descriptorIDs {
+		spec := runtimeDescriptorSpecs[descriptorID]
+		present, err := descriptorStructurePresent(repoRoot, descriptorID, spec)
+		if err != nil {
+			return nil, &EffectCoverageError{Code: "effect_discovery_failed", Field: descriptorID, Err: err}
+		}
+		if present {
+			discovered = append(discovered, discoveredEffect{EffectSurface: effectSurfaceForSpec(descriptorID, spec), File: spec.OwnerPackage})
+		}
+	}
 	sort.Slice(discovered, func(i, j int) bool {
 		if discovered[i].SeamID != discovered[j].SeamID {
 			return discovered[i].SeamID < discovered[j].SeamID
 		}
-		return discovered[i].File+strconv.Itoa(discovered[i].Line) < discovered[j].File+strconv.Itoa(discovered[j].Line)
+		return discovered[i].File < discovered[j].File
 	})
 	result := make([]EffectSurface, 0, len(discovered))
 	for _, value := range discovered {
 		result = append(result, value.EffectSurface)
 	}
 	return result, nil
+}
+
+func effectSurfaceForSpec(descriptorID string, spec runtimeDescriptorSpec) EffectSurface {
+	return EffectSurface{
+		SeamID: descriptorID + "@" + spec.Owner, DescriptorID: descriptorID, EffectID: spec.EffectID,
+		OwnerPackage: spec.OwnerPackage, OwnerSymbol: spec.Owner, CapabilityID: string(spec.CapabilityID), Boundary: spec.Boundary,
+		ASTCall: "structural", RegistrationSymbol: spec.RegistrationSymbol, GuardCall: spec.GuardCall, EffectCall: spec.EffectCall,
+		Configuration: cloneEffectSelector(spec.Configuration), ProfileDisposition: spec.Disposition,
+	}
+}
+
+func cloneEffectSelector(source *EffectConfigurationSelector) *EffectConfigurationSelector {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	return &clone
 }
 
 func isRunEntrypointCall(call *ast.CallExpr) bool {
@@ -266,96 +416,350 @@ func runEntrypointLiteral(call *ast.CallExpr) string {
 	return value
 }
 
-func appendExecutorEffectSurfaces(repoRoot string, discovered *[]discoveredEffect) {
-	executorPath := filepath.Join(repoRoot, "src", "server", "internal", "agent", "executor.go")
-	content, err := os.ReadFile(executorPath)
-	if err == nil {
-		for _, item := range []struct {
-			marker string
-			id     string
-			owner  string
-			cap    string
-		}{
-			{"\"builtin\"", "agent.tool.builtin", "agent.ToolExecutor.builtin", "mcp.tool_execution"},
-			{"\"custom_api_http\"", "agent.tool.custom_api_http", "agent.ToolExecutor.custom_api_http", "mcp.custom_execution"},
-			{"\"custom_python_process\"", "agent.tool.local_python", "agent.ToolExecutor.local_python", "mcp.custom_execution"},
-			{"\"custom_python_sandbox\"", "agent.tool.python_sandbox", "agent.ToolExecutor.python_sandbox", "sandbox.code_execution"},
-			{"\"mcp\"", "agent.tool.mcp", "agent.ToolExecutor.mcp", "mcp.tool_execution"},
-		} {
-			if strings.Contains(string(content), item.marker) {
-				*discovered = append(*discovered, discoveredEffect{EffectSurface: EffectSurface{
-					SeamID: item.id + "@" + item.owner, OwnerPackage: "src/server/internal/agent", OwnerSymbol: item.owner,
-					CapabilityID: item.cap, Boundary: BoundaryOutbound, ASTCall: "ToolExecutor",
-				}})
-			}
-		}
-	}
-	registryPath := filepath.Join(repoRoot, "src", "server", "internal", "agent", "tools", "registry.go")
-	content, err = os.ReadFile(registryPath)
-	if err == nil {
-		for _, item := range []struct {
-			marker string
-			id     string
-			cap    string
-		}{
-			{"CategoryBuiltin", "agent.tool.registry.builtin", "mcp.tool_execution"},
-			{"CategoryCustom", "agent.tool.registry.custom", "mcp.custom_execution"},
-			{"CategoryMCP", "agent.tool.registry.mcp", "mcp.tool_execution"},
-		} {
-			if strings.Contains(string(content), item.marker) {
-				*discovered = append(*discovered, discoveredEffect{EffectSurface: EffectSurface{
-					SeamID: item.id + "@agent.tools.Registry", OwnerPackage: "src/server/internal/agent/tools", OwnerSymbol: "agent.tools.Registry",
-					CapabilityID: item.cap, Boundary: BoundaryOutbound, ASTCall: "Registry",
-				}})
-			}
-		}
-	}
+type sourceFunction struct {
+	declaration *ast.FuncDecl
+	calls       []sourceCall
 }
 
-func isEffectDescriptorType(expression ast.Expr) bool {
+type sourceCall struct {
+	name     string
+	position token.Pos
+}
+
+func descriptorStructurePresent(repoRoot, descriptorID string, spec runtimeDescriptorSpec) (bool, error) {
+	functions, err := loadSourceFunctions(filepath.Join(repoRoot, filepath.FromSlash(spec.OwnerPackage)))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	anchor := spec.RegistrationAnchor
+	if anchor == "" {
+		anchor = descriptorID
+	}
+	effectSymbol, err := effectConstantSymbol(repoRoot, spec.EffectID)
+	if err != nil {
+		return false, err
+	}
+	if effectSymbol == "" || !registrationContractPresent(functions, spec.RegistrationSymbol, descriptorID, anchor, effectSymbol, spec.Owner, spec.Boundary) {
+		return false, nil
+	}
+	return guardEffectContractPresent(functions, spec.GuardCall, spec.EffectCall), nil
+}
+
+func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	functions := make(map[string][]sourceFunction)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(directory, entry.Name()), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			indexed := sourceFunction{declaration: function}
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if ok {
+					indexed.calls = append(indexed.calls, sourceCall{name: calledName(call.Fun), position: call.Pos()})
+				}
+				return true
+			})
+			functions[function.Name.Name] = append(functions[function.Name.Name], indexed)
+		}
+	}
+	return functions, nil
+}
+
+func calledName(expression ast.Expr) string {
 	switch value := expression.(type) {
 	case *ast.Ident:
-		return value.Name == "EffectDescriptor"
+		return value.Name
 	case *ast.SelectorExpr:
-		return value.Sel != nil && value.Sel.Name == "EffectDescriptor"
-	default:
+		if value.Sel != nil {
+			return value.Sel.Name
+		}
+	case *ast.IndexExpr:
+		return calledName(value.X)
+	case *ast.IndexListExpr:
+		return calledName(value.X)
+	}
+	return ""
+}
+
+func registrationContractPresent(functions map[string][]sourceFunction, contract, descriptorID, anchor, effectSymbol, owner string, boundary Boundary) bool {
+	path := strings.Split(contract, ">")
+	if len(path) == 0 {
 		return false
 	}
+	for _, first := range functions[path[0]] {
+		next := ""
+		if len(path) > 1 {
+			next = path[1]
+		}
+		if !functionHasRegistrationIdentity(first.declaration, descriptorID, anchor, owner, next) {
+			continue
+		}
+		current := first
+		valid := true
+		for index := 1; index < len(path); index++ {
+			if !hasCallAfter(current, path[index], 0) || len(functions[path[index]]) == 0 {
+				valid = false
+				break
+			}
+			current = functions[path[index]][0]
+		}
+		if valid && hasCallAfter(current, "Register", 0) && functionHasBoundary(current.declaration, boundary) && (functionHasEffectBinding(first.declaration, effectSymbol) || functionHasEffectBinding(current.declaration, effectSymbol)) {
+			return true
+		}
+	}
+	return false
 }
 
-func looksLikeEffectDescriptor(literal *ast.CompositeLit) bool {
-	seen := map[string]bool{}
-	for _, element := range literal.Elts {
-		if keyValue, ok := element.(*ast.KeyValueExpr); ok {
-			if key, ok := keyValue.Key.(*ast.Ident); ok {
-				seen[key.Name] = true
+func functionHasRegistrationIdentity(function *ast.FuncDecl, descriptorID, anchor, owner, next string) bool {
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		if next != "" {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || calledName(call.Fun) != next {
+				return true
+			}
+			found = syntaxListContainsAnchor(call.Args, descriptorID) && syntaxListContainsAnchor(call.Args, owner)
+			return !found
+		}
+		literal, ok := node.(*ast.CompositeLit)
+		if ok && syntaxContainsAnchor(literal, anchor) && syntaxContainsAnchor(literal, owner) {
+			found = true
+		}
+		return !found
+	})
+	if found {
+		return true
+	}
+	return next == "" && functionHasCompositeAnchor(function, anchor) && functionHasCompositeAnchor(function, owner)
+}
+
+func functionHasCompositeAnchor(function *ast.FuncDecl, anchor string) bool {
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		literal, ok := node.(*ast.CompositeLit)
+		found = ok && syntaxContainsAnchor(literal, anchor)
+		return !found
+	})
+	return found
+}
+
+func syntaxListContainsAnchor(nodes []ast.Expr, anchor string) bool {
+	for _, node := range nodes {
+		if syntaxContainsAnchor(node, anchor) {
+			return true
+		}
+	}
+	return false
+}
+
+func functionHasEffectBinding(function *ast.FuncDecl, effectSymbol string) bool {
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		if call, ok := node.(*ast.CallExpr); ok && calledName(call.Fun) == "Resolve" && syntaxListContainsAnchor(call.Args, effectSymbol) {
+			found = true
+			return false
+		}
+		if literal, ok := node.(*ast.CompositeLit); ok && syntaxContainsAnchor(literal, effectSymbol) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func functionHasBoundary(function *ast.FuncDecl, boundary Boundary) bool {
+	identifier := boundarySourceIdentifier(boundary)
+	if identifier == "" {
+		return false
+	}
+	return functionHasCompositeAnchor(function, identifier)
+}
+
+func boundarySourceIdentifier(boundary Boundary) string {
+	switch boundary {
+	case BoundaryHTTP:
+		return "BoundaryHTTP"
+	case BoundaryGRPC:
+		return "BoundaryGRPC"
+	case BoundaryWorkerClaim:
+		return "BoundaryWorkerClaim"
+	case BoundaryWorkerEffect:
+		return "BoundaryWorkerEffect"
+	case BoundaryOutbound:
+		return "BoundaryOutbound"
+	case BoundaryFinancial:
+		return "BoundaryFinancial"
+	case BoundaryOperation:
+		return "BoundaryOperation"
+	default:
+		return ""
+	}
+}
+
+func effectConstantSymbol(repoRoot string, effect EffectID) (string, error) {
+	path := filepath.Join(repoRoot, "src", "server", "internal", "releasecontract", "catalog.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	for _, declaration := range file.Decls {
+		constants, ok := declaration.(*ast.GenDecl)
+		if !ok || constants.Tok != token.CONST {
+			continue
+		}
+		for _, declarationSpec := range constants.Specs {
+			valueSpec, ok := declarationSpec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for index, expression := range valueSpec.Values {
+				literal, ok := expression.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING || index >= len(valueSpec.Names) {
+					continue
+				}
+				value, err := strconv.Unquote(literal.Value)
+				if err == nil && EffectID(value) == effect {
+					return valueSpec.Names[index].Name, nil
+				}
 			}
 		}
 	}
-	return seen["ID"] && seen["CapabilityID"] && seen["Boundary"] && seen["Owner"]
+	return "", nil
 }
 
-func literalEffectFields(literal *ast.CompositeLit) map[string]any {
-	result := make(map[string]any)
-	for _, element := range literal.Elts {
-		keyValue, ok := element.(*ast.KeyValueExpr)
-		if !ok {
+func syntaxContainsAnchor(root ast.Node, anchor string) bool {
+	found := false
+	ast.Inspect(root, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		switch value := node.(type) {
+		case *ast.BasicLit:
+			if value.Kind == token.STRING {
+				literal, err := strconv.Unquote(value.Value)
+				found = err == nil && literal == anchor
+			}
+		case *ast.Ident:
+			found = value.Name == anchor
+		case *ast.SelectorExpr:
+			found = value.Sel != nil && value.Sel.Name == anchor
+		}
+		return !found
+	})
+	return found
+}
+
+func guardEffectContractPresent(functions map[string][]sourceFunction, guardContract, effectContract string) bool {
+	guardPath, guardCall, ok := parseCallContract(guardContract)
+	if !ok || len(guardPath) != 1 {
+		return false
+	}
+	effectPath, effectCall, ok := parseCallContract(effectContract)
+	if !ok || len(effectPath) == 0 || effectPath[0] != guardPath[0] {
+		return false
+	}
+	for _, root := range functions[guardPath[0]] {
+		guardPosition := firstCallPosition(root, guardCall)
+		if guardPosition == 0 {
 			continue
 		}
-		key, ok := keyValue.Key.(*ast.Ident)
-		if !ok {
+		if len(effectPath) == 1 {
+			if firstCallPositionAfter(root, effectCall, guardPosition) != 0 {
+				return true
+			}
 			continue
 		}
-		if stringLiteral, ok := keyValue.Value.(*ast.BasicLit); ok && stringLiteral.Kind == token.STRING {
-			if value, err := strconv.Unquote(stringLiteral.Value); err == nil {
-				result[key.Name] = value
+		if firstCallPositionAfter(root, effectPath[1], guardPosition) == 0 {
+			continue
+		}
+		valid := true
+		for index := 1; index < len(effectPath); index++ {
+			candidates := functions[effectPath[index]]
+			if len(candidates) == 0 {
+				valid = false
+				break
+			}
+			if index == len(effectPath)-1 {
+				matched := false
+				for _, candidate := range candidates {
+					if firstCallPosition(candidate, effectCall) != 0 {
+						matched = true
+						break
+					}
+				}
+				valid = matched
+				break
+			}
+			if !hasCallAfter(candidates[0], effectPath[index+1], 0) {
+				valid = false
+				break
 			}
 		}
-		if selector, ok := keyValue.Value.(*ast.SelectorExpr); ok {
-			result[key.Name] = selector.Sel.Name
+		if valid {
+			return true
 		}
 	}
-	return result
+	return false
+}
+
+func parseCallContract(contract string) ([]string, string, bool) {
+	parts := strings.SplitN(contract, ":", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return nil, "", false
+	}
+	path := strings.Split(parts[0], ">")
+	for _, function := range path {
+		if strings.TrimSpace(function) == "" {
+			return nil, "", false
+		}
+	}
+	return path, parts[1], true
+}
+
+func firstCallPosition(function sourceFunction, name string) token.Pos {
+	return firstCallPositionAfter(function, name, 0)
+}
+
+func firstCallPositionAfter(function sourceFunction, name string, after token.Pos) token.Pos {
+	for _, call := range function.calls {
+		if call.name == name && call.position > after {
+			return call.position
+		}
+	}
+	return 0
+}
+
+func hasCallAfter(function sourceFunction, name string, after token.Pos) bool {
+	return firstCallPositionAfter(function, name, after) != 0
 }
 
 func VerifyEffectCoverage(args ...any) error {
@@ -403,6 +807,9 @@ func VerifyEffectCoverage(args ...any) error {
 	if err := validateEffectSurfaceManifest(options.manifest); err != nil {
 		return err
 	}
+	if err := validateEffectCoverageAuthorities(options.contract, options.profile, options.authorities); err != nil {
+		return err
+	}
 	if options.repoRoot != "" {
 		static, err := DiscoverEffectSurfaces(options.repoRoot)
 		if err != nil {
@@ -416,90 +823,54 @@ func VerifyEffectCoverage(args ...any) error {
 	if options.registry != nil {
 		runtime = options.registry.Snapshot()
 	}
-	if err := joinRuntime(options.manifest.Surfaces, options.profile, runtime); err != nil {
-		return err
-	}
 	if len(runtime) == 0 {
 		return &EffectCoverageError{Code: "effect_coverage_zero_runtime"}
 	}
-	if options.authorities.Valid() {
-		for _, descriptor := range runtime {
-			effectID := effectIDForDescriptor(descriptor)
-			capability, err := options.authorities.CapabilityBindings.Resolve(effectID)
-			if err != nil {
-				return &EffectCoverageError{Code: "effect_coverage_unknown_effect", Field: descriptor.ID}
-			}
-			if string(capability) != descriptor.CapabilityID {
-				return &EffectCoverageError{Code: "effect_coverage_capability_mismatch", Field: descriptor.ID}
-			}
+	if err := joinRuntime(options.manifest.Surfaces, options.profile, runtime); err != nil {
+		return err
+	}
+	for _, descriptor := range runtime {
+		effectID := effectIDForDescriptor(descriptor)
+		if effectID == "" {
+			return &EffectCoverageError{Code: "effect_coverage_unknown_effect", Field: descriptor.ID}
+		}
+		capability, err := options.authorities.CapabilityBindings.Resolve(effectID)
+		if err != nil {
+			return &EffectCoverageError{Code: "effect_coverage_unknown_effect", Field: descriptor.ID}
+		}
+		if string(capability) != descriptor.CapabilityID {
+			return &EffectCoverageError{Code: "effect_coverage_capability_mismatch", Field: descriptor.ID}
 		}
 	}
 	return nil
 }
 
+func validateEffectCoverageAuthorities(contract AuthoredContractV1, profile DeploymentProfile, authorities RuntimeAuthorities) error {
+	if strings.TrimSpace(contract.SchemaVersion) == "" || len(contract.Capabilities) == 0 || len(contract.Profiles) == 0 {
+		return &EffectCoverageError{Code: "effect_coverage_contract_required"}
+	}
+	if err := validateReadinessProfile(contract, profile); err != nil {
+		return &EffectCoverageError{Code: "effect_coverage_profile_invalid", Field: profile.ID, Err: err}
+	}
+	if !authorities.Valid() {
+		return &EffectCoverageError{Code: "effect_coverage_authorities_required"}
+	}
+	digest, err := Digest(contract)
+	if err != nil {
+		return &EffectCoverageError{Code: "effect_coverage_contract_invalid", Err: err}
+	}
+	resolver, ok := authorities.CatalogAuthorizer.resolver.(compiledCatalogResolver)
+	if !ok || resolver.digest != digest {
+		return &EffectCoverageError{Code: "effect_coverage_authorities_mismatch"}
+	}
+	return nil
+}
+
 func effectIDForDescriptor(descriptor EffectDescriptor) EffectID {
-	switch descriptor.ID {
-	case "worker.schedule.claim":
-		return EffectScheduleClaim
-	case "worker.schedule.workflow.start", "worker.schedule.workflow.continue":
-		return EffectScheduleWorkflow
-	case "worker.schedule.agent.start":
-		return EffectScheduleAgent
-	case "worker.channel_retry.claim":
-		return EffectChannelRetryClaim
-	case "channel.delivery.send":
-		return EffectChannelDelivery
-	case "worker.relay_batch.claim":
-		return EffectRelayBatchClaim
-	case "worker.relay_batch.retrieve":
-		return EffectRelayBatchProvider
-	case "worker.relay_batch.complete.finalize", "worker.relay_batch.failure.finalize", "worker.relay_batch.succeeded", "worker.relay_batch.dead_letter":
-		return EffectRelayBatchFinalize
-	case "worker.archive.claim":
-		return EffectArchiveClaim
-	case "worker.archive.write":
-		return EffectArchiveWrite
-	case "worker.archive.delete":
-		return EffectArchiveDelete
-	case "relay.provider.dispatch":
-		return EffectRelayProvider
-	case "mcp.transport.dispatch":
-		return EffectMCPDispatch
-	case "http.mcp.mutation":
-		return EffectHTTPMutation
-	case "http.admin.refund":
-		return EffectAdminRefund
-	case "marketplace.payout.dispatch":
-		return EffectMarketplacePayout
-	case "marketplace.settlement.intent":
-		return EffectMarketplaceSettlement
-	case "agent.tool.builtin":
-		return EffectAgentToolBuiltin
-	case "agent.tool.custom_api_http":
-		return EffectAgentToolCustomAPIHTTP
-	case "agent.tool.local_python":
-		return EffectAgentToolLocalPython
-	case "agent.tool.python_sandbox":
-		return EffectAgentToolPythonSandbox
-	case "agent.tool.mcp":
-		return EffectAgentToolMCP
+	if spec, ok := runtimeDescriptorSpecs[descriptor.ID]; ok {
+		return spec.EffectID
 	}
-	switch {
-	case strings.Contains(descriptor.Owner, "Chat"), strings.Contains(descriptor.Owner, "chat"):
-		return EffectChatProvider
-	case strings.Contains(descriptor.Owner, "WebSearch"), strings.Contains(descriptor.Owner, "websearch"), strings.Contains(descriptor.Owner, "Websearch"):
-		return EffectToolWebSearch
-	case strings.Contains(descriptor.Owner, "Billing"), strings.Contains(descriptor.Owner, "billing"):
-		return EffectBillingCheckout
-	case strings.Contains(descriptor.Owner, "Registry"):
-		switch descriptor.CapabilityID {
-		case "mcp.custom_execution":
-			return EffectAgentToolCustomAPIHTTP
-		default:
-			return EffectAgentToolMCP
-		}
-	}
-	return EffectID(descriptor.ID)
+	return ""
 }
 
 type EffectCoverageOptions struct {
@@ -541,7 +912,7 @@ func joinStatic(expected, discovered []EffectSurface) error {
 	}
 	expectedByKey := make(map[string]EffectSurface, len(expected))
 	for _, surface := range expected {
-		if surface.ASTCall == "runtime" {
+		if surface.ASTCall == "classification" {
 			continue
 		}
 		expectedByKey[surface.SeamID] = surface
@@ -549,7 +920,7 @@ func joinStatic(expected, discovered []EffectSurface) error {
 		if !ok {
 			return &EffectCoverageError{Code: "effect_coverage_missing_static", Field: surface.SeamID}
 		}
-		if discoveredSurface.CapabilityID != surface.CapabilityID || discoveredSurface.Boundary != surface.Boundary || discoveredSurface.OwnerSymbol != surface.OwnerSymbol {
+		if discoveredSurface.DescriptorID != surface.DescriptorID || discoveredSurface.EffectID != surface.EffectID || discoveredSurface.OwnerPackage != surface.OwnerPackage || discoveredSurface.CapabilityID != surface.CapabilityID || discoveredSurface.Boundary != surface.Boundary || discoveredSurface.OwnerSymbol != surface.OwnerSymbol || discoveredSurface.RegistrationSymbol != surface.RegistrationSymbol || discoveredSurface.GuardCall != surface.GuardCall || discoveredSurface.EffectCall != surface.EffectCall || discoveredSurface.ProfileDisposition != surface.ProfileDisposition || !equalEffectSelector(discoveredSurface.Configuration, surface.Configuration) {
 			return &EffectCoverageError{Code: "effect_coverage_static_drift", Field: surface.SeamID}
 		}
 	}
@@ -562,72 +933,76 @@ func joinStatic(expected, discovered []EffectSurface) error {
 }
 
 func joinRuntime(expected []EffectSurface, profile DeploymentProfile, runtime []EffectDescriptor) error {
+	_ = profile
+	expectedByDescriptor := make(map[string]EffectSurface, len(runtimeDescriptorSpecs))
+	for _, surface := range expected {
+		if surface.DescriptorID != "" {
+			expectedByDescriptor[surface.DescriptorID] = surface
+		}
+	}
 	seen := make(map[string]struct{}, len(runtime))
-	matchedExpected := make(map[string]struct{}, len(expected))
 	for _, descriptor := range runtime {
 		if _, duplicate := seen[descriptor.ID]; duplicate {
 			return &EffectCoverageError{Code: "effect_coverage_duplicate_runtime", Field: descriptor.ID}
 		}
 		seen[descriptor.ID] = struct{}{}
-		if !validBoundary(descriptor.Boundary) || !isKnownCapability(descriptor.CapabilityID) {
-			return &EffectCoverageError{Code: "effect_coverage_unclassified", Field: descriptor.ID}
-		}
-		matched := false
-		for _, surface := range expected {
-			if strings.HasSuffix(surface.SeamID, "@"+descriptor.Owner) && strings.HasPrefix(surface.SeamID, descriptor.ID+"@") {
-				matched = true
-				matchedExpected[surface.SeamID] = struct{}{}
-				if surface.ProfileDisposition == CommitmentExcluded && (profile.ID == "monolith" || profile.ID == "") {
-					return &EffectCoverageError{Code: "effect_coverage_profile_drift", Field: descriptor.ID}
-				}
-				break
-			}
-		}
-		if !matched {
-			candidates := make([]EffectSurface, 0, 1)
-			for _, surface := range expected {
-				if (strings.HasSuffix(surface.SeamID, "@"+descriptor.Owner) || surface.SeamID == descriptor.Owner) && surface.ASTCall == "runtime" {
-					if !containsKey(matchedExpected, surface.SeamID) {
-						candidates = append(candidates, surface)
-					}
-				}
-			}
-			if len(candidates) == 1 {
-				surface := candidates[0]
-				matched = true
-				matchedExpected[surface.SeamID] = struct{}{}
-				if surface.ProfileDisposition == CommitmentExcluded && (profile.ID == "monolith" || profile.ID == "") {
-					return &EffectCoverageError{Code: "effect_coverage_profile_drift", Field: descriptor.ID}
-				}
-			}
-		}
-		if !matched {
-			for _, surface := range expected {
-				if strings.HasSuffix(surface.SeamID, "@"+descriptor.Owner) && strings.Contains(surface.SeamID, descriptor.ID) {
-					matched = true
-					matchedExpected[surface.SeamID] = struct{}{}
-					break
-				}
-			}
-		}
-		if !matched {
+		spec, ok := runtimeDescriptorSpecs[descriptor.ID]
+		if !ok {
 			return &EffectCoverageError{Code: "effect_coverage_extra_runtime", Field: descriptor.ID}
 		}
+		if _, ok := expectedByDescriptor[descriptor.ID]; !ok {
+			return &EffectCoverageError{Code: "effect_coverage_extra_runtime", Field: descriptor.ID}
+		}
+		if spec.Disposition == CommitmentExcluded {
+			return &EffectCoverageError{Code: "effect_coverage_profile_drift", Field: descriptor.ID}
+		}
+		if descriptor.Owner != spec.Owner || descriptor.Boundary != spec.Boundary || descriptor.CapabilityID != string(spec.CapabilityID) {
+			return &EffectCoverageError{Code: "effect_coverage_runtime_drift", Field: descriptor.ID}
+		}
 	}
-	for _, surface := range expected {
-		if surface.ProfileDisposition == CommitmentExcluded && (profile.ID == "monolith" || profile.ID == "") {
+	selectorGroups := make(map[string][]string)
+	selectorModes := make(map[string]string)
+	for descriptorID, spec := range runtimeDescriptorSpecs {
+		if spec.Disposition == CommitmentExcluded {
 			continue
 		}
-		if strings.HasPrefix(surface.ASTCall, "runtime") && !containsKey(matchedExpected, surface.SeamID) {
-			return &EffectCoverageError{Code: "effect_coverage_missing_runtime", Field: surface.SeamID}
+		if spec.Configuration == nil {
+			if _, ok := seen[descriptorID]; !ok {
+				return &EffectCoverageError{Code: "effect_coverage_missing_runtime", Field: descriptorID}
+			}
+			continue
+		}
+		group := spec.Configuration.Group + "\x00" + spec.Configuration.Value
+		selectorGroups[group] = append(selectorGroups[group], descriptorID)
+		selectorModes[spec.Configuration.Group] = spec.Configuration.Mode
+	}
+	for groupValue, descriptors := range selectorGroups {
+		parts := strings.SplitN(groupValue, "\x00", 2)
+		mode := selectorModes[parts[0]]
+		present := 0
+		for _, descriptorID := range descriptors {
+			if _, ok := seen[descriptorID]; ok {
+				present++
+			}
+		}
+		if mode == effectSelectorOptional && present != 0 && present != len(descriptors) {
+			return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: parts[0]}
+		}
+	}
+	oneOfSelections := make(map[string]int)
+	for descriptorID, spec := range runtimeDescriptorSpecs {
+		if spec.Configuration != nil && spec.Configuration.Mode == effectSelectorOneOf {
+			if _, ok := seen[descriptorID]; ok {
+				oneOfSelections[spec.Configuration.Group]++
+			}
+		}
+	}
+	for group, mode := range selectorModes {
+		if mode == effectSelectorOneOf && oneOfSelections[group] != 1 {
+			return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: group}
 		}
 	}
 	return nil
-}
-
-func containsKey(values map[string]struct{}, key string) bool {
-	_, ok := values[key]
-	return ok
 }
 
 func validBoundary(boundary Boundary) bool {
@@ -636,82 +1011,6 @@ func validBoundary(boundary Boundary) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func normalizeBoundary(value string) string {
-	switch value {
-	case "BoundaryHTTP":
-		return string(BoundaryHTTP)
-	case "BoundaryGRPC":
-		return string(BoundaryGRPC)
-	case "BoundaryWorkerClaim":
-		return string(BoundaryWorkerClaim)
-	case "BoundaryWorkerEffect":
-		return string(BoundaryWorkerEffect)
-	case "BoundaryOutbound":
-		return string(BoundaryOutbound)
-	case "BoundaryFinancial":
-		return string(BoundaryFinancial)
-	case "BoundaryOperation":
-		return string(BoundaryOperation)
-	default:
-		return value
-	}
-}
-
-func isKnownCapability(capability string) bool {
-	for _, known := range []string{"admin.governance", "agent.run", "agent.tool_execution", "billing.ledger_lifecycle", "billing.payment_lifecycle", "channel.delivery", "chat.conversation_use", "chat.export", "deployment.operations", "gateway.request_admission", "identity.account_session", "identity.organization_membership", "knowledge.ingestion", "knowledge.retrieval", "marketplace.commerce", "marketplace.governance", "mcp.custom_execution", "mcp.network_execution", "mcp.tool_execution", "observability.audit", "observability.slo", "relay.provider_inference", "relay.stream_cancel", "relay.usage_settlement", "release.contract_reporting", "sandbox.code_execution", "task.scheduled_execution", "workflow.graph_execution", "workflow.replay"} {
-		if capability == known {
-			return true
-		}
-	}
-	return false
-}
-
-func isKnownEffectDescriptorID(id string) bool {
-	if _, ok := authoredEffectCapabilities[EffectID(id)]; ok {
-		return true
-	}
-	for _, known := range []string{
-		"mcp.transport.dispatch", "channel.delivery.send", "worker.schedule.workflow.start", "worker.schedule.workflow.continue", "worker.schedule.agent.start",
-		"worker.relay_batch.retrieve", "worker.relay_batch.complete.finalize", "worker.relay_batch.failure.finalize", "worker.relay_batch.succeeded", "worker.relay_batch.dead_letter",
-		"marketplace.settlement.intent", "marketplace.payout.dispatch", "http.mcp.mutation", "http.admin.refund", "agent.tool.web_search",
-	} {
-		if id == known {
-			return true
-		}
-	}
-	return strings.HasPrefix(id, "agent.tool.registry.") || strings.HasPrefix(id, "websearch.") || strings.HasPrefix(id, "chat.") || strings.HasPrefix(id, "http.billing.")
-}
-
-func knownCapabilityForEffect(id string) string {
-	for effect, capability := range authoredEffectCapabilities {
-		if string(effect) == id {
-			return string(capability)
-		}
-	}
-	switch {
-	case id == "http.admin.refund" || id == "http.billing.checkout":
-		return "billing.payment_lifecycle"
-	case strings.HasPrefix(id, "worker.schedule.workflow"):
-		return "workflow.graph_execution"
-	case strings.HasPrefix(id, "worker.schedule.agent"):
-		return "agent.run"
-	case strings.HasPrefix(id, "worker.schedule"):
-		return "task.scheduled_execution"
-	case strings.HasPrefix(id, "worker.channel"), strings.HasPrefix(id, "channel.delivery"):
-		return "channel.delivery"
-	case strings.HasPrefix(id, "worker.relay_batch"), strings.HasPrefix(id, "relay.provider"):
-		return "relay.provider_inference"
-	case strings.HasPrefix(id, "worker.archive"):
-		return "observability.audit"
-	case strings.HasPrefix(id, "marketplace."):
-		return "marketplace.commerce"
-	case strings.HasPrefix(id, "http."):
-		return "gateway.request_admission"
-	default:
-		return ""
 	}
 }
 
