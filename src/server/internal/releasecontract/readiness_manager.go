@@ -273,6 +273,9 @@ func (m *Manager) Bootstrap(ctx context.Context) error {
 	if m == nil {
 		return readinessError(CodeReadinessUnavailable, "manager", nil)
 	}
+	if ctx == nil {
+		return readinessError(CodeReadinessUnavailable, "context", nil)
+	}
 	m.bootstrapMu.Lock()
 	defer m.bootstrapMu.Unlock()
 	if m.current.Load() != nil {

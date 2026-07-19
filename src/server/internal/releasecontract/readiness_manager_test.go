@@ -202,6 +202,56 @@ func TestReadinessManagerLifecycleContract(t *testing.T) {
 	})
 }
 
+func TestReadinessManagerBootstrapNilContextContract(t *testing.T) {
+	contract, profile, identity := loadReadinessTestAuthority(t)
+	probes := managerTestProbes(t, contract, profile)
+	writer := &recordingSnapshotWriter{}
+	manager := newTestManager(
+		t,
+		contract,
+		profile,
+		identity,
+		newManagerTestClock(time.Date(2026, time.July, 19, 5, 0, 0, 0, time.UTC)),
+		probes,
+		25*time.Millisecond,
+		writer,
+		filepath.Join(t.TempDir(), "readiness.json"),
+	)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		err := manager.Bootstrap(nil)
+		var readinessErr *ReadinessError
+		if !errors.As(err, &readinessErr) {
+			t.Fatalf("nil-context bootstrap %d error = %T %v, want ReadinessError", attempt, err, err)
+		}
+		if readinessErr.Code != CodeReadinessUnavailable || readinessErr.Field != "context" {
+			t.Fatalf("nil-context bootstrap %d error = code %q field %q, want %q and context", attempt, readinessErr.Code, readinessErr.Field, CodeReadinessUnavailable)
+		}
+		if got := string(readinessErr.Code); got != "readiness_unavailable" {
+			t.Fatalf("nil-context bootstrap %d code = %q, want readiness_unavailable", attempt, got)
+		}
+	}
+
+	for _, probe := range probes {
+		fixed, ok := probe.(*fixedManagerProbe)
+		if !ok {
+			t.Fatalf("probe %s has unsupported test type %T", probe.DependencyID(), probe)
+		}
+		if got := fixed.calls.Load(); got != 0 {
+			t.Fatalf("nil-context bootstrap probe %s calls = %d, want zero", probe.DependencyID(), got)
+		}
+	}
+	if got := writer.snapshotCount(); got != 0 {
+		t.Fatalf("nil-context bootstrap audit writes = %d, want zero", got)
+	}
+	if manager.current.Load() != nil {
+		t.Fatal("nil-context bootstrap published a readiness generation")
+	}
+	if got := manager.Evaluate(); got.Generation != 0 || got.ErrorCode != CodeReadinessUnavailable {
+		t.Fatalf("nil-context bootstrap evaluation = generation %d error %q, want zero and readiness_unavailable", got.Generation, got.ErrorCode)
+	}
+}
+
 func TestReadinessManagerBootstrapConcurrencyContract(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 19, 0, 0, 0, 0, time.UTC))
