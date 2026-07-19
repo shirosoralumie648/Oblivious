@@ -1056,7 +1056,7 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, loop 
 	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
 		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos()) &&
 		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos()) &&
-		!hasObjectAddressEscapeBetween(function, effectObject, objectAddressEscapeStart(loop, effectObject), descriptor.Pos())
+		!hasObjectEscapeBetween(function, effectObject, objectAddressEscapeStart(loop, effectObject), descriptor.Pos())
 }
 
 func objectAddressEscapeStart(loop *ast.RangeStmt, object *ast.Object) token.Pos {
@@ -1130,7 +1130,7 @@ func hasObjectWriteBetween(function *ast.FuncDecl, object *ast.Object, after, be
 	return found
 }
 
-func hasObjectAddressEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
+func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
 	if function == nil || function.Body == nil || object == nil || before <= after {
 		return true
 	}
@@ -1139,9 +1139,12 @@ func hasObjectAddressEscapeBetween(function *ast.FuncDecl, object *ast.Object, a
 		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
 			return
 		}
-		address, ok := node.(*ast.UnaryExpr)
-		if ok && address.Op == token.AND && sourceExpressionObject(unwrapParentheses(address.X)) == object {
-			found = true
+		switch expression := node.(type) {
+		case *ast.UnaryExpr:
+			found = expression.Op == token.AND && sourceExpressionObject(unwrapParentheses(expression.X)) == object
+		case *ast.CallExpr:
+			method, ok := unwrapParentheses(expression.Fun).(*ast.SelectorExpr)
+			found = ok && sourceExpressionObject(method.X) == object
 		}
 	})
 	return found
