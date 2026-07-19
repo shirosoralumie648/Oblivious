@@ -130,6 +130,10 @@ func (h *ReadinessHandlers) Admin(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		return
 	}
 	evaluation := h.manager.Evaluate()
+	if evaluation.ErrorCode != "" {
+		writeReadinessHTTPError(w, &releasecontract.ReadinessError{Code: evaluation.ErrorCode, Field: "evaluation"})
+		return
+	}
 	capabilities := make([]AdminCapabilityAvailability, 0, len(evaluation.Capabilities))
 	for _, id := range sortedCapabilityIDs(evaluation.Capabilities) {
 		item := evaluation.Capabilities[id]
@@ -157,6 +161,10 @@ func (h *ReadinessHandlers) App(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	evaluation := h.manager.Evaluate()
+	if evaluation.ErrorCode != "" {
+		writeReadinessHTTPError(w, &releasecontract.ReadinessError{Code: evaluation.ErrorCode, Field: "evaluation"})
+		return
+	}
 	items := make([]AppCapabilityAvailability, 0, len(evaluation.Capabilities))
 	for _, id := range sortedCapabilityIDs(evaluation.Capabilities) {
 		item := evaluation.Capabilities[id]
