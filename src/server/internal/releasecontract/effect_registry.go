@@ -73,6 +73,18 @@ const (
 	effectSelectorOptional = "optional"
 )
 
+// EffectRuntimeConfiguration is the explicit production projection used by
+// coverage verification. A false optional cohort is an authored disablement,
+// not an inference from missing runtime descriptors.
+type EffectRuntimeConfiguration struct {
+	ScheduleWorkerEnabled bool
+	ChannelArchiveEnabled bool
+	RelayBatchEnabled     bool
+	RelayRuntimeEnabled   bool
+	ChatFallbackEnabled   bool
+	WebSearchProvider     string
+}
+
 type runtimeDescriptorSpec struct {
 	EffectID           EffectID
 	CapabilityID       CapabilityID
@@ -103,52 +115,52 @@ func selector(group, value, mode string) *EffectConfigurationSelector {
 // sole descriptor-to-EffectID mapping. Source discovery and runtime joining
 // consume the same exact owner, boundary, capability, and selection contract.
 var runtimeDescriptorSpecs = map[string]runtimeDescriptorSpec{
-	"worker.schedule.claim":             descriptorSpec(EffectScheduleClaim, "schedule.Worker", BoundaryWorkerClaim, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runDueTasks:requireClaim", "Service.runDueTasks:ClaimDueScheduledTaskRuns", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.workflow.start":    descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:requireWorkflowEffect", "Service.runClaimedWorkflowTask:startClaimedWorkflow", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.workflow.continue": descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:requireWorkflowEffect", "Service.runClaimedWorkflowTask:RunExecutionUntilBlocked", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.agent.start":       descriptorSpec(EffectScheduleAgent, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedAgentTask:requireAgentEffect", "Service.runClaimedAgentTask:StartRun", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.claim":             descriptorSpec(EffectScheduleClaim, "schedule.Worker", BoundaryWorkerClaim, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runDueTasks:readiness.requireClaim", "Service.runDueTasks:dueStore.ClaimDueScheduledTaskRuns", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.start":    descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:readiness.requireWorkflowEffect", "Service.runClaimedWorkflowTask:s.startClaimedWorkflow", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.continue": descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:readiness.requireWorkflowEffect", "Service.runClaimedWorkflowTask:s.workflowStarter.RunExecutionUntilBlocked", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.agent.start":       descriptorSpec(EffectScheduleAgent, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedAgentTask:readiness.requireAgentEffect", "Service.runClaimedAgentTask:s.agentStarter.StartRun", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
 
-	"worker.channel_retry.claim": descriptorSpec(EffectChannelRetryClaim, "channel.Service", BoundaryWorkerClaim, "src/server/internal/channel", "newChannelReadiness", "", "Service.ClaimDueRetryMessages:requireRetryClaim", "Service.ClaimDueRetryMessages:ClaimDueRetryMessages", CommitmentCommitted, nil),
-	"channel.delivery.send":      descriptorSpec(EffectChannelDelivery, "channel.Service", BoundaryOutbound, "src/server/internal/channel", "newChannelReadiness", "", "Service.Send:requireDelivery", "Service.Send:DeliverOutbound", CommitmentCommitted, nil),
-	"worker.archive.claim":       descriptorSpec(EffectArchiveClaim, "channel.ArchiveWorker", BoundaryWorkerClaim, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireClaim", "Service.archiveExpiredMessageLogs:ListExpiredMessageLogsForArchive", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
-	"worker.archive.write":       descriptorSpec(EffectArchiveWrite, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireWrite", "Service.archiveExpiredMessageLogs:ArchiveMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
-	"worker.archive.delete":      descriptorSpec(EffectArchiveDelete, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireDelete", "Service.archiveExpiredMessageLogs:DeleteArchivedMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.channel_retry.claim": descriptorSpec(EffectChannelRetryClaim, "channel.Service", BoundaryWorkerClaim, "src/server/internal/channel", "newChannelReadiness", "", "Service.ClaimDueRetryMessages:s.readiness.requireRetryClaim", "Service.ClaimDueRetryMessages:store.ClaimDueRetryMessages", CommitmentCommitted, nil),
+	"channel.delivery.send":      descriptorSpec(EffectChannelDelivery, "channel.Service", BoundaryOutbound, "src/server/internal/channel", "newChannelReadiness", "", "Service.Send:s.readiness.requireDelivery", "Service.Send:deliverer.DeliverOutbound", CommitmentCommitted, nil),
+	"worker.archive.claim":       descriptorSpec(EffectArchiveClaim, "channel.ArchiveWorker", BoundaryWorkerClaim, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:readiness.requireClaim", "Service.archiveExpiredMessageLogs:store.ListExpiredMessageLogsForArchive", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.write":       descriptorSpec(EffectArchiveWrite, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:readiness.requireWrite", "Service.archiveExpiredMessageLogs:sink.ArchiveMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.delete":      descriptorSpec(EffectArchiveDelete, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:readiness.requireDelete", "Service.archiveExpiredMessageLogs:store.DeleteArchivedMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
 
-	"worker.relay_batch.claim":             descriptorSpec(EffectRelayBatchClaim, "relay.BatchPollingWorker", BoundaryWorkerClaim, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:requireClaim", "BatchPollingWorker.runOnce:ClaimBatchPollingJobs", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.retrieve":          descriptorSpec(EffectRelayBatchProvider, "relay.BatchPollingWorker", BoundaryOutbound, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:requireProvider", "BatchPollingWorker.runOnce:RetrieveBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.complete.finalize": descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireFinalizer", "BatchPollingWorker.recordBatchStatus:FinalizeCompletedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.failure.finalize":  descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireFinalizer", "BatchPollingWorker.recordBatchStatus:FinalizeFailedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.succeeded":         descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireTerminal", "BatchPollingWorker.recordBatchStatus:MarkBatchPollingJobSucceeded", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.dead_letter":       descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireTerminal", "BatchPollingWorker.recordBatchStatus>BatchPollingWorker.recordTerminalFailedJob:MarkBatchPollingJobDeadLetter", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.claim":             descriptorSpec(EffectRelayBatchClaim, "relay.BatchPollingWorker", BoundaryWorkerClaim, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:w.readiness.requireClaim", "BatchPollingWorker.runOnce:w.store.ClaimBatchPollingJobs", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.retrieve":          descriptorSpec(EffectRelayBatchProvider, "relay.BatchPollingWorker", BoundaryOutbound, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:w.readiness.requireProvider", "BatchPollingWorker.runOnce:w.client.RetrieveBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.complete.finalize": descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:w.readiness.requireFinalizer", "BatchPollingWorker.recordBatchStatus:w.completionFinalizer.FinalizeCompletedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.failure.finalize":  descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:w.readiness.requireFinalizer", "BatchPollingWorker.recordBatchStatus:w.failureFinalizer.FinalizeFailedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.succeeded":         descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:w.readiness.requireTerminal", "BatchPollingWorker.recordBatchStatus:w.store.MarkBatchPollingJobSucceeded", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.dead_letter":       descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:w.readiness.requireTerminal", "BatchPollingWorker.recordBatchStatus>BatchPollingWorker.recordTerminalFailedJob:w.store.MarkBatchPollingJobDeadLetter", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
 
-	"marketplace.settlement.intent": descriptorSpec(EffectMarketplaceSettlement, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.CreatePaidInstallCheckout:requireSettlement", "SettlementService.CreatePaidInstallCheckout:BeginTx", CommitmentCommitted, nil),
-	"marketplace.payout.dispatch":   descriptorSpec(EffectMarketplacePayout, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.dispatchPersistedPayout:requirePayout", "SettlementService.dispatchPersistedPayout>SettlementService.dispatchPayout:CreatePayout", CommitmentCommitted, nil),
-	"relay.provider.dispatch":       descriptorSpec(EffectRelayProvider, "relay.Router", BoundaryOutbound, "src/server/internal/relay", "newRouterReadiness", "", "Router.Route:requireProvider", "Router.Route:fn", CommitmentCommitted, selector("relay.runtime", "enabled", effectSelectorOptional)),
-	"chat.provider.dispatch":        descriptorSpec(EffectChatProvider, "chat.RelayGateway", BoundaryOutbound, "src/server/internal/chat", "NewRelayGatewayWithOptions>newRelayGatewayReadiness", "", "RelayGateway.complete:requireDispatch", "RelayGateway.complete:Do", CommitmentCommitted, nil),
-	"chat.provider.fallback":        descriptorSpec(EffectChatProvider, "chat.CompositeGateway", BoundaryOutbound, "src/server/internal/chat", "NewCompositeGatewayWithOptions>newRelayGatewayReadiness", "", "CompositeGateway.GenerateReply:requireDispatch", "CompositeGateway.GenerateReply:GenerateReply", CommitmentCommitted, selector("chat.fallback", "enabled", effectSelectorOptional)),
+	"marketplace.settlement.intent": descriptorSpec(EffectMarketplaceSettlement, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.CreatePaidInstallCheckout:s.requireSettlement", "SettlementService.CreatePaidInstallCheckout:s.store.db.BeginTx", CommitmentCommitted, nil),
+	"marketplace.payout.dispatch":   descriptorSpec(EffectMarketplacePayout, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.dispatchPersistedPayout:s.requirePayout", "SettlementService.dispatchPersistedPayout>SettlementService.dispatchPayout:s.payoutProvider.CreatePayout", CommitmentCommitted, nil),
+	"relay.provider.dispatch":       descriptorSpec(EffectRelayProvider, "relay.Router", BoundaryOutbound, "src/server/internal/relay", "newRouterReadiness", "", "Router.Route:r.requireProvider", "Router.Route:fn", CommitmentCommitted, selector("relay.runtime", "enabled", effectSelectorOptional)),
+	"chat.provider.dispatch":        descriptorSpec(EffectChatProvider, "chat.RelayGateway", BoundaryOutbound, "src/server/internal/chat", "NewRelayGatewayWithOptions>newRelayGatewayReadiness", "", "RelayGateway.complete:g.readiness.requireDispatch", "RelayGateway.complete:g.httpClient.Do", CommitmentCommitted, nil),
+	"chat.provider.fallback":        descriptorSpec(EffectChatProvider, "chat.CompositeGateway", BoundaryOutbound, "src/server/internal/chat", "NewCompositeGatewayWithOptions>newRelayGatewayReadiness", "", "CompositeGateway.GenerateReply:g.readiness.requireDispatch", "CompositeGateway.GenerateReply:g.fallback.GenerateReply", CommitmentCommitted, selector("chat.fallback", "enabled", effectSelectorOptional)),
 
-	"admin.channel.model.mutation": descriptorSpec(EffectHTTPMutation, "admin.channel_service", BoundaryHTTP, "src/server/internal/admin", "newModelCatalogReadiness", "", "Service.SyncChannelModels:requireMutation", "Service.SyncChannelModels:TestChannel", CommitmentCommitted, nil),
-	"http.admin.refund":            descriptorSpec(EffectAdminRefund, "http.adminHandler", BoundaryFinancial, "src/server/internal/http", "newAdminFinancialReadiness", "", "adminHandler.recordTopupRefund:require", "adminHandler.recordTopupRefund:RecordTopupRefund", CommitmentCommitted, nil),
-	"http.billing.checkout":        descriptorSpec(EffectBillingCheckout, "http.billingHandler", BoundaryFinancial, "src/server/internal/http", "newBillingFinancialReadiness>newCheckoutFinancialReadiness", "", "billingHandler.checkout:require", "billingHandler.checkout:CreateCheckoutSession", CommitmentCommitted, nil),
-	"http.marketplace.checkout":    descriptorSpec(EffectBillingCheckout, "http.marketplaceHandler", BoundaryFinancial, "src/server/internal/http", "withMarketplaceFinancialReadiness>newCheckoutFinancialReadiness", "", "marketplaceHandler.createPaidInstallCheckout:require", "marketplaceHandler.createPaidInstallCheckout:CreateCheckoutSession", CommitmentCommitted, nil),
-	"http.mcp.mutation":            descriptorSpec(EffectHTTPMutation, "http.mcpHandler", BoundaryHTTP, "src/server/internal/http", "newMCPMutationReadiness", "", "mcpHandler.addServer:authorize", "mcpHandler.addServer:AddServer", CommitmentCommitted, nil),
+	"admin.channel.model.mutation": descriptorSpec(EffectHTTPMutation, "admin.channel_service", BoundaryHTTP, "src/server/internal/admin", "newModelCatalogReadiness", "", "Service.SyncChannelModels:s.modelReadiness.requireMutation", "Service.SyncChannelModels:s.store.TestChannel", CommitmentCommitted, nil),
+	"http.admin.refund":            descriptorSpec(EffectAdminRefund, "http.adminHandler", BoundaryFinancial, "src/server/internal/http", "newAdminFinancialReadiness", "", "adminHandler.recordTopupRefund:h.financial.require", "adminHandler.recordTopupRefund:h.service.RecordTopupRefund", CommitmentCommitted, nil),
+	"http.billing.checkout":        descriptorSpec(EffectBillingCheckout, "http.billingHandler", BoundaryFinancial, "src/server/internal/http", "newBillingFinancialReadiness>newCheckoutFinancialReadiness", "", "billingHandler.checkout:h.readiness.require", "billingHandler.checkout:checkoutCreator.CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.marketplace.checkout":    descriptorSpec(EffectBillingCheckout, "http.marketplaceHandler", BoundaryFinancial, "src/server/internal/http", "withMarketplaceFinancialReadiness>newCheckoutFinancialReadiness", "", "marketplaceHandler.createPaidInstallCheckout:h.readiness.require", "marketplaceHandler.createPaidInstallCheckout:checkoutCreator.CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.mcp.mutation":            descriptorSpec(EffectHTTPMutation, "http.mcpHandler", BoundaryHTTP, "src/server/internal/http", "newMCPMutationReadiness", "", "mcpHandler.addServer:h.readiness.authorize", "mcpHandler.addServer:h.client.AddServer", CommitmentCommitted, nil),
 
-	"mcp.transport.dispatch": descriptorSpec(EffectMCPDispatch, "mcp.Client", BoundaryOutbound, "src/server/internal/mcp", "newClientReadiness", "", "Client.sendRequest:authorize", "Client.sendRequest:Do", CommitmentCommitted, nil),
-	"mcp.websearch.builtin":  descriptorSpec(EffectToolWebSearch, "mcp.WebSearchTool", BoundaryOutbound, "src/server/internal/mcp", "NewWebSearchTool>newWebSearchReadiness", "", "authorizedWebSearchTool.Execute:authorize", "authorizedWebSearchTool.Execute:Search", CommitmentConditional, nil),
-	"mcp.websearch.tavily":   descriptorSpec(EffectToolWebSearch, "mcp.TavilyWebSearchProvider", BoundaryOutbound, "src/server/internal/mcp", "newTavilyWebSearchProvider>newWebSearchReadiness", "", "tavilyWebSearchProvider.Search:authorize", "tavilyWebSearchProvider.Search:Do", CommitmentConditional, selector("websearch.provider", "tavily", effectSelectorOneOf)),
-	"mcp.websearch.chain":    descriptorSpec(EffectToolWebSearch, "mcp.websearch.Chain", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Chain.Search:authorize", "Chain.Search:Search", CommitmentConditional, selector("websearch.provider", "chain", effectSelectorOneOf)),
-	"mcp.websearch.provider": descriptorSpec(EffectToolWebSearch, "mcp.websearch.Provider", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "guardedProvider.Search:authorize", "guardedProvider.Search:Search", CommitmentConditional, selector("websearch.provider", "provider", effectSelectorOneOf)),
+	"mcp.transport.dispatch": descriptorSpec(EffectMCPDispatch, "mcp.Client", BoundaryOutbound, "src/server/internal/mcp", "newClientReadiness", "", "Client.sendRequest:c.readiness.authorize", "Client.sendRequest:c.httpClient.Do", CommitmentCommitted, nil),
+	"mcp.websearch.builtin":  descriptorSpec(EffectToolWebSearch, "mcp.WebSearchTool", BoundaryOutbound, "src/server/internal/mcp", "NewWebSearchTool>newWebSearchReadiness", "", "authorizedWebSearchTool.Execute:t.readiness.authorize", "authorizedWebSearchTool.Execute:t.provider.Search", CommitmentConditional, nil),
+	"mcp.websearch.tavily":   descriptorSpec(EffectToolWebSearch, "mcp.TavilyWebSearchProvider", BoundaryOutbound, "src/server/internal/mcp", "newTavilyWebSearchProvider>newWebSearchReadiness", "", "tavilyWebSearchProvider.Search:p.readiness.authorize", "tavilyWebSearchProvider.Search:p.client.Do", CommitmentConditional, selector("websearch.provider", "tavily", effectSelectorOneOf)),
+	"mcp.websearch.chain":    descriptorSpec(EffectToolWebSearch, "mcp.websearch.Chain", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Chain.Search:c.readiness.authorize", "Chain.Search:provider.Search", CommitmentConditional, selector("websearch.provider", "chain", effectSelectorOneOf)),
+	"mcp.websearch.provider": descriptorSpec(EffectToolWebSearch, "mcp.websearch.Provider", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "guardedProvider.Search:p.readiness.authorize", "guardedProvider.Search:p.provider.Search", CommitmentConditional, selector("websearch.provider", "provider", effectSelectorOneOf)),
 
-	"agent.tool.builtin":         descriptorSpec(EffectAgentToolBuiltin, "agent.ToolExecutor.builtin", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolBuiltin", "ToolExecutor.executeBuiltin:authorizeTool", "ToolExecutor.executeBuiltin:Execute", CommitmentCommitted, nil),
-	"agent.tool.custom_api_http": descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolCustomAPIHTTP", "ToolExecutor.executeCustomAPI:authorizeTool", "ToolExecutor.executeCustomAPI:Do", CommitmentConditional, nil),
-	"agent.tool.local_python":    descriptorSpec(EffectAgentToolLocalPython, "agent.ToolExecutor.local_python", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolLocalPython", "ToolExecutor.executeCustomPython:authorizeTool", "ToolExecutor.executeCustomPython:pythonProcessRunner", CommitmentConditional, nil),
-	"agent.tool.python_sandbox":  descriptorSpec(EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolPythonSandbox", "ToolExecutor.executeCustomPythonSandbox:authorizeTool", "ToolExecutor.executeCustomPythonSandbox:RunCustomPython", CommitmentExcluded, nil),
-	"agent.tool.mcp":             descriptorSpec(EffectAgentToolMCP, "agent.ToolExecutor.mcp", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolMCP", "ToolExecutor.executeMCP:authorizeTool", "ToolExecutor.executeMCP:CallTool", CommitmentCommitted, nil),
+	"agent.tool.builtin":         descriptorSpec(EffectAgentToolBuiltin, "agent.ToolExecutor.builtin", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolBuiltin", "ToolExecutor.executeBuiltin:e.authorizeTool", "ToolExecutor.executeBuiltin:tool.Execute", CommitmentCommitted, nil),
+	"agent.tool.custom_api_http": descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolCustomAPIHTTP", "ToolExecutor.executeCustomAPI:e.authorizeTool", "ToolExecutor.executeCustomAPI:client.Do", CommitmentConditional, nil),
+	"agent.tool.local_python":    descriptorSpec(EffectAgentToolLocalPython, "agent.ToolExecutor.local_python", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolLocalPython", "ToolExecutor.executeCustomPython:e.authorizeTool", "ToolExecutor.executeCustomPython:e.pythonProcessRunner", CommitmentConditional, nil),
+	"agent.tool.python_sandbox":  descriptorSpec(EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolPythonSandbox", "ToolExecutor.executeCustomPythonSandbox:e.authorizeTool", "ToolExecutor.executeCustomPythonSandbox:e.customPythonSandboxRunner.RunCustomPython", CommitmentExcluded, nil),
+	"agent.tool.mcp":             descriptorSpec(EffectAgentToolMCP, "agent.ToolExecutor.mcp", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolMCP", "ToolExecutor.executeMCP:e.authorizeTool", "ToolExecutor.executeMCP:e.mcpClient.CallTool", CommitmentCommitted, nil),
 
-	"agent.tool.registry.builtin": descriptorSpec(EffectAgentToolBuiltin, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryBuiltin", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.registry.custom":  descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryCustom", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.registry.mcp":     descriptorSpec(EffectAgentToolMCP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryMCP", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.web_search":       descriptorSpec(EffectToolWebSearch, "agent.tools.WebsearchTool", BoundaryOutbound, "src/server/internal/agent/tools", "newWebsearchReadiness", "", "WebsearchTool.Execute:authorize", "WebsearchTool.Execute:Search", CommitmentExcluded, nil),
+	"agent.tool.registry.builtin": descriptorSpec(EffectAgentToolBuiltin, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryBuiltin", "Registry.Execute:r.readiness.authorize", "Registry.Execute:entry.executor", CommitmentExcluded, nil),
+	"agent.tool.registry.custom":  descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryCustom", "Registry.Execute:r.readiness.authorize", "Registry.Execute:entry.executor", CommitmentExcluded, nil),
+	"agent.tool.registry.mcp":     descriptorSpec(EffectAgentToolMCP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryMCP", "Registry.Execute:r.readiness.authorize", "Registry.Execute:entry.executor", CommitmentExcluded, nil),
+	"agent.tool.web_search":       descriptorSpec(EffectToolWebSearch, "agent.tools.WebsearchTool", BoundaryOutbound, "src/server/internal/agent/tools", "newWebsearchReadiness", "", "WebsearchTool.Execute:t.readiness.authorize", "WebsearchTool.Execute:provider.Search", CommitmentExcluded, nil),
 }
 
 type EffectSurfaceManifest struct {
@@ -248,9 +260,23 @@ func validateEffectSurfaceManifestAgainstSpecs(manifest EffectSurfaceManifest, s
 	if manifest.SchemaVersion != EffectSurfaceSchemaV1 || len(manifest.Surfaces) == 0 {
 		return &EffectCoverageError{Code: "effect_manifest_empty"}
 	}
+	surfaces := append([]EffectSurface(nil), manifest.Surfaces...)
+	sort.SliceStable(surfaces, func(i, j int) bool {
+		left, right := surfaces[i].DescriptorID, surfaces[j].DescriptorID
+		if left == "" {
+			left = surfaces[i].SeamID
+		}
+		if right == "" {
+			right = surfaces[j].SeamID
+		}
+		if left != right {
+			return left < right
+		}
+		return surfaces[i].SeamID < surfaces[j].SeamID
+	})
 	seen := make(map[string]struct{}, len(manifest.Surfaces))
 	descriptors := make(map[string]struct{}, len(specs))
-	for _, surface := range manifest.Surfaces {
+	for _, surface := range surfaces {
 		if strings.TrimSpace(surface.SeamID) == "" || strings.TrimSpace(surface.OwnerPackage) == "" || strings.TrimSpace(surface.OwnerSymbol) == "" || strings.TrimSpace(surface.CapabilityID) == "" || !validBoundary(surface.Boundary) || !validCommitment(surface.ProfileDisposition) {
 			return &EffectCoverageError{Code: "effect_manifest_invalid", Field: surface.SeamID}
 		}
@@ -279,12 +305,22 @@ func validateEffectSurfaceManifestAgainstSpecs(manifest EffectSurfaceManifest, s
 			return &EffectCoverageError{Code: "effect_manifest_descriptor_drift", Field: surface.DescriptorID}
 		}
 	}
-	for descriptorID := range specs {
+	descriptorIDs := sortedRuntimeDescriptorSpecIDs(specs)
+	for _, descriptorID := range descriptorIDs {
 		if _, ok := descriptors[descriptorID]; !ok {
 			return &EffectCoverageError{Code: "effect_manifest_missing_descriptor", Field: descriptorID}
 		}
 	}
 	return nil
+}
+
+func sortedRuntimeDescriptorSpecIDs(specs map[string]runtimeDescriptorSpec) []string {
+	descriptorIDs := make([]string, 0, len(specs))
+	for descriptorID := range specs {
+		descriptorIDs = append(descriptorIDs, descriptorID)
+	}
+	sort.Strings(descriptorIDs)
+	return descriptorIDs
 }
 
 func equalEffectSelector(left, right *EffectConfigurationSelector) bool {
@@ -443,11 +479,14 @@ type sourceFunction struct {
 	declaration *ast.FuncDecl
 	receiver    string
 	receiverVar string
+	rootObjects map[string]*ast.Object
 	calls       []sourceCall
 }
 
 type sourceCall struct {
 	name        string
+	path        string
+	object      *ast.Object
 	localTarget string
 	position    token.Pos
 }
@@ -655,7 +694,7 @@ func descriptorLiteralFeedsRegister(function *ast.FuncDecl, descriptor *ast.Comp
 		if !ok {
 			return true
 		}
-		if identifierAssignedDescriptor(function, argument.Name, descriptor) || registeredRangeContainsDescriptor(function, argument.Name, descriptor) {
+		if identifierAssignedDescriptor(function, argument.Name, descriptor, call.Pos()) || registeredRangeContainsDescriptor(function, argument.Name, descriptor, call.Pos()) {
 			registered = true
 			return false
 		}
@@ -664,7 +703,7 @@ func descriptorLiteralFeedsRegister(function *ast.FuncDecl, descriptor *ast.Comp
 	return registered
 }
 
-func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, descriptor *ast.CompositeLit) bool {
+func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, descriptor *ast.CompositeLit, before token.Pos) bool {
 	assigned := false
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		if assigned {
@@ -672,6 +711,9 @@ func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, des
 		}
 		switch value := node.(type) {
 		case *ast.AssignStmt:
+			if value.Pos() >= before {
+				return true
+			}
 			for index, left := range value.Lhs {
 				name, ok := left.(*ast.Ident)
 				if ok && name.Name == identifier && index < len(value.Rhs) && astNodeContains(value.Rhs[index], descriptor) {
@@ -680,6 +722,9 @@ func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, des
 				}
 			}
 		case *ast.ValueSpec:
+			if value.Pos() >= before {
+				return true
+			}
 			for index, name := range value.Names {
 				if name.Name == identifier && index < len(value.Values) && astNodeContains(value.Values[index], descriptor) {
 					assigned = true
@@ -692,23 +737,23 @@ func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, des
 	return assigned
 }
 
-func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable string, descriptor *ast.CompositeLit) bool {
+func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable string, descriptor *ast.CompositeLit, registerPosition token.Pos) bool {
 	matched := false
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		if matched {
 			return false
 		}
 		rangeStatement, ok := node.(*ast.RangeStmt)
-		if !ok || expressionReference(rangeStatement.Value) != registeredVariable {
+		if !ok || rangeStatement.Pos() > registerPosition || expressionReference(rangeStatement.Value) != registeredVariable {
 			return true
 		}
-		source := assignedCompositeLiteral(function, rangeStatement.X)
+		source := assignedCompositeLiteral(function, rangeStatement.X, rangeStatement.Pos())
 		if source != nil && astNodeContains(source, descriptor) {
 			matched = true
 			return false
 		}
 		collection := expressionReference(rangeStatement.X)
-		if collection != "" && descriptorAppendedToCollection(function, collection, descriptor) {
+		if collection != "" && descriptorAppendedToCollection(function, collection, descriptor, rangeStatement.Pos()) {
 			matched = true
 			return false
 		}
@@ -717,14 +762,14 @@ func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariabl
 	return matched
 }
 
-func descriptorAppendedToCollection(function *ast.FuncDecl, collection string, descriptor *ast.CompositeLit) bool {
+func descriptorAppendedToCollection(function *ast.FuncDecl, collection string, descriptor *ast.CompositeLit, before token.Pos) bool {
 	appended := false
 	ast.Inspect(function.Body, func(node ast.Node) bool {
 		if appended {
 			return false
 		}
 		call, ok := node.(*ast.CallExpr)
-		if !ok || calledName(call.Fun) != "append" || len(call.Args) < 2 || expressionReference(call.Args[0]) != collection {
+		if !ok || call.Pos() >= before || calledName(call.Fun) != "append" || len(call.Args) < 2 || expressionReference(call.Args[0]) != collection {
 			return true
 		}
 		for _, argument := range call.Args[1:] {
@@ -794,7 +839,7 @@ func descriptorRangeEnvironments(function *ast.FuncDecl, descriptor *ast.Composi
 		if !ok || !astNodeContains(rangeStatement.Body, descriptor) {
 			return true
 		}
-		source := assignedCompositeLiteral(function, rangeStatement.X)
+		source := assignedCompositeLiteral(function, rangeStatement.X, rangeStatement.Pos())
 		if source == nil {
 			return true
 		}
@@ -816,7 +861,7 @@ func astNodeContains(root ast.Node, target ast.Node) bool {
 	return found
 }
 
-func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr) *ast.CompositeLit {
+func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr, before token.Pos) *ast.CompositeLit {
 	if literal, ok := expression.(*ast.CompositeLit); ok {
 		return literal
 	}
@@ -831,6 +876,9 @@ func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr) *ast.
 		}
 		switch value := node.(type) {
 		case *ast.AssignStmt:
+			if value.Pos() >= before {
+				return true
+			}
 			for index, left := range value.Lhs {
 				name, ok := left.(*ast.Ident)
 				if !ok || name.Name != identifier.Name || index >= len(value.Rhs) {
@@ -839,6 +887,9 @@ func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr) *ast.
 				result, _ = value.Rhs[index].(*ast.CompositeLit)
 			}
 		case *ast.ValueSpec:
+			if value.Pos() >= before {
+				return true
+			}
 			for index, name := range value.Names {
 				if name.Name != identifier.Name || index >= len(value.Values) {
 					continue
@@ -1094,21 +1145,63 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 				continue
 			}
 			receiver, receiverVar := functionReceiver(function)
-			indexed := sourceFunction{declaration: function, receiver: receiver, receiverVar: receiverVar}
-			ast.Inspect(function.Body, func(node ast.Node) bool {
-				call, ok := node.(*ast.CallExpr)
-				if ok {
-					indexed.calls = append(indexed.calls, sourceCall{
-						name: calledName(call.Fun), localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(),
-					})
-				}
-				return true
+			indexed := sourceFunction{declaration: function, receiver: receiver, receiverVar: receiverVar, rootObjects: functionRootObjects(function)}
+			inspectReachableCalls(function.Body, func(call *ast.CallExpr) {
+				indexed.calls = append(indexed.calls, sourceCall{
+					name: calledName(call.Fun), path: expressionReference(call.Fun), object: sourceExpressionObject(call.Fun),
+					localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(),
+				})
 			})
 			key := sourceFunctionKey(receiver, function.Name.Name)
 			functions[key] = append(functions[key], indexed)
 		}
 	}
 	return functions, nil
+}
+
+func functionRootObjects(function *ast.FuncDecl) map[string]*ast.Object {
+	objects := make(map[string]*ast.Object)
+	if function == nil {
+		return objects
+	}
+	if function.Recv != nil {
+		for _, field := range function.Recv.List {
+			for _, name := range field.Names {
+				objects[name.Name] = name.Obj
+			}
+		}
+	}
+	if function.Type != nil && function.Type.Params != nil {
+		for _, field := range function.Type.Params.List {
+			for _, name := range field.Names {
+				objects[name.Name] = name.Obj
+			}
+		}
+	}
+	return objects
+}
+
+// inspectReachableCalls excludes calls nested in statically false branches so
+// dead guard/effect evidence cannot satisfy the structural contract.
+func inspectReachableCalls(root ast.Node, visit func(*ast.CallExpr)) {
+	if root == nil {
+		return
+	}
+	ast.Inspect(root, func(node ast.Node) bool {
+		if statement, ok := node.(*ast.IfStmt); ok && isStaticFalse(statement.Cond) {
+			inspectReachableCalls(statement.Else, visit)
+			return false
+		}
+		if call, ok := node.(*ast.CallExpr); ok {
+			visit(call)
+		}
+		return true
+	})
+}
+
+func isStaticFalse(expression ast.Expr) bool {
+	literal, ok := expression.(*ast.Ident)
+	return ok && literal.Name == "false"
 }
 
 func functionReceiver(function *ast.FuncDecl) (string, string) {
@@ -1367,13 +1460,22 @@ func firstCallPositionAfter(function sourceFunction, name string, after token.Po
 	for _, call := range function.calls {
 		matched := call.name == name
 		if strings.Contains(name, ".") {
-			matched = call.localTarget == name
+			matched = exactSourceCallMatches(function, call, name) || call.localTarget == name
 		}
 		if matched && call.position > after {
 			return call.position
 		}
 	}
 	return 0
+}
+
+func exactSourceCallMatches(function sourceFunction, call sourceCall, contract string) bool {
+	if call.path != contract || call.object == nil {
+		return false
+	}
+	root, _, _ := strings.Cut(contract, ".")
+	expected, scoped := function.rootObjects[root]
+	return !scoped || (expected != nil && call.object == expected)
 }
 
 func hasCallAfter(function sourceFunction, name string, after token.Pos) bool {
@@ -1428,6 +1530,9 @@ func VerifyEffectCoverage(args ...any) error {
 	if err := validateEffectCoverageAuthorities(options.contract, options.profile, options.authorities); err != nil {
 		return err
 	}
+	if options.selection == nil {
+		return &EffectCoverageError{Code: "effect_coverage_configuration_required"}
+	}
 	if options.repoRoot != "" {
 		static, err := DiscoverEffectSurfaces(options.repoRoot)
 		if err != nil {
@@ -1444,10 +1549,12 @@ func VerifyEffectCoverage(args ...any) error {
 	if len(runtime) == 0 {
 		return &EffectCoverageError{Code: "effect_coverage_zero_runtime"}
 	}
-	if err := joinRuntime(options.manifest.Surfaces, options.profile, runtime); err != nil {
+	if err := joinRuntime(options.manifest.Surfaces, options.profile, runtime, options.selection); err != nil {
 		return err
 	}
-	for _, descriptor := range runtime {
+	runtimeForValidation := append([]EffectDescriptor(nil), runtime...)
+	sort.Slice(runtimeForValidation, func(i, j int) bool { return runtimeForValidation[i].ID < runtimeForValidation[j].ID })
+	for _, descriptor := range runtimeForValidation {
 		effectID := effectIDForDescriptor(descriptor)
 		if effectID == "" {
 			return &EffectCoverageError{Code: "effect_coverage_unknown_effect", Field: descriptor.ID}
@@ -1501,6 +1608,7 @@ type EffectCoverageOptions struct {
 	Contract     AuthoredContractV1
 	Profile      DeploymentProfile
 	Authorities  RuntimeAuthorities
+	Selection    *EffectRuntimeConfiguration
 }
 
 type effectCoverageOptions struct {
@@ -1513,15 +1621,20 @@ type effectCoverageOptions struct {
 	contract     AuthoredContractV1
 	profile      DeploymentProfile
 	authorities  RuntimeAuthorities
+	selection    *EffectRuntimeConfiguration
 }
 
 func (o EffectCoverageOptions) options() effectCoverageOptions {
-	return effectCoverageOptions{repoRoot: o.RepoRoot, manifestPath: o.ManifestPath, manifest: o.Manifest, expected: o.Expected, runtime: o.Runtime, registry: o.Registry, contract: o.Contract, profile: o.Profile, authorities: o.Authorities}
+	return effectCoverageOptions{repoRoot: o.RepoRoot, manifestPath: o.ManifestPath, manifest: o.Manifest, expected: o.Expected, runtime: o.Runtime, registry: o.Registry, contract: o.Contract, profile: o.Profile, authorities: o.Authorities, selection: o.Selection}
 }
 
 func joinStatic(expected, discovered []EffectSurface) error {
+	expectedRows := append([]EffectSurface(nil), expected...)
+	discoveredRows := append([]EffectSurface(nil), discovered...)
+	sort.SliceStable(expectedRows, func(i, j int) bool { return expectedRows[i].SeamID < expectedRows[j].SeamID })
+	sort.SliceStable(discoveredRows, func(i, j int) bool { return discoveredRows[i].SeamID < discoveredRows[j].SeamID })
 	discoveredByKey := make(map[string]EffectSurface, len(discovered))
-	for _, surface := range discovered {
+	for _, surface := range discoveredRows {
 		key := surface.SeamID
 		if _, duplicate := discoveredByKey[key]; duplicate {
 			return &EffectCoverageError{Code: "effect_coverage_duplicate_static", Field: key}
@@ -1529,7 +1642,7 @@ func joinStatic(expected, discovered []EffectSurface) error {
 		discoveredByKey[key] = surface
 	}
 	expectedByKey := make(map[string]EffectSurface, len(expected))
-	for _, surface := range expected {
+	for _, surface := range expectedRows {
 		if surface.ASTCall == "classification" {
 			continue
 		}
@@ -1542,7 +1655,12 @@ func joinStatic(expected, discovered []EffectSurface) error {
 			return &EffectCoverageError{Code: "effect_coverage_static_drift", Field: surface.SeamID}
 		}
 	}
+	discoveredKeys := make([]string, 0, len(discoveredByKey))
 	for key := range discoveredByKey {
+		discoveredKeys = append(discoveredKeys, key)
+	}
+	sort.Strings(discoveredKeys)
+	for _, key := range discoveredKeys {
 		if _, ok := expectedByKey[key]; !ok {
 			return &EffectCoverageError{Code: "effect_coverage_extra_static", Field: key}
 		}
@@ -1550,8 +1668,15 @@ func joinStatic(expected, discovered []EffectSurface) error {
 	return nil
 }
 
-func joinRuntime(expected []EffectSurface, profile DeploymentProfile, runtime []EffectDescriptor) error {
+func joinRuntime(expected []EffectSurface, profile DeploymentProfile, runtime []EffectDescriptor, selection *EffectRuntimeConfiguration) error {
 	_ = profile
+	if selection == nil {
+		return &EffectCoverageError{Code: "effect_coverage_configuration_required"}
+	}
+	provider := strings.TrimSpace(selection.WebSearchProvider)
+	if provider != "tavily" && provider != "chain" && provider != "provider" {
+		return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: "websearch.provider"}
+	}
 	expectedByDescriptor := make(map[string]EffectSurface, len(runtimeDescriptorSpecs))
 	for _, surface := range expected {
 		if surface.DescriptorID != "" {
@@ -1559,7 +1684,9 @@ func joinRuntime(expected []EffectSurface, profile DeploymentProfile, runtime []
 		}
 	}
 	seen := make(map[string]struct{}, len(runtime))
-	for _, descriptor := range runtime {
+	runtimeRows := append([]EffectDescriptor(nil), runtime...)
+	sort.SliceStable(runtimeRows, func(i, j int) bool { return runtimeRows[i].ID < runtimeRows[j].ID })
+	for _, descriptor := range runtimeRows {
 		if _, duplicate := seen[descriptor.ID]; duplicate {
 			return &EffectCoverageError{Code: "effect_coverage_duplicate_runtime", Field: descriptor.ID}
 		}
@@ -1578,49 +1705,56 @@ func joinRuntime(expected []EffectSurface, profile DeploymentProfile, runtime []
 			return &EffectCoverageError{Code: "effect_coverage_runtime_drift", Field: descriptor.ID}
 		}
 	}
-	selectorGroups := make(map[string][]string)
-	selectorModes := make(map[string]string)
-	for descriptorID, spec := range runtimeDescriptorSpecs {
+	selectionDrift := make(map[string]struct{})
+	for _, descriptorID := range sortedRuntimeDescriptorSpecIDs(runtimeDescriptorSpecs) {
+		spec := runtimeDescriptorSpecs[descriptorID]
 		if spec.Disposition == CommitmentExcluded {
 			continue
 		}
+		selected, group := effectDescriptorSelected(spec, selection)
+		_, present := seen[descriptorID]
 		if spec.Configuration == nil {
-			if _, ok := seen[descriptorID]; !ok {
+			if !present {
 				return &EffectCoverageError{Code: "effect_coverage_missing_runtime", Field: descriptorID}
 			}
 			continue
 		}
-		group := spec.Configuration.Group + "\x00" + spec.Configuration.Value
-		selectorGroups[group] = append(selectorGroups[group], descriptorID)
-		selectorModes[spec.Configuration.Group] = spec.Configuration.Mode
-	}
-	for groupValue, descriptors := range selectorGroups {
-		parts := strings.SplitN(groupValue, "\x00", 2)
-		mode := selectorModes[parts[0]]
-		present := 0
-		for _, descriptorID := range descriptors {
-			if _, ok := seen[descriptorID]; ok {
-				present++
-			}
-		}
-		if mode == effectSelectorOptional && present != 0 && present != len(descriptors) {
-			return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: parts[0]}
+		if selected != present {
+			selectionDrift[group] = struct{}{}
 		}
 	}
-	oneOfSelections := make(map[string]int)
-	for descriptorID, spec := range runtimeDescriptorSpecs {
-		if spec.Configuration != nil && spec.Configuration.Mode == effectSelectorOneOf {
-			if _, ok := seen[descriptorID]; ok {
-				oneOfSelections[spec.Configuration.Group]++
-			}
+	if len(selectionDrift) > 0 {
+		groups := make([]string, 0, len(selectionDrift))
+		for group := range selectionDrift {
+			groups = append(groups, group)
 		}
-	}
-	for group, mode := range selectorModes {
-		if mode == effectSelectorOneOf && oneOfSelections[group] != 1 {
-			return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: group}
-		}
+		sort.Strings(groups)
+		return &EffectCoverageError{Code: "effect_coverage_selection_drift", Field: groups[0]}
 	}
 	return nil
+}
+
+func effectDescriptorSelected(spec runtimeDescriptorSpec, selection *EffectRuntimeConfiguration) (bool, string) {
+	if spec.Configuration == nil {
+		return true, ""
+	}
+	group := spec.Configuration.Group
+	switch spec.Configuration.Mode {
+	case effectSelectorOneOf:
+		return spec.Configuration.Value == strings.TrimSpace(selection.WebSearchProvider), group
+	case effectSelectorOptional:
+		enabled := map[string]bool{
+			"schedule.worker": selection.ScheduleWorkerEnabled,
+			"channel.archive": selection.ChannelArchiveEnabled,
+			"relay.batch":     selection.RelayBatchEnabled,
+			"relay.runtime":   selection.RelayRuntimeEnabled,
+			"chat.fallback":   selection.ChatFallbackEnabled,
+		}
+		selected, known := enabled[group]
+		return known && selected, group
+	default:
+		return false, group
+	}
 }
 
 func validBoundary(boundary Boundary) bool {
