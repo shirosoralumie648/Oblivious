@@ -746,6 +746,96 @@ func register(effects Registrar, enabled bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "known range break before append",
+				packageName: "rangebreak",
+				source: `package rangebreak
+func register(effects Registrar, stop bool) error {
+	var descriptors []EffectDescriptor
+	for range []int{1} {
+		if stop { break }
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.break", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Break"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "known range continue before append",
+				packageName: "rangecontinue",
+				source: `package rangecontinue
+func register(effects Registrar, stop bool) error {
+	var descriptors []EffectDescriptor
+	for range []int{1} {
+		if stop { continue }
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.continue", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Continue"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "known range goto before append",
+				packageName: "rangegoto",
+				source: `package rangegoto
+func register(effects Registrar, stop bool) error {
+	var descriptors []EffectDescriptor
+	for range []int{1} {
+		if stop { goto done }
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.goto", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Goto"})
+	}
+done:
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "known range return before append",
+				packageName: "rangereturn",
+				source: `package rangereturn
+func register(effects Registrar, stop bool) error {
+	var descriptors []EffectDescriptor
+	for range []int{1} {
+		if stop { return nil }
+		descriptors = append(descriptors, EffectDescriptor{ID: "range.return", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Return"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "known range continue before scalar register",
+				packageName: "rangescalar",
+				source: `package rangescalar
+func register(effects Registrar, stop bool) error {
+	var descriptor EffectDescriptor
+	for range []int{1} {
+		if stop { continue }
+		descriptor = EffectDescriptor{ID: "range.scalar", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "range.Scalar"}
+		_ = effects.Register(descriptor)
+	}
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("branch-controlled loop provenance was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")

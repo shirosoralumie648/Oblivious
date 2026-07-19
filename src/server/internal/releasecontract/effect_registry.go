@@ -717,6 +717,9 @@ func descriptorLiteralRegistrar(function *ast.FuncDecl, descriptor *ast.Composit
 		if registrar != nil || !isEffectRegistrarCall(function, call) || len(call.Args) != 1 {
 			return
 		}
+		if registrationHasUnsafeLoopControl(function, call.Pos()) {
+			return
+		}
 		if !astNodeContains(call.Args[0], descriptor) {
 			argument, ok := call.Args[0].(*ast.Ident)
 			if !ok || (!identifierAssignedDescriptor(function, argument, descriptor, call.Pos()) && !registeredRangeContainsDescriptor(function, argument, descriptor, call.Pos())) {
@@ -847,7 +850,13 @@ func descriptorMembershipAfterStatement(function *ast.FuncDecl, statement ast.St
 		return mergeDescriptorMembership(thenState, elseState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
+			if hasUnsafeLoopControlBefore(value.Body, before) {
+				return descriptorMembershipAmbiguous
+			}
 			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		}
+		if hasUnsafeLoopControlBefore(value.Body, descriptor.Pos()) {
+			return descriptorMembershipAmbiguous
 		}
 		if iterations, known := knownRangeIterationCount(function, value); known {
 			for range iterations {
@@ -868,7 +877,13 @@ func descriptorMembershipAfterStatement(function *ast.FuncDecl, statement ast.St
 			return state
 		}
 		if astNodeContainsPosition(value.Body, before) {
+			if hasUnsafeLoopControlBefore(value.Body, before) {
+				return descriptorMembershipAmbiguous
+			}
 			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
+		}
+		if hasUnsafeLoopControlBefore(value.Body, descriptor.Pos()) {
+			return descriptorMembershipAmbiguous
 		}
 		iterationState := descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		if value.Post != nil {
@@ -910,6 +925,161 @@ func knownRangeIterationCount(function *ast.FuncDecl, statement *ast.RangeStmt) 
 		return 0, false
 	}
 	return len(source.Elts), true
+}
+
+func registrationHasUnsafeLoopControl(function *ast.FuncDecl, before token.Pos) bool {
+	if function == nil || function.Body == nil {
+		return false
+	}
+	unsafe := false
+	inspectReachable(function.Body, func(node ast.Node) {
+		if unsafe {
+			return
+		}
+		var body *ast.BlockStmt
+		switch loop := node.(type) {
+		case *ast.RangeStmt:
+			body = loop.Body
+		case *ast.ForStmt:
+			body = loop.Body
+		}
+		if body != nil && astNodeContainsPosition(body, before) && hasUnsafeLoopControlBefore(body, before) {
+			unsafe = true
+		}
+	})
+	return unsafe
+}
+
+func hasUnsafeLoopControlBefore(body *ast.BlockStmt, before token.Pos) bool {
+	if body == nil {
+		return false
+	}
+	parents := astParentMap(body)
+	safeContinue := make(map[*ast.BranchStmt]struct{})
+	inspectReachable(body, func(node ast.Node) {
+		statement, ok := node.(*ast.IfStmt)
+		if !ok || statement.Pos() >= before || !isOptionalDescriptorSkipCondition(statement.Cond) {
+			return
+		}
+		inspectReachable(statement.Body, func(child ast.Node) {
+			branch, ok := child.(*ast.BranchStmt)
+			if ok && branch.Pos() < before && branch.Tok == token.CONTINUE {
+				safeContinue[branch] = struct{}{}
+			}
+		})
+	})
+	unsafe := false
+	inspectReachable(body, func(node ast.Node) {
+		if unsafe || node == nil || node.Pos() >= before {
+			return
+		}
+		switch statement := node.(type) {
+		case *ast.BranchStmt:
+			switch statement.Tok {
+			case token.BREAK, token.CONTINUE, token.GOTO, token.FALLTHROUGH:
+				_, allowed := safeContinue[statement]
+				unsafe = !allowed
+			}
+		case *ast.ReturnStmt:
+			unsafe = !isFailureReturn(statement, parents)
+		}
+	})
+	return unsafe
+}
+
+func isOptionalDescriptorSkipCondition(expression ast.Expr) bool {
+	condition, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
+	if !ok || condition.Op != token.LAND {
+		return false
+	}
+	return (isSandboxEffectComparison(condition.X) && isCapabilityUnknownCheck(condition.Y)) ||
+		(isSandboxEffectComparison(condition.Y) && isCapabilityUnknownCheck(condition.X))
+}
+
+func isSandboxEffectComparison(expression ast.Expr) bool {
+	comparison, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
+	if !ok || comparison.Op != token.EQL {
+		return false
+	}
+	left := expressionReference(unwrapParentheses(comparison.X))
+	right := expressionReference(unwrapParentheses(comparison.Y))
+	return (left == "effect.id" && right == "releasecontract.EffectAgentToolPythonSandbox") ||
+		(right == "effect.id" && left == "releasecontract.EffectAgentToolPythonSandbox")
+}
+
+func isCapabilityUnknownCheck(expression ast.Expr) bool {
+	call, ok := unwrapParentheses(expression).(*ast.CallExpr)
+	return ok && expressionReference(call.Fun) == "releasecontract.IsReadinessCode" && len(call.Args) == 2 &&
+		expressionReference(unwrapParentheses(call.Args[1])) == "releasecontract.CodeCapabilityUnknown"
+}
+
+func unwrapParentheses(expression ast.Expr) ast.Expr {
+	for {
+		parenthesized, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			return expression
+		}
+		expression = parenthesized.X
+	}
+}
+
+func astParentMap(root ast.Node) map[ast.Node]ast.Node {
+	parents := make(map[ast.Node]ast.Node)
+	stack := make([]ast.Node, 0, 16)
+	ast.Inspect(root, func(node ast.Node) bool {
+		if node == nil {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			return true
+		}
+		if len(stack) > 0 {
+			parents[node] = stack[len(stack)-1]
+		}
+		stack = append(stack, node)
+		return true
+	})
+	return parents
+}
+
+func isFailureReturn(statement *ast.ReturnStmt, parents map[ast.Node]ast.Node) bool {
+	if statement == nil || len(statement.Results) < 2 {
+		return false
+	}
+	identifier, ok := statement.Results[len(statement.Results)-1].(*ast.Ident)
+	if !ok || identifier.Obj == nil {
+		return false
+	}
+	for node := ast.Node(statement); node != nil; node = parents[node] {
+		block, ok := node.(*ast.BlockStmt)
+		if !ok {
+			continue
+		}
+		condition, ok := parents[block].(*ast.IfStmt)
+		if ok && condition.Body == block && expressionRequiresNonNilObject(condition.Cond, identifier.Obj) {
+			return true
+		}
+	}
+	return false
+}
+
+func expressionRequiresNonNilObject(expression ast.Expr, object *ast.Object) bool {
+	comparison, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
+	if !ok || comparison.Op != token.NEQ || object == nil {
+		return false
+	}
+	return (expressionObjectIs(comparison.X, object) && isNilExpression(comparison.Y)) ||
+		(expressionObjectIs(comparison.Y, object) && isNilExpression(comparison.X))
+}
+
+func expressionObjectIs(expression ast.Expr, object *ast.Object) bool {
+	identifier, ok := unwrapParentheses(expression).(*ast.Ident)
+	return ok && identifier.Obj != nil && identifier.Obj == object
+}
+
+func isNilExpression(expression ast.Expr) bool {
+	identifier, ok := unwrapParentheses(expression).(*ast.Ident)
+	return ok && identifier.Name == "nil"
 }
 
 func descriptorMembershipAfterWrite(write ast.Expr, object *ast.Object, descriptor *ast.CompositeLit, state descriptorMembership) descriptorMembership {
@@ -1163,6 +1333,10 @@ func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, befor
 			return state
 		}
 		if astNodeContainsPosition(value.Body, before) {
+			if hasUnsafeLoopControlBefore(value.Body, before) {
+				state.ambiguous = true
+				return state
+			}
 			return identifierStateAfterBlock(value.Body, object, before, state)
 		}
 		iterationState := identifierStateAfterBlock(value.Body, object, before, state)
@@ -1172,6 +1346,10 @@ func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, befor
 		return mergeSourceIdentifierStates(state, iterationState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
+			if hasUnsafeLoopControlBefore(value.Body, before) {
+				state.ambiguous = true
+				return state
+			}
 			return identifierStateAfterBlock(value.Body, object, before, state)
 		}
 		bodyState := identifierStateAfterBlock(value.Body, object, before, state)
