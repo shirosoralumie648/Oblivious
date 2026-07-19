@@ -719,7 +719,7 @@ func descriptorLiteralRegistrar(function *ast.FuncDecl, descriptor *ast.Composit
 		}
 		if !astNodeContains(call.Args[0], descriptor) {
 			argument, ok := call.Args[0].(*ast.Ident)
-			if !ok || (!identifierAssignedDescriptor(function, argument.Name, descriptor, call.Pos()) && !registeredRangeContainsDescriptor(function, argument.Name, descriptor, call.Pos())) {
+			if !ok || (!identifierAssignedDescriptor(function, argument, descriptor, call.Pos()) && !registeredRangeContainsDescriptor(function, argument, descriptor, call.Pos())) {
 				return
 			}
 		}
@@ -741,19 +741,26 @@ func isEffectRegistrarCall(function *ast.FuncDecl, call *ast.CallExpr) bool {
 	return expected != nil && sourceExpressionObject(call.Fun) == expected
 }
 
-func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, descriptor *ast.CompositeLit, before token.Pos) bool {
+func identifierAssignedDescriptor(function *ast.FuncDecl, identifier *ast.Ident, descriptor *ast.CompositeLit, before token.Pos) bool {
 	value, _, found := latestIdentifierValue(function, identifier, before)
 	return found && value != nil && astNodeContains(value, descriptor)
 }
 
-func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable string, descriptor *ast.CompositeLit, registerPosition token.Pos) bool {
+func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable *ast.Ident, descriptor *ast.CompositeLit, registerPosition token.Pos) bool {
+	if registeredVariable == nil || registeredVariable.Obj == nil {
+		return false
+	}
 	matched := false
 	inspectReachable(function.Body, func(node ast.Node) {
 		if matched {
 			return
 		}
 		rangeStatement, ok := node.(*ast.RangeStmt)
-		if !ok || rangeStatement.Pos() > registerPosition || expressionReference(rangeStatement.Value) != registeredVariable {
+		if !ok {
+			return
+		}
+		rangeVariable, variableOK := rangeStatement.Value.(*ast.Ident)
+		if !variableOK || rangeStatement.Pos() > registerPosition || rangeVariable.Obj == nil || rangeVariable.Obj != registeredVariable.Obj {
 			return
 		}
 		source := assignedCompositeLiteral(function, rangeStatement.X, rangeStatement.Pos())
@@ -761,39 +768,149 @@ func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariabl
 			matched = true
 			return
 		}
-		collection := expressionReference(rangeStatement.X)
-		if collection != "" && descriptorAppendedToCollection(function, collection, descriptor, rangeStatement.Pos()) {
+		collection, collectionOK := rangeStatement.X.(*ast.Ident)
+		if collectionOK && descriptorAppendedToCollection(function, collection, descriptor, rangeStatement.Pos()) {
 			matched = true
 		}
 	})
 	return matched
 }
 
-func descriptorAppendedToCollection(function *ast.FuncDecl, collection string, descriptor *ast.CompositeLit, before token.Pos) bool {
-	present := false
-	inspectReachable(function.Body, func(node ast.Node) {
-		if node == nil || node.Pos() >= before {
-			return
+func descriptorAppendedToCollection(function *ast.FuncDecl, collection *ast.Ident, descriptor *ast.CompositeLit, before token.Pos) bool {
+	if function == nil || collection == nil || collection.Obj == nil {
+		return false
+	}
+	state := descriptorMembershipAfterBlock(function.Body, collection.Obj, descriptor, before, descriptorMembershipAbsent)
+	return state == descriptorMembershipPresent
+}
+
+type descriptorMembership uint8
+
+const (
+	descriptorMembershipAbsent descriptorMembership = iota
+	descriptorMembershipPresent
+	descriptorMembershipAmbiguous
+)
+
+func descriptorMembershipAfterBlock(block *ast.BlockStmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+	if block == nil || object == nil {
+		return state
+	}
+	for _, statement := range block.List {
+		if statement == nil || statement.Pos() >= before {
+			break
 		}
-		write, ok := identifierWrite(node, collection)
+		state = descriptorMembershipAfterStatement(statement, object, descriptor, before, state)
+	}
+	return state
+}
+
+func descriptorMembershipAfterStatement(statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+	if statement == nil || statement.Pos() >= before {
+		return state
+	}
+	switch value := statement.(type) {
+	case *ast.AssignStmt:
+		if write, ok := identifierWrite(value, object); ok {
+			return descriptorMembershipAfterWrite(write, object, descriptor, state)
+		}
+	case *ast.DeclStmt:
+		declaration, ok := value.Decl.(*ast.GenDecl)
 		if !ok {
-			return
+			return state
 		}
-		call, isAppend := write.(*ast.CallExpr)
-		if !isAppend || calledName(call.Fun) != "append" || len(call.Args) < 2 {
-			present = write != nil && astNodeContains(write, descriptor)
-			return
-		}
-		if expressionReference(call.Args[0]) != collection {
-			present = astNodeContains(call.Args[0], descriptor)
-		}
-		for _, argument := range call.Args[1:] {
-			if astNodeContains(argument, descriptor) {
-				present = true
+		for _, spec := range declaration.Specs {
+			if write, ok := identifierWrite(spec, object); ok {
+				state = descriptorMembershipAfterWrite(write, object, descriptor, state)
 			}
 		}
-	})
-	return present
+	case *ast.BlockStmt:
+		return descriptorMembershipAfterBlock(value, object, descriptor, before, state)
+	case *ast.IfStmt:
+		if value.Init != nil {
+			state = descriptorMembershipAfterStatement(value.Init, object, descriptor, before, state)
+		}
+		if isStaticFalse(value.Cond) {
+			return descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+		}
+		if isStaticTrue(value.Cond) {
+			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		}
+		if astNodeContainsPosition(value.Body, before) {
+			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		}
+		if astNodeContainsPosition(value.Else, before) {
+			return descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+		}
+		thenState := descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		elseState := descriptorMembershipAfterElse(value.Else, object, descriptor, before, state)
+		return mergeDescriptorMembership(thenState, elseState)
+	case *ast.RangeStmt:
+		if astNodeContainsPosition(value.Body, before) {
+			return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		}
+		// A descriptor literal appended while ranging over an authored literal
+		// table is the production generated-descriptor pattern. Following the
+		// body once proves the literal-to-collection edge; later registration
+		// still consumes the exact collection object.
+		return descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+	case *ast.ForStmt:
+		bodyState := descriptorMembershipAfterBlock(value.Body, object, descriptor, before, state)
+		return mergeDescriptorMembership(state, bodyState)
+	case *ast.LabeledStmt:
+		return descriptorMembershipAfterStatement(value.Stmt, object, descriptor, before, state)
+	case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		if hasIdentifierWriteBefore(statement, object, before) {
+			return descriptorMembershipAmbiguous
+		}
+	case *ast.GoStmt, *ast.DeferStmt:
+		// Async/deferred mutation cannot prove collection membership.
+	}
+	return state
+}
+
+func descriptorMembershipAfterElse(statement ast.Stmt, object *ast.Object, descriptor *ast.CompositeLit, before token.Pos, state descriptorMembership) descriptorMembership {
+	switch value := statement.(type) {
+	case nil:
+		return state
+	case *ast.BlockStmt:
+		return descriptorMembershipAfterBlock(value, object, descriptor, before, state)
+	default:
+		return descriptorMembershipAfterStatement(value, object, descriptor, before, state)
+	}
+}
+
+func descriptorMembershipAfterWrite(write ast.Expr, object *ast.Object, descriptor *ast.CompositeLit, state descriptorMembership) descriptorMembership {
+	call, isAppend := write.(*ast.CallExpr)
+	if !isAppend || calledName(call.Fun) != "append" || len(call.Args) < 2 {
+		if write != nil && astNodeContains(write, descriptor) {
+			return descriptorMembershipPresent
+		}
+		return descriptorMembershipAbsent
+	}
+	for _, argument := range call.Args[1:] {
+		if astNodeContains(argument, descriptor) {
+			return descriptorMembershipPresent
+		}
+	}
+	if sourceExpressionObject(call.Args[0]) == object {
+		return state
+	}
+	if astNodeContains(call.Args[0], descriptor) {
+		return descriptorMembershipPresent
+	}
+	return descriptorMembershipAbsent
+}
+
+func mergeDescriptorMembership(left, right descriptorMembership) descriptorMembership {
+	if left == right {
+		return left
+	}
+	return descriptorMembershipAmbiguous
+}
+
+func astNodeContainsPosition(root ast.Node, position token.Pos) bool {
+	return root != nil && position >= root.Pos() && position <= root.End()
 }
 
 func descriptorParameterEnvironments(function packageSourceFunction, descriptor *ast.CompositeLit, functions []packageSourceFunction, fset *token.FileSet, constants, effectValues map[string]string) []sourceRegistrationEnvironment {
@@ -897,7 +1014,7 @@ func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr, befor
 	if !ok {
 		return nil
 	}
-	value, _, found := latestIdentifierValue(function, identifier.Name, before)
+	value, _, found := latestIdentifierValue(function, identifier, before)
 	if !found {
 		return nil
 	}
@@ -905,31 +1022,26 @@ func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr, befor
 	return result
 }
 
-func latestIdentifierValue(function *ast.FuncDecl, identifier string, before token.Pos) (ast.Expr, token.Pos, bool) {
-	var latest ast.Expr
-	var latestPosition token.Pos
-	found := false
-	inspectReachable(function.Body, func(node ast.Node) {
-		if node == nil || node.Pos() >= before || node.Pos() <= latestPosition {
-			return
-		}
-		value, ok := identifierWrite(node, identifier)
-		if !ok {
-			return
-		}
-		latest = value
-		latestPosition = node.Pos()
-		found = true
-	})
-	return latest, latestPosition, found
+func latestIdentifierValue(function *ast.FuncDecl, identifier *ast.Ident, before token.Pos) (ast.Expr, token.Pos, bool) {
+	if function == nil || identifier == nil || identifier.Obj == nil {
+		return nil, 0, false
+	}
+	state := identifierStateAfterBlock(function.Body, identifier.Obj, before, sourceIdentifierState{})
+	if state.ambiguous {
+		return nil, 0, false
+	}
+	return state.value, state.position, state.found
 }
 
-func identifierWrite(node ast.Node, identifier string) (ast.Expr, bool) {
+func identifierWrite(node ast.Node, object *ast.Object) (ast.Expr, bool) {
+	if object == nil {
+		return nil, false
+	}
 	switch value := node.(type) {
 	case *ast.AssignStmt:
 		for index, left := range value.Lhs {
 			name, ok := left.(*ast.Ident)
-			if !ok || name.Name != identifier {
+			if !ok || name.Obj == nil || name.Obj != object {
 				continue
 			}
 			if index < len(value.Rhs) {
@@ -939,7 +1051,7 @@ func identifierWrite(node ast.Node, identifier string) (ast.Expr, bool) {
 		}
 	case *ast.ValueSpec:
 		for index, name := range value.Names {
-			if name.Name != identifier {
+			if name.Obj == nil || name.Obj != object {
 				continue
 			}
 			if index < len(value.Values) {
@@ -949,6 +1061,128 @@ func identifierWrite(node ast.Node, identifier string) (ast.Expr, bool) {
 		}
 	}
 	return nil, false
+}
+
+type sourceIdentifierState struct {
+	value     ast.Expr
+	position  token.Pos
+	found     bool
+	ambiguous bool
+}
+
+func identifierStateAfterBlock(block *ast.BlockStmt, object *ast.Object, before token.Pos, state sourceIdentifierState) sourceIdentifierState {
+	if block == nil || object == nil {
+		return state
+	}
+	for _, statement := range block.List {
+		if statement == nil || statement.Pos() >= before {
+			break
+		}
+		state = identifierStateAfterStatement(statement, object, before, state)
+	}
+	return state
+}
+
+func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, before token.Pos, state sourceIdentifierState) sourceIdentifierState {
+	if statement == nil || statement.Pos() >= before {
+		return state
+	}
+	switch value := statement.(type) {
+	case *ast.AssignStmt:
+		if write, ok := identifierWrite(value, object); ok {
+			return sourceIdentifierState{value: write, position: value.Pos(), found: true}
+		}
+	case *ast.DeclStmt:
+		declaration, ok := value.Decl.(*ast.GenDecl)
+		if !ok {
+			return state
+		}
+		for _, spec := range declaration.Specs {
+			if write, ok := identifierWrite(spec, object); ok {
+				state = sourceIdentifierState{value: write, position: spec.Pos(), found: true}
+			}
+		}
+	case *ast.BlockStmt:
+		return identifierStateAfterBlock(value, object, before, state)
+	case *ast.IfStmt:
+		if value.Init != nil {
+			state = identifierStateAfterStatement(value.Init, object, before, state)
+		}
+		if isStaticFalse(value.Cond) {
+			return identifierStateAfterElse(value.Else, object, before, state)
+		}
+		if isStaticTrue(value.Cond) {
+			return identifierStateAfterBlock(value.Body, object, before, state)
+		}
+		if astNodeContainsPosition(value.Body, before) {
+			return identifierStateAfterBlock(value.Body, object, before, state)
+		}
+		if astNodeContainsPosition(value.Else, before) {
+			return identifierStateAfterElse(value.Else, object, before, state)
+		}
+		thenState := identifierStateAfterBlock(value.Body, object, before, state)
+		elseState := identifierStateAfterElse(value.Else, object, before, state)
+		return mergeSourceIdentifierStates(thenState, elseState)
+	case *ast.ForStmt:
+		if value.Init != nil {
+			state = identifierStateAfterStatement(value.Init, object, before, state)
+		}
+		bodyState := identifierStateAfterBlock(value.Body, object, before, state)
+		return mergeSourceIdentifierStates(state, bodyState)
+	case *ast.RangeStmt:
+		if astNodeContainsPosition(value.Body, before) {
+			return identifierStateAfterBlock(value.Body, object, before, state)
+		}
+		bodyState := identifierStateAfterBlock(value.Body, object, before, state)
+		return mergeSourceIdentifierStates(state, bodyState)
+	case *ast.LabeledStmt:
+		return identifierStateAfterStatement(value.Stmt, object, before, state)
+	case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		if hasIdentifierWriteBefore(statement, object, before) {
+			state.ambiguous = true
+		}
+	case *ast.GoStmt, *ast.DeferStmt:
+		// Async/deferred writes cannot establish synchronous provenance.
+	}
+	return state
+}
+
+func identifierStateAfterElse(statement ast.Stmt, object *ast.Object, before token.Pos, state sourceIdentifierState) sourceIdentifierState {
+	switch value := statement.(type) {
+	case nil:
+		return state
+	case *ast.BlockStmt:
+		return identifierStateAfterBlock(value, object, before, state)
+	default:
+		return identifierStateAfterStatement(value, object, before, state)
+	}
+}
+
+func mergeSourceIdentifierStates(left, right sourceIdentifierState) sourceIdentifierState {
+	if left.ambiguous || right.ambiguous || left.found != right.found || (left.found && left.value != right.value) {
+		position := left.position
+		if right.position > position {
+			position = right.position
+		}
+		return sourceIdentifierState{position: position, ambiguous: true}
+	}
+	if right.position > left.position {
+		return right
+	}
+	return left
+}
+
+func hasIdentifierWriteBefore(root ast.Node, object *ast.Object, before token.Pos) bool {
+	found := false
+	inspectReachable(root, func(node ast.Node) {
+		if found || node == nil || node.Pos() >= before {
+			return
+		}
+		if _, ok := identifierWrite(node, object); ok {
+			found = true
+		}
+	})
+	return found
 }
 
 func rangeCompositeEnvironments(statement *ast.RangeStmt, source *ast.CompositeLit, constants, effectValues map[string]string) []map[string]string {
@@ -1264,6 +1498,11 @@ func inspectReachableCalls(root ast.Node, visit func(*ast.CallExpr)) {
 func isStaticFalse(expression ast.Expr) bool {
 	literal, ok := expression.(*ast.Ident)
 	return ok && literal.Name == "false"
+}
+
+func isStaticTrue(expression ast.Expr) bool {
+	literal, ok := expression.(*ast.Ident)
+	return ok && literal.Name == "true"
 }
 
 func functionReceiver(function *ast.FuncDecl) (string, string) {

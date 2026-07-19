@@ -554,6 +554,113 @@ func register(effects Registrar) error {
 			})
 		}
 
+		discoverFixture := func(t *testing.T, packageName, source string) []EffectSurface {
+			t.Helper()
+			root := t.TempDir()
+			packageDirectory := filepath.Join(root, "src", "server", "internal", packageName)
+			if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+				t.Fatalf("create %s provenance fixture: %v", packageName, err)
+			}
+			if err := os.WriteFile(filepath.Join(packageDirectory, packageName+".go"), []byte(source), 0o644); err != nil {
+				t.Fatalf("write %s provenance fixture: %v", packageName, err)
+			}
+			discovered, err := DiscoverEffectSurfaces(root)
+			if err != nil {
+				t.Fatalf("discover %s provenance fixture: %v", packageName, err)
+			}
+			return discovered
+		}
+
+		t.Run("scalar shadow cannot replace outer provenance", func(t *testing.T) {
+			discovered := discoverFixture(t, "scalarshadow", `package scalarshadow
+func register(effects Registrar) error {
+	descriptor := EffectDescriptor{ID: "scope.scalar", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "scope.Scalar"}
+	{
+		descriptor := EffectDescriptor{ID: "scope.scalar", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "scope.Scalar"}
+		_ = descriptor
+	}
+	return effects.Register(descriptor)
+}
+`)
+			if len(discovered) != 1 || discovered[0].CapabilityID != "wrong" {
+				t.Fatalf("outer scalar borrowed shadow provenance: %#v", discovered)
+			}
+		})
+
+		t.Run("collection shadow cannot replace outer provenance", func(t *testing.T) {
+			discovered := discoverFixture(t, "collectionshadow", `package collectionshadow
+func register(effects Registrar) error {
+	descriptors := []EffectDescriptor{{ID: "scope.collection", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "scope.Collection"}}
+	{
+		descriptors := []EffectDescriptor{{ID: "scope.collection", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "scope.Collection"}}
+		_ = descriptors
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`)
+			if len(discovered) != 1 || discovered[0].CapabilityID != "wrong" {
+				t.Fatalf("outer collection borrowed shadow provenance: %#v", discovered)
+			}
+		})
+
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "unknown branch scalar write",
+				packageName: "branchscalar",
+				source: `package branchscalar
+func register(effects Registrar, enabled bool) error {
+	descriptor := EffectDescriptor{ID: "branch.scalar", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "branch.Scalar"}
+	if enabled {
+		descriptor = EffectDescriptor{ID: "branch.scalar", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "branch.Scalar"}
+	}
+	return effects.Register(descriptor)
+}
+`,
+			},
+			{
+				name:        "unknown branch collection reset",
+				packageName: "branchreset",
+				source: `package branchreset
+func register(effects Registrar, enabled bool) error {
+	descriptors := []EffectDescriptor{{ID: "branch.reset", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "branch.Reset"}}
+	if enabled {
+		descriptors = nil
+	} else {
+		descriptors = append(descriptors, EffectDescriptor{ID: "branch.reset", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "branch.Reset"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "unknown branch collection append",
+				packageName: "branchappend",
+				source: `package branchappend
+func register(effects Registrar, enabled bool) error {
+	var descriptors []EffectDescriptor
+	if enabled {
+		descriptors = append(descriptors, EffectDescriptor{ID: "branch.append", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "branch.Append"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("ambiguous conditional provenance was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
