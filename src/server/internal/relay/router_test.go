@@ -172,6 +172,69 @@ func TestRelaySemanticCacheReadinessContract(t *testing.T) {
 	})
 }
 
+func TestRelaySemanticCacheProviderRecheckContract(t *testing.T) {
+	t.Run("model expiry during billing refunds before provider callback", func(t *testing.T) {
+		guard := &batchGuardSpy{
+			denyAtCall: 2,
+			denial: &releasecontract.ReadinessError{
+				Code:  releasecontract.CodeReadinessStale,
+				Field: "generation",
+			},
+		}
+		router := newRelaySemanticCacheReadinessRouter(t, guard)
+		quotaManager := &stubQuotaManager{}
+		usageLogger := &recordingUsageLogger{}
+		router.SetQuotaManager(quotaManager)
+		router.SetUsageLogger(usageLogger)
+
+		providerCalls := 0
+		resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "provider-recheck-model", &types.Usage{TotalTokens: 20}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return types.NewOKResponse(nil, nil), nil
+		})
+		if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) {
+			t.Fatalf("expected stale model denial before provider callback, resp=%+v err=%v", resp, err)
+		}
+		if len(guard.calls) != 2 || guard.calls[0].capabilityID != guard.calls[1].capabilityID || guard.calls[0].boundary != releasecontract.BoundaryOutbound || guard.calls[1].boundary != releasecontract.BoundaryOutbound {
+			t.Fatalf("expected pre-cache and pre-provider model guards, calls=%#v", guard.calls)
+		}
+		if quotaManager.preconsumeCalls != 1 || quotaManager.refundCalls != 1 || quotaManager.settleCalls != 0 {
+			t.Fatalf("expected bounded quota compensation after late denial, quota=%+v", quotaManager)
+		}
+		if providerCalls != 0 || len(usageLogger.records) != 0 {
+			t.Fatalf("late readiness denial reached downstream effects: provider=%d usage=%+v", providerCalls, usageLogger.records)
+		}
+	})
+
+	t.Run("provider expiry remains a distinct guard after model reauthorization", func(t *testing.T) {
+		guard := &batchGuardSpy{
+			denyAtCall: 3,
+			denial: &releasecontract.ReadinessError{
+				Code:  releasecontract.CodeReadinessStale,
+				Field: "generation",
+			},
+		}
+		router := newRelaySemanticCacheReadinessRouter(t, guard)
+		quotaManager := &stubQuotaManager{}
+		router.SetQuotaManager(quotaManager)
+
+		providerCalls := 0
+		resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "provider-recheck-transport", &types.Usage{TotalTokens: 20}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			providerCalls++
+			return types.NewOKResponse(nil, nil), nil
+		})
+		if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) {
+			t.Fatalf("expected stale provider denial before callback, resp=%+v err=%v", resp, err)
+		}
+		if len(guard.calls) != 3 || guard.calls[0].capabilityID != guard.calls[1].capabilityID || guard.calls[1].capabilityID != guard.calls[2].capabilityID {
+			t.Fatalf("expected model/model/provider guard sequence, calls=%#v", guard.calls)
+		}
+		if quotaManager.preconsumeCalls != 1 || quotaManager.refundCalls != 1 || providerCalls != 0 {
+			t.Fatalf("provider denial compensation/call counts incorrect: quota=%+v provider=%d", quotaManager, providerCalls)
+		}
+	})
+}
+
 func TestRelayReadinessPerAttemptContract(t *testing.T) {
 	contract, profile := loadBatchReadinessAuthority(t)
 	newAuthorities := func(t *testing.T, guard releasecontract.Guard) releasecontract.RuntimeAuthorities {
