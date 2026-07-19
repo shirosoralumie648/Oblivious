@@ -1014,6 +1014,63 @@ func register(options Options) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox error overwritten by other effect",
+				packageName: "sandboxerroverwrite",
+				source: `package sandboxerroverwrite
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	otherEffect := struct{ id string }{id: "other"}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		otherCapability, err := options.Authorities.CapabilityBindings.Resolve(otherEffect.id)
+		_ = otherCapability
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.error.overwrite", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.ErrorOverwrite"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox capability and error reassigned",
+				packageName: "sandboxreassigned",
+				source: `package sandboxreassigned
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	otherEffect := struct{ id string }{id: "other"}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		capability, err = options.Authorities.CapabilityBindings.Resolve(otherEffect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.reassigned", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.Reassigned"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("stale Resolve provenance was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")

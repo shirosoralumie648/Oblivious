@@ -1049,13 +1049,21 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effec
 	if errorObject == nil || capabilityObject == nil || effectObject == nil {
 		return false
 	}
-	for _, binding := range resolvedCapabilityBindings(function) {
-		if binding.position < call.Pos() && binding.effectReference == "effect.id" && binding.effectObject == effectObject &&
-			binding.errorObject == errorObject && binding.object == capabilityObject {
-			return true
+	binding, found := latestCapabilityBindingForError(resolvedCapabilityBindings(function), errorObject, call.Pos())
+	return found && binding.effectReference == "effect.id" && binding.effectObject == effectObject && binding.object == capabilityObject
+}
+
+func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorObject *ast.Object, before token.Pos) (sourceCapabilityBinding, bool) {
+	var latest sourceCapabilityBinding
+	found := false
+	for _, binding := range bindings {
+		if binding.errorObject != errorObject || binding.position >= before || (found && binding.position <= latest.position) {
+			continue
 		}
+		latest = binding
+		found = true
 	}
-	return false
+	return latest, found
 }
 
 func unwrapParentheses(expression ast.Expr) ast.Expr {
