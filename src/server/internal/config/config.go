@@ -101,6 +101,7 @@ type Config struct {
 	RedisAddr                               string
 	RedisPassword                           string
 	RedisDB                                 int
+	RedisTLS                                bool
 	KafkaBrokers                            []string
 
 	// Default channel configuration (for development)
@@ -392,6 +393,7 @@ func Load() (Config, error) {
 	redisAddr := ""
 	redisPassword := ""
 	redisDB := 0
+	redisTLS := false
 	if redisURLRaw := strings.TrimSpace(os.Getenv("REDIS_URL")); redisURLRaw != "" {
 		parsedRedisURL, parseErr := parseRedisURL(redisURLRaw)
 		if parseErr != nil {
@@ -400,6 +402,7 @@ func Load() (Config, error) {
 		redisAddr = parsedRedisURL.addr
 		redisPassword = parsedRedisURL.password
 		redisDB = parsedRedisURL.db
+		redisTLS = parsedRedisURL.tls
 	}
 	if redisAddrRaw, ok := os.LookupEnv("REDIS_ADDR"); ok {
 		redisAddr = strings.TrimSpace(redisAddrRaw)
@@ -809,6 +812,7 @@ func Load() (Config, error) {
 		RedisAddr:                               redisAddr,
 		RedisPassword:                           redisPassword,
 		RedisDB:                                 redisDB,
+		RedisTLS:                                redisTLS,
 		KafkaBrokers:                            append([]string{}, kafkaBrokers...),
 		OpenAIAPIKey:                            openaiAPIKey,
 		OpenAIBaseURL:                           openaiBaseURL,
@@ -1044,6 +1048,7 @@ type redisURLConfig struct {
 	addr     string
 	password string
 	db       int
+	tls      bool
 }
 
 func parseRedisURL(raw string) (redisURLConfig, error) {
@@ -1057,7 +1062,7 @@ func parseRedisURL(raw string) (redisURLConfig, error) {
 	if strings.TrimSpace(parsed.Host) == "" {
 		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL: host is required")
 	}
-	cfg := redisURLConfig{addr: parsed.Host}
+	cfg := redisURLConfig{addr: parsed.Host, tls: parsed.Scheme == "rediss"}
 	if password, ok := parsed.User.Password(); ok {
 		cfg.password = password
 	}

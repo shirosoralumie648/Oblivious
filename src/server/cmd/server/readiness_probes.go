@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,7 +73,11 @@ func defaultDeploymentReadinessOperations() deploymentReadinessOperations {
 			if strings.TrimSpace(cfg.RedisAddr) == "" {
 				return fmt.Errorf("unconfigured")
 			}
-			client := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB, Protocol: 2})
+			options, err := redisOptionsFromConfig(cfg)
+			if err != nil {
+				return err
+			}
+			client := redis.NewClient(options)
 			defer client.Close()
 			return client.Ping(ctx).Err()
 		},
@@ -88,7 +94,13 @@ func defaultDeploymentReadinessOperations() deploymentReadinessOperations {
 			if cfg.QdrantAPIKey != "" {
 				request.Header.Set("api-key", cfg.QdrantAPIKey)
 			}
-			response, err := (&http.Client{Transport: transport}).Do(request)
+			client := &http.Client{
+				Transport: transport,
+				CheckRedirect: func(*http.Request, []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+			response, err := client.Do(request)
 			if err != nil {
 				return err
 			}
@@ -110,34 +122,83 @@ func defaultDeploymentReadinessOperations() deploymentReadinessOperations {
 			return client.PingContext(ctx)
 		},
 		kafka: func(ctx context.Context, brokers []string) error {
-			if len(brokers) == 0 {
-				return fmt.Errorf("unconfigured")
-			}
-			var lastErr error
-			for _, broker := range brokers {
-				dialer := kafka.Dialer{Timeout: deploymentReadinessProbeTimeout, DualStack: true}
-				connection, err := dialer.DialContext(ctx, "tcp", broker)
-				if err != nil {
-					lastErr = err
-					continue
-				}
-				if deadline, ok := ctx.Deadline(); ok {
-					_ = connection.SetDeadline(deadline)
-				}
-				_, metadataErr := connection.ReadPartitions()
-				closeErr := connection.Close()
-				if metadataErr == nil && closeErr == nil {
-					return nil
-				}
-				if metadataErr != nil {
-					lastErr = metadataErr
-				} else {
-					lastErr = closeErr
-				}
-			}
-			return lastErr
+			return probeKafkaBrokers(ctx, brokers, probeKafkaBroker)
 		},
 	}
+}
+
+func redisOptionsFromConfig(cfg config.Config) (*redis.Options, error) {
+	options := &redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+		Protocol: 2,
+	}
+	if !cfg.RedisTLS {
+		return options, nil
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(cfg.RedisAddr))
+	if err != nil || strings.TrimSpace(host) == "" {
+		return nil, fmt.Errorf("invalid redis TLS configuration")
+	}
+	options.TLSConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: host,
+	}
+	return options, nil
+}
+
+func probeKafkaBrokers(ctx context.Context, brokers []string, attempt func(context.Context, string) error) error {
+	if ctx == nil || len(brokers) == 0 || attempt == nil || ctx.Err() != nil {
+		return fmt.Errorf("kafka readiness probe failed")
+	}
+	probeContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan error, len(brokers))
+	for _, broker := range brokers {
+		broker := broker
+		go func() {
+			results <- attempt(probeContext, broker)
+		}()
+	}
+	for range brokers {
+		select {
+		case err := <-results:
+			if err == nil {
+				cancel()
+				return nil
+			}
+		case <-probeContext.Done():
+			return fmt.Errorf("kafka readiness probe failed")
+		}
+	}
+	return fmt.Errorf("kafka readiness probe failed")
+}
+
+func probeKafkaBroker(ctx context.Context, broker string) error {
+	if ctx == nil || ctx.Err() != nil {
+		return fmt.Errorf("kafka readiness probe failed")
+	}
+	dialer := kafka.Dialer{Timeout: deploymentReadinessProbeTimeout, DualStack: true}
+	connection, err := dialer.DialContext(ctx, "tcp", broker)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = connection.SetDeadline(deadline)
+	}
+	completed := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = connection.Close()
+		case <-completed:
+		}
+	}()
+	defer close(completed)
+	_, err = connection.ReadPartitions()
+	return err
 }
 
 func newDeploymentReadinessProbesWithOperations(cfg config.Config, database *sql.DB, operations deploymentReadinessOperations) ([]releasecontract.Probe, error) {
