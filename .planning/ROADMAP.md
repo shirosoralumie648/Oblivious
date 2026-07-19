@@ -84,9 +84,11 @@ Plans:
   4. Admin full inventory、app-safe projection、/livez、/readyz、audit export、Docker Compose 与 canonical Kubernetes workload 消费同一 manager 和 identity。
   5. server-derived catalogBindings 为 model/tool 返回只读 capabilityId，并在 mutation 与 execution 重新解析授权，UI 不能成为唯一防线。
 
-**Plans**: 10/10 plans executed
+**Plans**: 22 total; 10 executed, 12 gap-closure plans planned
 
-**Planning envelope exception:** checker-requested closure requires complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites do not fit the original 6-8 target while retaining the nine-file hard cap, so the decomposition uses ten focused plans without shrinking coverage or trusting executable/environment identity.
+**Original planning envelope exception:** checker-requested closure required complete first-call coverage for 12 real standalone roots plus the committed monolith direct-Tavily/configured-Chain/builtin web-search path. Those disjoint owners and dynamic zero-call suites did not fit the original 6-8 target while retaining the nine-file hard cap, so the executed decomposition used ten focused plans without shrinking coverage or trusting executable/environment identity.
+
+**Gap-closure decomposition:** canonical verification found only 1/5 must-haves verified and the code review identified production fail-closed gaps. Plans 11-22 close those findings in three additional waves while preserving the original 01-10 execution history.
 
 Plans:
 **Wave 1** *(blocked on Phase 31 Plan 31-06 completion)*
@@ -120,6 +122,27 @@ Plans:
 
 - [x] 31.1-08-PLAN.md - Wire canonical deployment assets and prove standalone-build plus aggregate-consume immutable-image readiness/deployment harness modes.
 
+**Gap Wave 1** *(blocked on canonical verification of Plans 01-10; file-disjoint gap owners may run in parallel)*
+
+- [ ] 31.1-11-PLAN.md - Serialize generation-one bootstrap and bound context-ignoring probe work without weakening fail-closed observations.
+- [ ] 31.1-12-PLAN.md - Authorize the current server-owned model before Relay semantic-cache success and retain immediate provider guards.
+- [ ] 31.1-13-PLAN.md - Require strict Admin and Marketplace readiness composition and deny mutations before reads, probes, writes, or provider calls.
+- [ ] 31.1-14-PLAN.md - Construct the authority-aware Agent web-search provider before the authorized ToolExecutor and prove exact ID-owner pairs.
+- [ ] 31.1-15-PLAN.md - Make compatibility ToolExecutor construction deny-only and migrate behavior fixtures to explicit authority-backed construction.
+- [ ] 31.1-16-PLAN.md - Fail stale or unavailable Admin/app readiness projections closed at the exact evaluator freshness boundary.
+- [ ] 31.1-17-PLAN.md - Replace harness-only dependency probes with typed deployment-owned DB, Redis, Qdrant, ClickHouse, and Kafka probes.
+- [ ] 31.1-18-PLAN.md - Complete the structural effect descriptor allowlist, mapping, manifest, authority join, and mutation proof.
+- [ ] 31.1-21-PLAN.md - Require Chat mutation decoding to reach EOF after exactly one JSON document before any business effect.
+
+**Gap Wave 2** *(blocked on the named Gap Wave 1 owners)*
+
+- [ ] 31.1-19-PLAN.md - Exact-join the strict real BuildRuntime descriptor snapshot from the checked-in phase gate after Plans 13, 14, 15, 17, and 18.
+- [ ] 31.1-22-PLAN.md - Apply and wait for canonical Kafka before the Kubernetes server rollout and `/readyz` proof after Plan 17.
+
+**Gap Wave 3** *(blocked on all Gap Waves 1-2 plans)*
+
+- [ ] 31.1-20-PLAN.md - Re-audit code, security, Nyquist, docs, and repository-local gates before handing final tracking-HEAD Stage B and push to a hard manual post-closeout gate.
+
 Cross-cutting constraints:
 
 - Every authorization verdict comes from the current in-process `ReadinessManager`; audit/report files are write-only runtime evidence.
@@ -131,6 +154,10 @@ Cross-cutting constraints:
 - Plan 06 descriptor tests are manifest-independent; Plan 03 alone creates `readiness-effect-surface.v1.json` and joins expected/static/runtime sets after every producer is complete.
 - Plan 03 owns `NewDeploymentReport` plus `report-readiness`/`report-deployment`; Plan 08 separately persists both reports and its aggregate mode consumes the Phase 31 foundation image bundle/tag/digest without rebuilding.
 - Authored monolith timing remains exactly 30s refresh, 120s max age, and 30s future skew with no runtime fallback.
+- Effect coverage uses exact descriptor ID-owner pairs, structural guard-to-effect discovery, the frozen manifest, and valid `RuntimeAuthorities`; source text or synthetic registries cannot certify production composition.
+- Readiness mutation guards run before reads, probes, local writes, accounting, or provider effects, and denied paths prove zero downstream deltas.
+- OpenAPI Envelope parity remains Phase 31.2, Relay Files and multi-provider batch identity remain Phase 34, and MCP Connect lifecycle remains Phase 35.
+- Plan 20 owns pre-closeout repository-local audit only. Final Stage B and push remain a hard external/manual gate after every SUMMARY, canonical verifier, phase tracker, and closeout commit has written the final clean tracking HEAD.
 - Phase completion is capped at E1/E2 repository-local evidence; non-empty skips and unavailable Docker/DB fail the committed gate.
 
 **Design**: `docs/superpowers/specs/2026-07-15-phase-31-release-contract-design.md`
