@@ -233,6 +233,39 @@ func register(effects releasecontract.EffectRegistrar) error {
 		}
 	})
 
+	t.Run("registered descriptor cannot borrow unused correct literal", func(t *testing.T) {
+		descriptorID := "worker.schedule.claim"
+		spec := runtimeDescriptorSpecs[descriptorID]
+		fixtureRoot := t.TempDir()
+		copyEffectPackage(t, repoRoot, fixtureRoot, spec.OwnerPackage)
+		path := filepath.Join(fixtureRoot, filepath.FromSlash(spec.OwnerPackage), "worker.go")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read registered-literal fixture: %v", err)
+		}
+		correct := `{ID: "worker.schedule.claim", CapabilityID: string(claimCapability), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "schedule.Worker"}`
+		wrong := `{ID: "worker.schedule.claim", CapabilityID: string(workflowCapability), Boundary: releasecontract.BoundaryWorkerClaim, Owner: "schedule.Worker"}`
+		mutated := strings.Replace(string(content), correct, wrong, 1)
+		loop := "\tfor _, descriptor := range descriptors {"
+		unused := "\t_ = releasecontract.EffectDescriptor{" + correct[1:len(correct)-1] + "}\n" + loop
+		mutated = strings.Replace(mutated, loop, unused, 1)
+		if mutated == string(content) || !strings.Contains(mutated, wrong) || !strings.Contains(mutated, unused) {
+			t.Fatal("registered-literal mutation was not applied")
+		}
+		if err := os.WriteFile(path, []byte(mutated), 0o644); err != nil {
+			t.Fatalf("write registered-literal fixture: %v", err)
+		}
+		discovered, err := DiscoverEffectSurfaces(fixtureRoot)
+		if err != nil {
+			t.Fatalf("discover registered-literal fixture: %v", err)
+		}
+		for _, surface := range discovered {
+			if surface.DescriptorID == descriptorID {
+				t.Fatalf("wrong registered descriptor borrowed unused correct literal: %#v", surface)
+			}
+		}
+	})
+
 	mutations := []struct {
 		name         string
 		descriptorID string
@@ -261,7 +294,9 @@ func register(effects releasecontract.EffectRegistrar) error {
 		{"websearch provider receiver guard", "mcp.websearch.provider", "websearch.go", "p.readiness.authorize(ctx)", "p.readiness.retiredAuthorize(ctx)"},
 		{"websearch provider receiver effect", "mcp.websearch.provider", "websearch.go", "p.provider.Search(ctx, query)", "p.provider.RetiredSearch(ctx, query)"},
 		{"tool executor guard", "agent.tool.builtin", "executor.go", "e.authorizeTool(ctx, persistedTool)", "e.retiredAuthorizeTool(ctx, persistedTool)"},
+		{"tool executor generated resolve binding", "agent.tool.builtin", "executor.go", "CapabilityBindings.Resolve(effect.id)", "CapabilityBindings.Resolve(releasecontract.EffectAgentToolMCP)"},
 		{"independent registry effect", "agent.tool.registry.builtin", "registry.go", "return entry.executor(ctx, args)", "return retiredExecutor(ctx, args)"},
+		{"registry generated resolve binding", "agent.tool.registry.builtin", "registry.go", "CapabilityBindings.Resolve(effectID)", "CapabilityBindings.Resolve(releasecontract.EffectAgentToolMCP)"},
 		{"independent websearch effect", "agent.tool.web_search", "websearch.go", "provider.Search(ctx, query)", "provider.RetiredSearch(ctx, query)"},
 		{"archive sibling capability binding", "worker.archive.write", "archive.go", "CapabilityID: string(write)", "CapabilityID: string(deleteCapability)"},
 		{"relay batch sibling capability binding", "worker.relay_batch.claim", "batch_polling_worker.go", "CapabilityID: string(claim)", "CapabilityID: string(finalize)"},
