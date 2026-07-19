@@ -202,6 +202,102 @@ func TestReadinessManagerLifecycleContract(t *testing.T) {
 	})
 }
 
+func TestReadinessManagerBootstrapConcurrencyContract(t *testing.T) {
+	contract, profile, identity := loadReadinessTestAuthority(t)
+	clock := newManagerTestClock(time.Date(2026, time.July, 19, 0, 0, 0, 0, time.UTC))
+	probes := managerTestProbes(t, contract, profile)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	gated := &gatedManagerProbe{
+		id:         "probe.postgres",
+		dependency: "postgres",
+		started:    started,
+		release:    release,
+	}
+	probes = replaceManagerProbe(probes, "postgres", gated)
+	writer := &recordingSnapshotWriter{}
+	manager := newTestManager(t, contract, profile, identity, clock, probes, 500*time.Millisecond, writer, filepath.Join(t.TempDir(), "readiness.json"))
+
+	const callers = 64
+	start := make(chan struct{})
+	results := make(chan error, callers)
+	var ready sync.WaitGroup
+	ready.Add(callers)
+	for range callers {
+		go func() {
+			ready.Done()
+			<-start
+			results <- manager.Bootstrap(context.Background())
+		}()
+	}
+	ready.Wait()
+	close(start)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("no bootstrap probe started")
+	}
+	// Keep generation one unpublished long enough for every released caller to
+	// reach the bootstrap transition.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+
+	succeeded := 0
+	failed := 0
+	failureText := ""
+	for range callers {
+		err := <-results
+		if err == nil {
+			succeeded++
+			continue
+		}
+		if !IsReadinessCode(err, CodeReadinessUnavailable) {
+			t.Fatalf("bootstrap loser error = %T %v, want readiness_unavailable", err, err)
+		}
+		if failureText == "" {
+			failureText = err.Error()
+		} else if err.Error() != failureText {
+			t.Fatalf("bootstrap loser error = %q, want stable %q", err.Error(), failureText)
+		}
+		failed++
+	}
+	if succeeded != 1 || failed != callers-1 {
+		t.Fatalf("bootstrap outcomes = %d succeeded, %d failed; want 1 and %d", succeeded, failed, callers-1)
+	}
+	if got := manager.Evaluate().Generation; got != 1 {
+		t.Fatalf("bootstrap generation = %d, want 1", got)
+	}
+	for _, probe := range probes {
+		calls := int64(0)
+		switch typed := probe.(type) {
+		case *fixedManagerProbe:
+			calls = typed.calls.Load()
+		case *gatedManagerProbe:
+			calls = typed.calls.Load()
+		default:
+			t.Fatalf("probe %s has unsupported test type %T", probe.DependencyID(), probe)
+		}
+		if calls != 1 {
+			t.Fatalf("probe %s calls = %d, want 1", probe.DependencyID(), calls)
+		}
+	}
+	if got := writer.snapshotCount(); got != 1 {
+		t.Fatalf("audit writes = %d, want 1", got)
+	}
+
+	before := marshalCurrentGeneration(t, manager)
+	if err := manager.Bootstrap(context.Background()); !IsReadinessCode(err, CodeReadinessUnavailable) || err.Error() != failureText {
+		t.Fatalf("second bootstrap error = %T %v, want stable readiness_unavailable", err, err)
+	}
+	after := marshalCurrentGeneration(t, manager)
+	if string(after) != string(before) {
+		t.Fatalf("second bootstrap changed published snapshot\nbefore=%s\nafter=%s", before, after)
+	}
+	if got := writer.snapshotCount(); got != 1 {
+		t.Fatalf("second bootstrap audit writes = %d, want 1", got)
+	}
+}
+
 func TestReadinessManagerPublicationRace(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC))
@@ -284,6 +380,24 @@ func (p *blockingManagerProbe) Run(context.Context) (Observation, error) {
 	return Observation{Availability: AvailabilityEnabled}, nil
 }
 
+type gatedManagerProbe struct {
+	id          string
+	dependency  string
+	calls       atomic.Int64
+	startedOnce sync.Once
+	started     chan<- struct{}
+	release     <-chan struct{}
+}
+
+func (p *gatedManagerProbe) ID() string           { return p.id }
+func (p *gatedManagerProbe) DependencyID() string { return p.dependency }
+func (p *gatedManagerProbe) Run(context.Context) (Observation, error) {
+	p.calls.Add(1)
+	p.startedOnce.Do(func() { close(p.started) })
+	<-p.release
+	return Observation{Availability: AvailabilityEnabled}, nil
+}
+
 type recordingSnapshotWriter struct {
 	mu        sync.Mutex
 	snapshots []ReadinessSnapshotV1
@@ -295,6 +409,12 @@ func (w *recordingSnapshotWriter) Write(_ context.Context, _ string, snapshot Re
 	defer w.mu.Unlock()
 	w.snapshots = append(w.snapshots, snapshot)
 	return w.err
+}
+
+func (w *recordingSnapshotWriter) snapshotCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.snapshots)
 }
 
 type managerTestClock struct {
