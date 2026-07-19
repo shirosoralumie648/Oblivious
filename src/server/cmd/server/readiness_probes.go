@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"database/sql"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -73,7 +71,7 @@ func defaultDeploymentReadinessOperations() deploymentReadinessOperations {
 			if strings.TrimSpace(cfg.RedisAddr) == "" {
 				return fmt.Errorf("unconfigured")
 			}
-			options, err := redisOptionsFromConfig(cfg)
+			options, err := config.RedisClientOptions(cfg, "")
 			if err != nil {
 				return err
 			}
@@ -125,27 +123,6 @@ func defaultDeploymentReadinessOperations() deploymentReadinessOperations {
 			return probeKafkaBrokers(ctx, brokers, probeKafkaBroker)
 		},
 	}
-}
-
-func redisOptionsFromConfig(cfg config.Config) (*redis.Options, error) {
-	options := &redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-		Protocol: 2,
-	}
-	if !cfg.RedisTLS {
-		return options, nil
-	}
-	host, _, err := net.SplitHostPort(strings.TrimSpace(cfg.RedisAddr))
-	if err != nil || strings.TrimSpace(host) == "" {
-		return nil, fmt.Errorf("invalid redis TLS configuration")
-	}
-	options.TLSConfig = &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: host,
-	}
-	return options, nil
 }
 
 func probeKafkaBrokers(ctx context.Context, brokers []string, attempt func(context.Context, string) error) error {

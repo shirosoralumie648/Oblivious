@@ -81,7 +81,10 @@ func main() {
 
 		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
 		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
-		rateLimiter, closeRateLimiter := buildRelayRateLimiter(cfg)
+		rateLimiter, closeRateLimiter, err := buildRelayRateLimiter(cfg)
+		if err != nil {
+			return fmt.Errorf("build relay rate limiter: %w", err)
+		}
 		if closeRateLimiter != nil {
 			defer func() {
 				if err := closeRateLimiter(); err != nil {
@@ -301,28 +304,24 @@ func applyRelaySemanticCacheConfig(relayCfg *relay.Config, cfg config.Config, da
 	}
 }
 
-func buildRelayRateLimiter(cfg config.Config) (ratelimit.RateLimiter, func() error) {
+func buildRelayRateLimiter(cfg config.Config) (ratelimit.RateLimiter, func() error, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.RelayRateLimitBackend)) {
 	case "", "memory":
-		return ratelimit.NewInMemoryRateLimiter(ratelimit.InMemoryOptions{}), nil
+		return ratelimit.NewInMemoryRateLimiter(ratelimit.InMemoryOptions{}), nil, nil
 	case "none":
-		return nil, nil
+		return nil, nil, nil
 	case "redis":
-		addr := strings.TrimSpace(cfg.RedisAddr)
-		if addr == "" {
-			addr = "localhost:6379"
+		options, err := config.RedisClientOptions(cfg, "localhost:6379")
+		if err != nil {
+			return nil, nil, err
 		}
-		client := redis.NewClient(&redis.Options{
-			Addr:     addr,
-			Password: cfg.RedisPassword,
-			DB:       cfg.RedisDB,
-		})
+		client := redis.NewClient(options)
 		limiter := ratelimit.NewRedisRateLimiter(client, ratelimit.RedisOptions{
 			KeyPrefix: cfg.RelayRateLimitRedisKeyPrefix,
 		})
-		return limiter, client.Close
+		return limiter, client.Close, nil
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 }
 
