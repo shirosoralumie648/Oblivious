@@ -440,9 +440,6 @@ func (r *Router) RouteWithBilling(
 			}
 			return nil, routeErr
 		}
-		if err := r.requireModel(ctx, model); err != nil {
-			return nil, err
-		}
 		selectedChannelID := routeChannelID(ch)
 		billingChannelID := channelID
 		if billingChannelID == "" {
@@ -575,6 +572,16 @@ func (r *Router) RouteWithBilling(
 		// A readiness generation may expire while billing/pending usage work is
 		// in progress. Re-authorize immediately before the provider callback and
 		// only refund effects that have already started.
+		if err := r.requireModel(ctx, model); err != nil {
+			releaseRateLimit()
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
+			}
+			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+			}
+			return nil, err
+		}
 		if err := r.requireProvider(ctx); err != nil {
 			releaseRateLimit()
 			if r.quotaManager != nil && billingSessionID != "" {
