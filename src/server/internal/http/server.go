@@ -211,7 +211,11 @@ func buildRuntimeWithRouter(
 	if cfg.RelayEnabled {
 		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
 		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
-		rateLimiter, rateLimiterCloser := buildRelayRateLimiter(cfg)
+		rateLimiter, rateLimiterCloser, rateLimiterErr := buildRelayRateLimiter(cfg)
+		if rateLimiterErr != nil {
+			closeRuntimeResources(closers)
+			return nil, fmt.Errorf("build runtime relay rate limiter: %w", rateLimiterErr)
+		}
 		closeRateLimiter = rateLimiterCloser
 		var createdRelay *relay.Relay
 		var err error

@@ -2,12 +2,84 @@ package main
 
 import (
 	"context"
+	"net"
+	"strings"
 	"testing"
 	"time"
 
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/relay"
+	"oblivious/server/internal/relay/ratelimit"
 )
+
+func TestBuildStandaloneRelayRateLimiterRedisTransportContract(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		tls       bool
+		wantFirst byte
+	}{
+		{name: "plain Redis sends RESP", wantFirst: '*'},
+		{name: "rediss sends TLS ClientHello", tls: true, wantFirst: 0x16},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			firstByte := make(chan byte, 1)
+			go func() {
+				connection, acceptErr := listener.Accept()
+				if acceptErr != nil {
+					return
+				}
+				defer connection.Close()
+				buffer := []byte{0}
+				if _, readErr := connection.Read(buffer); readErr == nil {
+					firstByte <- buffer[0]
+				}
+			}()
+
+			limiter, closeLimiter, err := buildRelayRateLimiter(config.Config{
+				RelayRateLimitBackend: "redis",
+				RedisAddr:             listener.Addr().String(),
+				RedisTLS:              test.tls,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if closeLimiter == nil {
+				t.Fatal("Redis limiter did not return a close function")
+			}
+			defer closeLimiter()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			result := make(chan error, 1)
+			go func() {
+				result <- limiter.Allow(ctx, ratelimit.Key{ChannelID: "transport"}, ratelimit.Limits{RPM: 1}, ratelimit.Usage{})
+			}()
+			select {
+			case got := <-firstByte:
+				if got != test.wantFirst {
+					t.Fatalf("first transport byte = 0x%02x, want 0x%02x", got, test.wantFirst)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Redis limiter did not connect")
+			}
+			cancel()
+			select {
+			case <-result:
+			case <-time.After(time.Second):
+				t.Fatal("Redis limiter did not stop after cancellation")
+			}
+		})
+	}
+
+	const malformed = "redis-secret.invalid-address"
+	limiter, closeLimiter, err := buildRelayRateLimiter(config.Config{RelayRateLimitBackend: "redis", RedisAddr: malformed, RedisTLS: true})
+	if err == nil || limiter != nil || closeLimiter != nil || strings.Contains(err.Error(), malformed) || strings.Contains(err.Error(), "redis-secret") {
+		t.Fatalf("invalid TLS limiter result limiter=%T close=%v error=%v", limiter, closeLimiter != nil, err)
+	}
+}
 
 func TestBuildStandaloneRelayConfigWiresBatchCommercialLifecycle(t *testing.T) {
 	store := &relay.RelayStore{}

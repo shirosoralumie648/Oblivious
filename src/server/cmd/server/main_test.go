@@ -476,7 +476,7 @@ func TestQdrantReadinessRedirectContract(t *testing.T) {
 
 func TestRedisReadinessTLSContract(t *testing.T) {
 	t.Run("client options preserve secure transport policy", func(t *testing.T) {
-		plain, err := redisOptionsFromConfig(serverconfig.Config{RedisAddr: "redis.internal:6379"})
+		plain, err := serverconfig.RedisClientOptions(serverconfig.Config{RedisAddr: "redis.internal:6379"}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -484,7 +484,7 @@ func TestRedisReadinessTLSContract(t *testing.T) {
 			t.Fatal("redis:// options unexpectedly enabled TLS")
 		}
 
-		secure, err := redisOptionsFromConfig(serverconfig.Config{RedisAddr: "redis.internal:6380", RedisTLS: true})
+		secure, err := serverconfig.RedisClientOptions(serverconfig.Config{RedisAddr: "redis.internal:6380", RedisTLS: true}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -496,7 +496,7 @@ func TestRedisReadinessTLSContract(t *testing.T) {
 		}
 
 		const malformed = "redis-secret.invalid-address"
-		_, err = redisOptionsFromConfig(serverconfig.Config{RedisAddr: malformed, RedisTLS: true})
+		_, err = serverconfig.RedisClientOptions(serverconfig.Config{RedisAddr: malformed, RedisTLS: true}, "")
 		if err == nil || strings.Contains(err.Error(), malformed) {
 			t.Fatalf("malformed TLS address error = %v, want stable redacted error", err)
 		}
