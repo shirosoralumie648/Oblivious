@@ -139,6 +139,9 @@ func NewReadinessRouterWithOptions(cfg config.Config, database *sql.DB, options 
 	if err := options.ValidateReadinessAuthorities(); err != nil {
 		return nil, err
 	}
+	if options.AdminService != nil {
+		return nil, fmt.Errorf("strict readiness router rejects caller-supplied AdminService")
+	}
 	return newRouterWithOptions(cfg, database, options, true)
 }
 
@@ -278,6 +281,9 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	quotaService := quota.NewService(quota.NewSQLStore(database))
 	quotaHandler := newQuotaHandler(quotaService)
 	marketplaceStore := marketplace.NewSQLStore(database)
+	financialReadiness := marketplace.FinancialReadiness{
+		Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+	}
 	marketplaceSettlementOptions := []marketplace.SettlementServiceOption{}
 	if options.MarketplacePayoutProvider != nil {
 		marketplaceSettlementOptions = append(marketplaceSettlementOptions, marketplace.WithMarketplacePayoutProvider(options.MarketplacePayoutProvider))
@@ -285,7 +291,7 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	var marketplaceSettlementService *marketplace.SettlementService
 	if strict {
 		var err error
-		marketplaceSettlementService, err = marketplace.NewSettlementServiceWithFinancialReadiness(marketplaceStore, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects}, marketplaceSettlementOptions...)
+		marketplaceSettlementService, err = marketplace.NewSettlementServiceWithFinancialReadiness(marketplaceStore, financialReadiness, marketplaceSettlementOptions...)
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +316,7 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		var err error
 		billingHandler, err = newBillingHandlerWithReadiness(checkoutCreator, stripebilling.CheckoutConfig{
 			SecretKey: cfg.StripeSecretKey, SuccessURL: cfg.StripeSuccessURL, CancelURL: cfg.StripeCancelURL, WebhookSecret: cfg.StripeWebhookSecret,
-		}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators, financialReadiness)
 		if err != nil {
 			return nil, err
 		}
@@ -345,9 +351,20 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	if options.RequestLogEvidenceStore != nil {
 		adminOptions = append(adminOptions, admin.WithRequestLogEvidenceStore(options.RequestLogEvidenceStore))
 	}
-	adminService := options.AdminService
-	if adminService == nil {
-		adminService = admin.NewService(admin.NewSQLStore(database), adminOptions...)
+	var adminService *admin.Service
+	if strict {
+		var err error
+		adminService, err = admin.NewReadinessService(admin.NewSQLStore(database), admin.ModelCatalogRuntimeOptions{
+			Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+		}, adminOptions...)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		adminService = options.AdminService
+		if adminService == nil {
+			adminService = admin.NewService(admin.NewSQLStore(database), adminOptions...)
+		}
 	}
 	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)), authService, authMiddleware)
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
@@ -367,7 +384,7 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	var adminHandler adminHandler
 	if strict {
 		var err error
-		adminHandler, err = newAdminHandlerWithFinancialReadiness(adminService, marketplace.FinancialReadiness{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects})
+		adminHandler, err = newAdminHandlerWithFinancialReadiness(adminService, financialReadiness)
 		if err != nil {
 			return nil, err
 		}
@@ -378,17 +395,29 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		adminHandler = newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
 	}
 	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg, database, options.RequestLogEvidenceStore))
-	marketplaceHandler := newMarketplaceHandler(
-		marketplaceService,
-		marketplace.NewSearchService(database),
-		withMarketplaceCheckout(marketplaceSettlementService, checkoutCreator, stripebilling.CheckoutConfig{
-			SecretKey:     cfg.StripeSecretKey,
-			SuccessURL:    cfg.StripeSuccessURL,
-			CancelURL:     cfg.StripeCancelURL,
-			WebhookSecret: cfg.StripeWebhookSecret,
-		}, paymentProviderRegistry, checkoutCreators),
-		withMarketplaceGovernance(marketplaceGovernanceService),
-	)
+	marketplaceCheckoutConfig := stripebilling.CheckoutConfig{
+		SecretKey: cfg.StripeSecretKey, SuccessURL: cfg.StripeSuccessURL,
+		CancelURL: cfg.StripeCancelURL, WebhookSecret: cfg.StripeWebhookSecret,
+	}
+	var marketplaceHandlerValue marketplaceHandler
+	if strict {
+		var err error
+		marketplaceHandlerValue, err = newMarketplaceHandlerWithFinancialReadiness(
+			marketplaceService, marketplace.NewSearchService(database), marketplaceSettlementService,
+			checkoutCreator, marketplaceCheckoutConfig, paymentProviderRegistry, checkoutCreators,
+			financialReadiness, withMarketplaceGovernance(marketplaceGovernanceService),
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		marketplaceHandlerValue = newMarketplaceHandler(
+			marketplaceService, marketplace.NewSearchService(database),
+			withMarketplaceCheckout(marketplaceSettlementService, checkoutCreator, marketplaceCheckoutConfig, paymentProviderRegistry, checkoutCreators),
+			withMarketplaceGovernance(marketplaceGovernanceService),
+		)
+	}
+	marketplaceHandler := marketplaceHandlerValue
 
 	// Notification service
 	notificationHandler := newNotificationHandler(notificationService)

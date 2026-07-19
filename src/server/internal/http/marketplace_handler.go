@@ -9,6 +9,7 @@ import (
 
 	"oblivious/server/internal/marketplace"
 	"oblivious/server/internal/payment"
+	"oblivious/server/internal/releasecontract"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
@@ -41,6 +42,35 @@ func newMarketplaceHandler(service *marketplace.Service, searchService *marketpl
 		option(&handler)
 	}
 	return handler
+}
+
+// newMarketplaceHandlerWithFinancialReadiness is the strict production
+// constructor. Checkout and its authority are installed together so routes
+// cannot retain an invalid or absent financial carrier.
+func newMarketplaceHandlerWithFinancialReadiness(
+	service *marketplace.Service,
+	searchService *marketplace.SearchService,
+	settlementService marketplaceSettlementCheckoutService,
+	checkoutCreator stripebilling.CheckoutCreator,
+	checkoutConfig stripebilling.CheckoutConfig,
+	providerRegistry *payment.Registry,
+	checkoutCreators map[string]stripebilling.CheckoutCreator,
+	financial marketplace.FinancialReadiness,
+	options ...marketplaceHandlerOption,
+) (marketplaceHandler, error) {
+	strictOptions := []marketplaceHandlerOption{
+		withMarketplaceCheckout(settlementService, checkoutCreator, checkoutConfig, providerRegistry, checkoutCreators),
+		withMarketplaceFinancialReadiness(financial),
+	}
+	strictOptions = append(strictOptions, options...)
+	handler := newMarketplaceHandler(service, searchService, strictOptions...)
+	if handler.readiness == nil {
+		return marketplaceHandler{}, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "http.marketplace"}
+	}
+	if handler.readiness.configuration != nil {
+		return marketplaceHandler{}, handler.readiness.configuration
+	}
+	return handler, nil
 }
 
 func withMarketplaceCheckout(settlementService marketplaceSettlementCheckoutService, checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig, providerRegistry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator) marketplaceHandlerOption {
@@ -297,6 +327,10 @@ func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, 
 	}
 	if h.settlementService == nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace paid checkout is not configured")
+		return
+	}
+	if err := h.readiness.require(r.Context()); err != nil {
+		writeBillingReadinessError(w, err)
 		return
 	}
 	order, err := h.settlementService.CreatePaidInstallCheckout(r.Context(), marketplace.PaidInstallCheckoutRequest{

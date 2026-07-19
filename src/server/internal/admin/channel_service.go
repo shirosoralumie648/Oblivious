@@ -230,6 +230,9 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 	if strings.TrimSpace(actor.OrganizationID) == "" {
 		return nil, fmt.Errorf("organization id is required")
 	}
+	if err := s.modelReadiness.requireMutation(ctx); err != nil {
+		return nil, err
+	}
 
 	result, err := s.store.TestChannel(ctx, actor.OrganizationID, id)
 	if err != nil {
@@ -244,10 +247,8 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 		}
 		return nil, fmt.Errorf("channel probe failed")
 	}
-	if s.modelReadiness != nil {
-		if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
-			return nil, err
-		}
+	if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
+		return nil, err
 	}
 
 	models := normalizeProbeModels(result.Models)
@@ -281,7 +282,13 @@ func (s *Service) DetectChannelModelUpdates(ctx context.Context, organizationID,
 	if strings.TrimSpace(organizationID) == "" {
 		return nil, fmt.Errorf("organization id is required")
 	}
+	if err := s.modelReadiness.requireMutation(ctx); err != nil {
+		return nil, err
+	}
+	return s.detectChannelModelUpdatesChecked(ctx, organizationID, id)
+}
 
+func (s *Service) detectChannelModelUpdatesChecked(ctx context.Context, organizationID, id string) (*ChannelModelUpdatePreview, error) {
 	channel, err := s.store.GetChannel(ctx, organizationID, id)
 	if err != nil {
 		return nil, err
@@ -304,13 +311,11 @@ func (s *Service) DetectChannelModelUpdates(ctx context.Context, organizationID,
 		return nil, fmt.Errorf("channel probe failed")
 	}
 
-	if s.modelReadiness != nil {
-		if err := s.modelReadiness.requireModels(ctx, channel.Models); err != nil {
-			return nil, err
-		}
-		if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
-			return nil, err
-		}
+	if err := s.modelReadiness.requireModels(ctx, channel.Models); err != nil {
+		return nil, err
+	}
+	if err := s.modelReadiness.requireModels(ctx, result.Models); err != nil {
+		return nil, err
 	}
 	currentModels := normalizeProbeModels(channel.Models)
 	upstreamModels := normalizeProbeModels(result.Models)
@@ -337,7 +342,16 @@ func (s *Service) DetectChannelModelUpdates(ctx context.Context, organizationID,
 // keeps configured models and appends newly discovered upstream models, while
 // "replace" makes the channel model list match upstream exactly.
 func (s *Service) ApplyChannelModelUpdates(ctx context.Context, actor auth.Session, id string, input ChannelModelUpdateApplyRequest, r *http.Request) (*ChannelModelUpdateApplyResult, error) {
-	preview, err := s.DetectChannelModelUpdates(ctx, actor.OrganizationID, id)
+	if id == "" {
+		return nil, fmt.Errorf("channel id is required")
+	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+	if err := s.modelReadiness.requireMutation(ctx); err != nil {
+		return nil, err
+	}
+	preview, err := s.detectChannelModelUpdatesChecked(ctx, actor.OrganizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -356,10 +370,8 @@ func (s *Service) ApplyChannelModelUpdates(ctx context.Context, actor auth.Sessi
 	default:
 		return nil, fmt.Errorf("model update mode must be 'merge' or 'replace'")
 	}
-	if s.modelReadiness != nil {
-		if err := s.modelReadiness.requireModels(ctx, appliedModels); err != nil {
-			return nil, err
-		}
+	if err := s.modelReadiness.requireModels(ctx, appliedModels); err != nil {
+		return nil, err
 	}
 
 	channel, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, ChannelUpdateRequest{Models: &appliedModels})
