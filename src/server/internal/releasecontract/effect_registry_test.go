@@ -295,12 +295,15 @@ func register(effects releasecontract.EffectRegistrar) error {
 		{"websearch provider receiver guard", "mcp.websearch.provider", "websearch.go", "p.readiness.authorize(ctx)", "p.readiness.retiredAuthorize(ctx)"},
 		{"websearch provider receiver effect", "mcp.websearch.provider", "websearch.go", "p.provider.Search(ctx, query)", "p.provider.RetiredSearch(ctx, query)"},
 		{"tool executor guard", "agent.tool.builtin", "executor.go", "e.authorizeTool(ctx, persistedTool)", "e.retiredAuthorizeTool(ctx, persistedTool)"},
+		{"tool executor wrong capability resolver receiver", "agent.tool.builtin", "executor.go", "options.Authorities.CapabilityBindings.Resolve(effect.id)", "fake.Resolve(effect.id)"},
+		{"schedule wrong registrar receiver", "worker.schedule.claim", "worker.go", "effects.Register(descriptor)", "other.Register(descriptor)"},
 		{"tool executor generated resolve binding", "agent.tool.builtin", "executor.go", "CapabilityBindings.Resolve(effect.id)", "CapabilityBindings.Resolve(releasecontract.EffectAgentToolMCP)"},
 		{"independent registry effect", "agent.tool.registry.builtin", "registry.go", "return entry.executor(ctx, args)", "return retiredExecutor(ctx, args)"},
 		{"registry generated resolve binding", "agent.tool.registry.builtin", "registry.go", "CapabilityBindings.Resolve(effectID)", "CapabilityBindings.Resolve(releasecontract.EffectAgentToolMCP)"},
 		{"independent websearch effect", "agent.tool.web_search", "websearch.go", "provider.Search(ctx, query)", "provider.RetiredSearch(ctx, query)"},
 		{"archive sibling capability binding", "worker.archive.write", "archive.go", "CapabilityID: string(write)", "CapabilityID: string(deleteCapability)"},
 		{"relay batch sibling capability binding", "worker.relay_batch.claim", "batch_polling_worker.go", "CapabilityID: string(claim)", "CapabilityID: string(finalize)"},
+		{"billing helper wrong receiver", "http.billing.checkout", "billing_handler.go", "return newCheckoutFinancialReadiness(financial, \"http.billing.checkout\", \"http.billingHandler\")", "return fake.newCheckoutFinancialReadiness(financial, \"http.billing.checkout\", \"http.billingHandler\")"},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -332,6 +335,75 @@ func register(effects releasecontract.EffectRegistrar) error {
 			}
 		})
 	}
+
+	t.Run("statically unreachable registration and helper calls do not count", func(t *testing.T) {
+		cases := []struct {
+			name         string
+			descriptorID string
+			file         string
+			old          string
+			replacement  string
+		}{
+			{
+				name:         "if false range",
+				descriptorID: "worker.schedule.claim",
+				file:         "worker.go",
+				old: "\tfor _, descriptor := range descriptors {\n" +
+					"\t\tif err := effects.Register(descriptor); err != nil {\n" +
+					"\t\t\treturn nil, err\n" +
+					"\t\t}\n" +
+					"\t}",
+				replacement: "\tif false {\n\t\tfor _, descriptor := range descriptors {\n" +
+					"\t\tif err := effects.Register(descriptor); err != nil {\n" +
+					"\t\t\treturn nil, err\n" +
+					"\t\t}\n\t\t}\n\t}",
+			},
+			{
+				name:         "if false register",
+				descriptorID: "worker.schedule.claim",
+				file:         "worker.go",
+				old: "\t\tif err := effects.Register(descriptor); err != nil {\n" +
+					"\t\t\treturn nil, err\n" +
+					"\t\t}",
+				replacement: "\t\tif false {\n\t\t\tif err := effects.Register(descriptor); err != nil {\n" +
+					"\t\t\t\treturn nil, err\n" +
+					"\t\t\t}\n\t\t}",
+			},
+			{
+				name:         "if false helper call",
+				descriptorID: "http.billing.checkout",
+				file:         "billing_handler.go",
+				old:          "\treturn newCheckoutFinancialReadiness(financial, \"http.billing.checkout\", \"http.billingHandler\")",
+				replacement:  "\tif false { _, _ = newCheckoutFinancialReadiness(financial, \"http.billing.checkout\", \"http.billingHandler\") }; return nil, nil",
+			},
+		}
+		for _, mutation := range cases {
+			t.Run(mutation.name, func(t *testing.T) {
+				spec := runtimeDescriptorSpecs[mutation.descriptorID]
+				fixtureRoot := t.TempDir()
+				copyEffectPackage(t, repoRoot, fixtureRoot, spec.OwnerPackage)
+				path := filepath.Join(fixtureRoot, filepath.FromSlash(spec.OwnerPackage), mutation.file)
+				content, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read unreachable mutation target: %v", err)
+				}
+				if !strings.Contains(string(content), mutation.old) {
+					t.Fatalf("unreachable mutation target missing: %q", mutation.old)
+				}
+				mutated := strings.Replace(string(content), mutation.old, mutation.replacement, 1) + "\n/* preserved unreachable marker:\n" + mutation.old + "\n*/\n"
+				if err := os.WriteFile(path, []byte(mutated), 0o644); err != nil {
+					t.Fatalf("write unreachable mutation: %v", err)
+				}
+				present, err := descriptorStructurePresent(fixtureRoot, mutation.descriptorID, spec)
+				if err != nil {
+					t.Fatalf("discover unreachable mutation: %v", err)
+				}
+				if present {
+					t.Fatalf("statically unreachable evidence certified %s", mutation.descriptorID)
+				}
+			})
+		}
+	})
 
 	orderRoot := t.TempDir()
 	orderPackage := filepath.Join(orderRoot, "src", "server", "internal", "order")
@@ -481,6 +553,58 @@ func register(effects Registrar) error {
 				}
 			})
 		}
+
+		t.Run("last descriptor assignment wins", func(t *testing.T) {
+			root := t.TempDir()
+			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
+			if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+				t.Fatalf("create reaching fixture: %v", err)
+			}
+			source := `package reaching
+func register(effects Registrar) error {
+		descriptor := EffectDescriptor{ID: "reaching.assignment", CapabilityID: "good", Boundary: BoundaryOutbound, Owner: "reaching.Owner"}
+		descriptor = EffectDescriptor{ID: "reaching.assignment", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "reaching.Owner"}
+		return effects.Register(descriptor)
+	}
+`
+			if err := os.WriteFile(filepath.Join(packageDirectory, "reaching.go"), []byte(source), 0o644); err != nil {
+				t.Fatalf("write reaching assignment fixture: %v", err)
+			}
+			discovered, err := DiscoverEffectSurfaces(root)
+			if err != nil {
+				t.Fatalf("discover reaching assignment fixture: %v", err)
+			}
+			if len(discovered) != 1 || discovered[0].CapabilityID != "wrong" {
+				t.Fatalf("stale assignment certified: %#v", discovered)
+			}
+		})
+
+		t.Run("last collection state wins", func(t *testing.T) {
+			root := t.TempDir()
+			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
+			if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+				t.Fatalf("create reaching collection fixture: %v", err)
+			}
+			source := `package reaching
+func register(effects Registrar) error {
+		descriptors := []EffectDescriptor{{ID: "reaching.collection", CapabilityID: "good", Boundary: BoundaryOutbound, Owner: "reaching.Owner"}}
+		descriptors = nil
+		descriptors = append(descriptors, EffectDescriptor{ID: "reaching.collection", CapabilityID: "wrong", Boundary: BoundaryOutbound, Owner: "reaching.Owner"})
+		for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+		return nil
+	}
+`
+			if err := os.WriteFile(filepath.Join(packageDirectory, "reaching.go"), []byte(source), 0o644); err != nil {
+				t.Fatalf("write reaching collection fixture: %v", err)
+			}
+			discovered, err := DiscoverEffectSurfaces(root)
+			if err != nil {
+				t.Fatalf("discover reaching collection fixture: %v", err)
+			}
+			if len(discovered) != 1 || discovered[0].CapabilityID != "wrong" {
+				t.Fatalf("stale collection state certified: %#v", discovered)
+			}
+		})
 	})
 }
 
