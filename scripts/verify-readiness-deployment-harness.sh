@@ -12,6 +12,10 @@ nonce="${$}-${RANDOM}"
 prefix="oblivious-readiness-${nonce}"
 network_name="${prefix}-network"
 postgres_name="${prefix}-postgres"
+redis_name="${prefix}-redis"
+qdrant_name="${prefix}-qdrant"
+clickhouse_name="${prefix}-clickhouse"
+kafka_name="${prefix}-kafka"
 server_name="${prefix}-server"
 audit_volume="${prefix}-audit"
 control_pid=""
@@ -23,6 +27,10 @@ fail() {
   local code="$1"
   if [[ -n "${output_dir:-}" && -d "${output_dir:-}" ]]; then
     docker logs "$postgres_name" >"$output_dir/postgres-failure.log" 2>&1 || true
+    docker logs "$redis_name" >"$output_dir/redis-failure.log" 2>&1 || true
+    docker logs "$qdrant_name" >"$output_dir/qdrant-failure.log" 2>&1 || true
+    docker logs "$clickhouse_name" >"$output_dir/clickhouse-failure.log" 2>&1 || true
+    docker logs "$kafka_name" >"$output_dir/kafka-failure.log" 2>&1 || true
     docker logs "$server_name" >"$output_dir/server-failure.log" 2>&1 || true
   fi
   printf '{"error":{"code":"%s"}}\n' "$code" >&2
@@ -35,7 +43,7 @@ cleanup() {
     kill "$control_pid" >/dev/null 2>&1 || true
     wait "$control_pid" >/dev/null 2>&1 || true
   fi
-  docker rm -f "$server_name" "$postgres_name" >/dev/null 2>&1 || true
+  docker rm -f "$server_name" "$postgres_name" "$redis_name" "$qdrant_name" "$clickhouse_name" "$kafka_name" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
   docker volume rm -f "$audit_volume" >/dev/null 2>&1 || true
   if [[ -n "$control_dir" && -d "$control_dir" ]]; then
@@ -43,7 +51,9 @@ cleanup() {
   fi
   if [[ "$resources_started" == true ]]; then
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$server_name"; then status=1; fi
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$postgres_name"; then status=1; fi
+    for resource_name in "$postgres_name" "$redis_name" "$qdrant_name" "$clickhouse_name" "$kafka_name"; do
+      if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$resource_name"; then status=1; fi
+    done
   fi
   exit "$status"
 }
@@ -145,8 +155,11 @@ import os
 import pathlib
 import threading
 import time
+import urllib.error
+import urllib.request
 
 root = pathlib.Path(os.environ["FAULT_PROBE_ROOT"])
+target = os.environ["QDRANT_TARGET_URL"].rstrip("/")
 lock = threading.Lock()
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -157,16 +170,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with lock:
             with (root / "requests.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        if mode == "blocked":
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"selected dependency unavailable: should-never-escape")
+            return
+        try:
+            with urllib.request.urlopen(target + self.path, timeout=5) as response:
+                body = response.read(65536)
+                self.send_response(response.status)
+                self.send_header("Content-Type", response.headers.get("Content-Type", "text/plain"))
+        except urllib.error.HTTPError as error:
+            body = error.read(65536)
+            self.send_response(error.code)
+            self.send_header("Content-Type", "text/plain")
         self.end_headers()
-        if mode == "healthy":
-            body = {"availability": "enabled"}
-        elif mode == "blocked":
-            body = {"availability": "blocked", "reasonCode": "dependency_unproven"}
-        else:
-            body = {"availability": "caller_value", "reasonCode": "caller_reason"}
-        self.wfile.write(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        self.wfile.write(body)
 
     def log_message(self, *_):
         return
@@ -176,12 +196,6 @@ server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), Handler)
 os.replace(root / "port.tmp", root / "port")
 server.serve_forever()
 PY
-FAULT_PROBE_ROOT="$control_dir" "$python_bin" "$control_dir/server.py" >"$output_dir/fault-probe.log" 2>&1 &
-control_pid=$!
-for _ in $(seq 1 100); do [[ -s "$control_dir/port" ]] && break; kill -0 "$control_pid" 2>/dev/null || fail fault_probe_failed; sleep 0.1; done
-[[ -s "$control_dir/port" ]] || fail fault_probe_failed
-control_port=$(<"$control_dir/port")
-
 docker network create "$network_name" >/dev/null || fail docker_network_failed
 docker volume create "$audit_volume" >/dev/null || fail docker_volume_failed
 resources_started=true
@@ -190,18 +204,53 @@ docker run -d --name "$postgres_name" --network "$network_name" \
   -e POSTGRES_USER=oblivious -e POSTGRES_PASSWORD=oblivious -e POSTGRES_DB=oblivious \
   "$postgres_image" >/dev/null || fail database_start_failed
 for _ in $(seq 1 90); do
-  if docker exec "$postgres_name" pg_isready -U oblivious -d oblivious >/dev/null 2>&1; then break; fi
+  if docker exec "$postgres_name" psql -U oblivious -d oblivious -Atqc 'SELECT 1' 2>/dev/null | grep -Fqx 1; then break; fi
   sleep 1
 done
-docker exec "$postgres_name" pg_isready -U oblivious -d oblivious >/dev/null 2>&1 || fail database_unavailable
+docker exec "$postgres_name" psql -U oblivious -d oblivious -Atqc 'SELECT 1' 2>/dev/null | grep -Fqx 1 || fail database_unavailable
+docker run -d --name "$redis_name" --network "$network_name" redis:7-alpine >/dev/null || fail redis_start_failed
+docker run -d --name "$qdrant_name" --network "$network_name" -p 127.0.0.1::6333 qdrant/qdrant:v1.12.1 >/dev/null || fail qdrant_start_failed
+docker run -d --name "$clickhouse_name" --network "$network_name" \
+  -e CLICKHOUSE_DB=oblivious -e CLICKHOUSE_USER=oblivious -e CLICKHOUSE_PASSWORD=oblivious \
+  clickhouse/clickhouse-server:24.12-alpine >/dev/null || fail clickhouse_start_failed
+docker run -d --name "$kafka_name" --network "$network_name" \
+  -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk -e KAFKA_NODE_ID=0 \
+  -e KAFKA_PROCESS_ROLES=controller,broker -e KAFKA_CONTROLLER_QUORUM_VOTERS="0@${kafka_name}:9093" \
+  -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+  -e KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${kafka_name}:9092" \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 \
+  apache/kafka:3.7.1 >/dev/null || fail kafka_start_failed
+for _ in $(seq 1 90); do docker exec "$redis_name" redis-cli ping 2>/dev/null | grep -Fqx PONG && break; sleep 1; done
+docker exec "$redis_name" redis-cli ping 2>/dev/null | grep -Fqx PONG || fail redis_unavailable
+qdrant_host_port=$(docker port "$qdrant_name" 6333/tcp | awk -F: 'NR==1 {print $NF}')
+for _ in $(seq 1 90); do curl -fsS "http://127.0.0.1:${qdrant_host_port}/healthz" >/dev/null 2>&1 && break; sleep 1; done
+curl -fsS "http://127.0.0.1:${qdrant_host_port}/healthz" >/dev/null 2>&1 || fail qdrant_unavailable
+for _ in $(seq 1 90); do docker exec "$clickhouse_name" clickhouse-client --user oblivious --password oblivious --query 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
+docker exec "$clickhouse_name" clickhouse-client --user oblivious --password oblivious --query 'SELECT 1' >/dev/null 2>&1 || fail clickhouse_unavailable
+for _ in $(seq 1 120); do docker exec "$kafka_name" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 && break; sleep 1; done
+docker exec "$kafka_name" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || fail kafka_unavailable
+
+FAULT_PROBE_ROOT="$control_dir" QDRANT_TARGET_URL="http://127.0.0.1:${qdrant_host_port}" "$python_bin" "$control_dir/server.py" >"$output_dir/fault-probe.log" 2>&1 &
+control_pid=$!
+for _ in $(seq 1 100); do [[ -s "$control_dir/port" ]] && break; kill -0 "$control_pid" 2>/dev/null || fail fault_probe_failed; sleep 0.1; done
+[[ -s "$control_dir/port" ]] || fail fault_probe_failed
+control_port=$(<"$control_dir/port")
+
 database_url="postgres://oblivious:oblivious@${postgres_name}:5432/oblivious?sslmode=disable"
 common_env=(
   -e APP_ENV=development -e DATABASE_URL="$database_url" -e SESSION_SECRET=readiness-harness-session-secret
   -e OBLIVIOUS_DEPLOYMENT_PROFILE=monolith -e OBLIVIOUS_READINESS_AUDIT_PATH=/var/lib/oblivious/audit/readiness.json
-  -e OBLIVIOUS_READINESS_PROBE_BASE_URL="http://host.docker.internal:${control_port}"
+  -e REDIS_URL="redis://${redis_name}:6379/0" -e RELAY_RATE_LIMIT_BACKEND=memory
+  -e QDRANT_URL="http://host.docker.internal:${control_port}"
+  -e OBSERVABILITY_REQUEST_LOG_BACKEND=clickhouse -e CLICKHOUSE_DRIVER=clickhouse
+  -e CLICKHOUSE_DSN="tcp://oblivious:oblivious@${clickhouse_name}:9000?database=oblivious"
+  -e KAFKA_BROKERS="${kafka_name}:9092"
   -e RELAY_ENABLED=false -e SCHEDULE_WORKER_ENABLED=false -e RAG_INDEX_WORKER_ENABLED=false -e RAG_INGESTION_WORKER_ENABLED=false
 )
-docker run --rm --network "$network_name" "${common_env[@]}" --entrypoint /usr/local/bin/oblivious-migrate "$image_tag" \
+docker run --rm --network "$network_name" --add-host host.docker.internal:host-gateway "${common_env[@]}" --entrypoint /usr/local/bin/oblivious-migrate "$image_tag" \
   >"$output_dir/migration.log" 2>&1 || fail migration_failed
 grep -Eq 'migrations applied: [0-9]+, skipped: [0-9]+' "$output_dir/migration.log" || fail migration_unverified
 docker run --rm -v "$audit_volume:/audit" --entrypoint /bin/sh alpine:3.21 -ec 'chown 1000:1000 /audit' >/dev/null || fail audit_storage_unwritable
@@ -266,29 +315,22 @@ set_control_mode healthy
 poll_status /readyz 200 65 || fail healthy_restore_failed
 wait_generation_after "$blocked_generation" "$output_dir/healthy-restored.json" 10 || fail healthy_generation_missing
 
-structural_baseline=$(jq -er '.generation' "$output_dir/healthy-restored.json") || fail audit_invalid
-baseline_hash=$(sha256sum "$output_dir/healthy-restored.json" | awk '{print $1}')
-set_control_mode structural
-for _ in $(seq 1 90); do
-  structural_requests=$(jq -r 'select(.mode == "structural") | .mode' "$control_dir/requests.jsonl" 2>/dev/null | wc -l | tr -d ' ')
-  (( structural_requests >= 10 )) && break
-  sleep 1
+stale_baseline=$(jq -er '.generation' "$output_dir/healthy-restored.json") || fail audit_invalid
+docker kill --signal=STOP "$server_name" >/dev/null || fail stale_pause_failed
+stale_pids=()
+for attempt in $(seq 1 32); do
+  curl -sS --max-time 140 -o "$output_dir/stale-response-${attempt}.json" -w '%{http_code}' "$base_url/readyz" >"$output_dir/stale-status-${attempt}.txt" 2>/dev/null &
+  stale_pids+=("$!")
 done
-(( structural_requests >= 10 )) || fail structural_refresh_missing
-copy_audit "$output_dir/structural-preserved.json" || fail audit_missing
-[[ "$(sha256sum "$output_dir/structural-preserved.json" | awk '{print $1}')" == "$baseline_hash" ]] || fail malformed_publication_advanced
-poll_status /livez 200 5 || fail livez_changed
-for _ in $(seq 1 140); do
-  code=$(curl -sS -o "$output_dir/stale-response.json" -w '%{http_code}' "$base_url/readyz" 2>/dev/null || true)
-  if [[ "$code" == "503" ]] && grep -Fq 'readiness_stale' "$output_dir/stale-response.json"; then stale_observed=true; break; fi
-  sleep 1
-done
-[[ "${stale_observed:-false}" == true ]] || fail readiness_stale_not_observed
+sleep 125
+docker kill --signal=CONT "$server_name" >/dev/null || fail stale_resume_failed
+for stale_pid in "${stale_pids[@]}"; do wait "$stale_pid" || true; done
+if ! grep -lF 'readiness_stale' "$output_dir"/stale-response-*.json >"$output_dir/stale-observed-files.txt"; then
+  fail readiness_stale_not_observed
+fi
 poll_status /livez 200 5 || fail stale_livez_changed
-
-set_control_mode healthy
 poll_status /readyz 200 65 || fail final_restore_failed
-wait_generation_after "$structural_baseline" "$output_dir/readiness-snapshot.json" 10 || fail final_generation_missing
+wait_generation_after "$stale_baseline" "$output_dir/readiness-snapshot.json" 10 || fail final_generation_missing
 cp "$control_dir/requests.jsonl" "$output_dir/fault-requests.jsonl"
 
 readiness_report="$output_dir/readiness-report.json"
@@ -322,4 +364,4 @@ jq -n \
     residualRisks:["external target not inspected","Kubernetes workload not applied","profile parity deferred"],
     claim:"repository-local E2 only; no E3/E4, target, or commercial release claim"}' >"$output_dir/harness-result.json"
 
-echo "[readiness-deployment-harness] repository-local E2 passed mode=$mode image=$image_digest"
+echo "[readiness-deployment-harness] readiness deployment harness passed; repository-local E2 mode=$mode image=$image_digest"

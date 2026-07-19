@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -100,6 +101,7 @@ type Config struct {
 	RedisAddr                               string
 	RedisPassword                           string
 	RedisDB                                 int
+	KafkaBrokers                            []string
 
 	// Default channel configuration (for development)
 	OpenAIAPIKey  string
@@ -390,7 +392,7 @@ func Load() (Config, error) {
 	redisAddr := ""
 	redisPassword := ""
 	redisDB := 0
-	if redisURLRaw := strings.TrimSpace(os.Getenv("REDIS_URL")); relayRateLimitBackend == "redis" && redisURLRaw != "" {
+	if redisURLRaw := strings.TrimSpace(os.Getenv("REDIS_URL")); redisURLRaw != "" {
 		parsedRedisURL, parseErr := parseRedisURL(redisURLRaw)
 		if parseErr != nil {
 			return Config{}, parseErr
@@ -411,6 +413,10 @@ func Load() (Config, error) {
 			return Config{}, parseErr
 		}
 		redisDB = parsedDB
+	}
+	kafkaBrokers, err := parseKafkaBrokersEnv()
+	if err != nil {
+		return Config{}, err
 	}
 	relayRateLimitRedisKeyPrefix := strings.TrimSpace(os.Getenv("RELAY_RATE_LIMIT_REDIS_KEY_PREFIX"))
 
@@ -803,6 +809,7 @@ func Load() (Config, error) {
 		RedisAddr:                               redisAddr,
 		RedisPassword:                           redisPassword,
 		RedisDB:                                 redisDB,
+		KafkaBrokers:                            append([]string{}, kafkaBrokers...),
 		OpenAIAPIKey:                            openaiAPIKey,
 		OpenAIBaseURL:                           openaiBaseURL,
 		StripeSecretKey:                         stripeSecretKey,
@@ -1042,10 +1049,10 @@ type redisURLConfig struct {
 func parseRedisURL(raw string) (redisURLConfig, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL: %q", raw)
+		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL")
 	}
 	if parsed.Scheme != "redis" && parsed.Scheme != "rediss" {
-		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL scheme: %q", parsed.Scheme)
+		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL scheme")
 	}
 	if strings.TrimSpace(parsed.Host) == "" {
 		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL: host is required")
@@ -1060,7 +1067,7 @@ func parseRedisURL(raw string) (redisURLConfig, error) {
 	}
 	parsedDB, parseErr := parseRedisDB(dbRaw)
 	if parseErr != nil {
-		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL database: %q", dbRaw)
+		return redisURLConfig{}, fmt.Errorf("invalid REDIS_URL database")
 	}
 	cfg.db = parsedDB
 	return cfg, nil
@@ -1072,4 +1079,29 @@ func parseRedisDB(raw string) (int, error) {
 		return 0, fmt.Errorf("invalid REDIS_DB: %q", raw)
 	}
 	return parsedDB, nil
+}
+
+func parseKafkaBrokersEnv() ([]string, error) {
+	raw, present := os.LookupEnv("KAFKA_BROKERS")
+	if !present {
+		return []string{}, nil
+	}
+	parts := strings.Split(raw, ",")
+	brokers := make([]string, 0, len(parts))
+	for _, part := range parts {
+		broker := strings.TrimSpace(part)
+		if broker == "" {
+			return nil, fmt.Errorf("invalid KAFKA_BROKERS: blank broker")
+		}
+		host, portRaw, err := net.SplitHostPort(broker)
+		if err != nil || strings.TrimSpace(host) == "" {
+			return nil, fmt.Errorf("invalid KAFKA_BROKERS: malformed broker")
+		}
+		port, err := strconv.Atoi(portRaw)
+		if err != nil || port < 1 || port > 65535 {
+			return nil, fmt.Errorf("invalid KAFKA_BROKERS: malformed broker")
+		}
+		brokers = append(brokers, broker)
+	}
+	return brokers, nil
 }

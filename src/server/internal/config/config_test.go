@@ -1,12 +1,121 @@
 package config
 
 import (
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 const productionSessionSecret = "0123456789abcdef0123456789abcdef"
 const productionSecretEncryptionKey = "abcdef0123456789abcdef0123456789"
+
+func TestLoadReadinessDependencyConfigContract(t *testing.T) {
+	load := func(t *testing.T) (Config, error) {
+		t.Helper()
+		t.Setenv("SERVER_PORT", "8080")
+		t.Setenv("APP_ENV", "test")
+		t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+		t.Setenv("SESSION_SECRET", "test-secret")
+		return Load()
+	}
+
+	t.Run("redis url is retained independently of rate limit backend", func(t *testing.T) {
+		t.Setenv("RELAY_RATE_LIMIT_BACKEND", "memory")
+		t.Setenv("REDIS_URL", "redis://:url-secret@redis.internal:6380/4")
+		cfg, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.RedisAddr != "redis.internal:6380" || cfg.RedisPassword != "url-secret" || cfg.RedisDB != 4 {
+			t.Fatalf("redis readiness endpoint = %q/%q/%d", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		}
+	})
+
+	t.Run("explicit redis fields override url independently", func(t *testing.T) {
+		t.Setenv("RELAY_RATE_LIMIT_BACKEND", "none")
+		t.Setenv("REDIS_URL", "redis://:url-secret@redis.internal:6380/4")
+		t.Setenv("REDIS_ADDR", "override.internal:6379")
+		t.Setenv("REDIS_PASSWORD", "override-secret")
+		t.Setenv("REDIS_DB", "7")
+		cfg, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.RedisAddr != "override.internal:6379" || cfg.RedisPassword != "override-secret" || cfg.RedisDB != 7 {
+			t.Fatalf("explicit redis override = %q/%q/%d", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		}
+	})
+
+	t.Run("kafka absent is typed empty", func(t *testing.T) {
+		unsetEnvForTest(t, "KAFKA_BROKERS")
+		cfg, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.KafkaBrokers == nil || len(cfg.KafkaBrokers) != 0 {
+			t.Fatalf("KafkaBrokers = %#v, want non-nil empty", cfg.KafkaBrokers)
+		}
+	})
+
+	t.Run("kafka trims and returns defensive storage", func(t *testing.T) {
+		t.Setenv("KAFKA_BROKERS", " kafka-1.internal:9092 ,kafka-2.internal:9093 ")
+		first, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"kafka-1.internal:9092", "kafka-2.internal:9093"}
+		if !reflect.DeepEqual(first.KafkaBrokers, want) {
+			t.Fatalf("KafkaBrokers = %#v, want %#v", first.KafkaBrokers, want)
+		}
+		first.KafkaBrokers[0] = "mutated.invalid:1"
+		second, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(second.KafkaBrokers, want) {
+			t.Fatalf("KafkaBrokers retained caller mutation: %#v", second.KafkaBrokers)
+		}
+	})
+
+	for _, raw := range []string{"", " ", ",kafka:9092", "kafka:9092,", "kafka:9092,,kafka-2:9092", "kafka-no-port", "http://kafka:9092"} {
+		t.Run("rejects invalid kafka list "+raw, func(t *testing.T) {
+			t.Setenv("KAFKA_BROKERS", raw)
+			_, err := load(t)
+			if err == nil || !strings.Contains(err.Error(), "invalid KAFKA_BROKERS") {
+				t.Fatalf("error = %v, want stable KAFKA_BROKERS error", err)
+			}
+		})
+	}
+
+	t.Run("invalid redis url is redacted", func(t *testing.T) {
+		t.Setenv("REDIS_URL", "redis://:redis-secret@%zz.invalid:6379/0")
+		_, err := load(t)
+		if err == nil || !strings.Contains(err.Error(), "invalid REDIS_URL") {
+			t.Fatalf("error = %v, want stable REDIS_URL error", err)
+		}
+		for _, forbidden := range []string{"redis-secret", "%zz.invalid", "6379"} {
+			if strings.Contains(err.Error(), forbidden) {
+				t.Fatalf("REDIS_URL error leaked %q: %v", forbidden, err)
+			}
+		}
+	})
+}
+
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	value, present := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if present {
+			_ = os.Setenv(key, value)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
+}
 
 func setProductionRuntimeEnv(t *testing.T) {
 	t.Helper()

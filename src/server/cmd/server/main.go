@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -65,7 +64,7 @@ type startupDependencies struct {
 	openDatabase    func(string) (*sql.DB, error)
 	pingDatabase    func(context.Context, *sql.DB) error
 	applyMigrations func(context.Context, *sql.DB, string) (migrations.Result, error)
-	newManager      func(context.Context, config.ResolvedEntrypointInputs, string) (releasecontract.ReadinessManager, error)
+	newManager      func(context.Context, config.ResolvedEntrypointInputs, config.Config, *sql.DB, string) (releasecontract.ReadinessManager, error)
 	newAuthorities  func(releasecontract.AuthoredContractV1, releasecontract.DeploymentProfile, releasecontract.Guard) (releasecontract.RuntimeAuthorities, error)
 	buildRuntime    func(config.Config, *sql.DB, serverhttp.RuntimeOptions) (*serverhttp.Runtime, error)
 	listen          func(string, string) (net.Listener, error)
@@ -81,8 +80,8 @@ func defaultStartupDependencies() startupDependencies {
 		},
 		pingDatabase:    func(ctx context.Context, database *sql.DB) error { return database.PingContext(ctx) },
 		applyMigrations: migrations.Apply,
-		newManager: func(ctx context.Context, inputs config.ResolvedEntrypointInputs, auditPath string) (releasecontract.ReadinessManager, error) {
-			return newStartupReadinessManager(ctx, inputs, auditPath)
+		newManager: func(ctx context.Context, inputs config.ResolvedEntrypointInputs, cfg config.Config, database *sql.DB, auditPath string) (releasecontract.ReadinessManager, error) {
+			return newStartupReadinessManager(ctx, inputs, cfg, database, auditPath)
 		},
 		newAuthorities: releasecontract.NewRuntimeAuthorities,
 		buildRuntime: func(cfg config.Config, database *sql.DB, options serverhttp.RuntimeOptions) (*serverhttp.Runtime, error) {
@@ -161,7 +160,7 @@ func runServerWithInputs(ctx context.Context, inputs config.ResolvedEntrypointIn
 	log.Printf("migrations ready: applied=%d skipped=%d", migrationResult.Applied, migrationResult.Skipped)
 
 	auditPath := os.Getenv("OBLIVIOUS_READINESS_AUDIT_PATH")
-	manager, err := deps.newManager(ctx, inputs, auditPath)
+	manager, err := deps.newManager(ctx, inputs, cfg, database, auditPath)
 	if err != nil {
 		return fmt.Errorf("construct readiness manager: %w", err)
 	}
@@ -259,51 +258,4 @@ func (r *runtimeEffectRegistry) Register(descriptor releasecontract.EffectDescri
 	}
 	r.descriptors[descriptor.ID] = descriptor
 	return nil
-}
-
-type startupBlockedProbe struct {
-	dependencyID  string
-	capabilityIDs []string
-}
-
-func (p startupBlockedProbe) ID() string           { return "startup." + p.dependencyID }
-func (p startupBlockedProbe) DependencyID() string { return p.dependencyID }
-func (p startupBlockedProbe) Run(context.Context) (releasecontract.Observation, error) {
-	return releasecontract.Observation{Availability: releasecontract.AvailabilityBlocked, ReasonCode: "dependency_unproven", CapabilityIDs: append([]string(nil), p.capabilityIDs...)}, nil
-}
-
-func newStartupReadinessManager(_ context.Context, inputs config.ResolvedEntrypointInputs, auditPath string) (releasecontract.ReadinessManager, error) {
-	if strings.TrimSpace(auditPath) == "" {
-		return nil, fmt.Errorf("OBLIVIOUS_READINESS_AUDIT_PATH is required")
-	}
-	contract, profile := inputs.Contract(), inputs.Profile()
-	capabilitiesByDependency := make(map[string][]string)
-	for _, requirementID := range profile.ReadinessRequirementIDs {
-		for _, requirement := range contract.ReadinessRequirements {
-			if requirement.ID == requirementID {
-				for _, dependencyID := range requirement.DependencyIDs {
-					capabilitiesByDependency[dependencyID] = append(capabilitiesByDependency[dependencyID], requirement.CapabilityIDs...)
-				}
-			}
-		}
-	}
-	probes := make([]releasecontract.Probe, 0, len(profile.Dependencies))
-	probeBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OBLIVIOUS_READINESS_PROBE_BASE_URL")), "/")
-	for _, dependency := range profile.Dependencies {
-		if probeBaseURL == "" {
-			probes = append(probes, startupBlockedProbe{dependencyID: dependency.ID, capabilityIDs: capabilitiesByDependency[dependency.ID]})
-			continue
-		}
-		probe, err := releasecontract.NewHTTPDependencyProbe(
-			"runtime."+dependency.ID,
-			dependency.ID,
-			probeBaseURL+"/"+dependency.ID,
-			&stdhttp.Client{Timeout: 5 * time.Second},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("construct readiness probe %s: %w", dependency.ID, err)
-		}
-		probes = append(probes, probe)
-	}
-	return releasecontract.NewManager(contract, inputs.Identity(), profile, releasecontract.NewEvaluator(), releasecontract.NewSystemClock(), probes, 5*time.Second, releasecontract.NewAtomicReadinessSnapshotWriter(), auditPath)
 }
