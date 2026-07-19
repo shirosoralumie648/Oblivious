@@ -170,6 +170,64 @@ func TestRelaySemanticCacheReadinessContract(t *testing.T) {
 			t.Fatalf("unknown model reached effects: gets=%d hits=%d provider=%d usage=%+v", store.getCalls, store.hitIncrements, providerCalls, usageLogger.records)
 		}
 	})
+
+	for _, cacheModel := range []string{
+		"unknown-cache-model",
+		"blocked-cache-model",
+		"deleted-cache-model",
+		"disabled-cache-model",
+	} {
+		cacheModel := cacheModel
+		t.Run("authorized route model cannot read "+cacheModel, func(t *testing.T) {
+			guard := &batchGuardSpy{}
+			router := newRelaySemanticCacheReadinessRouter(t, guard)
+			quotaManager := &stubQuotaManager{}
+			usageLogger := &recordingUsageLogger{}
+			router.SetQuotaManager(quotaManager)
+			router.SetUsageLogger(usageLogger)
+
+			store := newRelaySemanticCacheStoreSpy()
+			router.semanticCache = relaycache.NewSemanticCache(store, relaycache.SemanticCacheOptions{
+				Now: func() time.Time { return time.Date(2026, 7, 19, 5, 0, 0, 0, time.UTC) },
+			})
+			cacheReq := relaycache.SemanticCacheRequest{
+				OrganizationID: "org_mismatched_cache",
+				Model:          cacheModel,
+				Query:          "mismatched cache model payload",
+			}
+			if _, err := router.semanticCache.Store(context.Background(), cacheReq, json.RawMessage(`{"cached":"must-not-escape"}`)); err != nil {
+				t.Fatalf("seed semantic cache: %v", err)
+			}
+
+			apiType := types.APITypeChat.String()
+			beforeSuccess := testutil.ToFloat64(metrics.RelayRequestTotal.WithLabelValues("semantic_cache", "semantic_cache", apiType, "success", "hit"))
+			beforeHit := testutil.ToFloat64(metrics.RelaySemanticCacheEventsTotal.WithLabelValues("hit", apiType, "gpt-4o-mini"))
+			providerCalls := 0
+			ctx := types.WithSemanticCacheRequest(context.Background(), cacheReq)
+			resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "mismatched-cache-model", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+				providerCalls++
+				return types.NewOKResponse(nil, nil), nil
+			})
+			if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				t.Fatalf("expected cache model mismatch denial, resp=%+v err=%v", resp, err)
+			}
+			if len(guard.calls) != 1 {
+				t.Fatalf("expected only the authorized route-model guard, calls=%#v", guard.calls)
+			}
+			if store.getCalls != 0 || store.hitIncrements != 0 {
+				t.Fatalf("cache model mismatch reached semantic cache: gets=%d hit_increments=%d", store.getCalls, store.hitIncrements)
+			}
+			if providerCalls != 0 || quotaManager.preconsumeCalls != 0 || quotaManager.settleCalls != 0 || quotaManager.refundCalls != 0 || len(usageLogger.records) != 0 {
+				t.Fatalf("cache model mismatch leaked effects: provider=%d quota=%+v usage=%+v", providerCalls, quotaManager, usageLogger.records)
+			}
+			if got := testutil.ToFloat64(metrics.RelayRequestTotal.WithLabelValues("semantic_cache", "semantic_cache", apiType, "success", "hit")); got != beforeSuccess {
+				t.Fatalf("cache model mismatch changed cache success metric: before=%v after=%v", beforeSuccess, got)
+			}
+			if got := testutil.ToFloat64(metrics.RelaySemanticCacheEventsTotal.WithLabelValues("hit", apiType, "gpt-4o-mini")); got != beforeHit {
+				t.Fatalf("cache model mismatch changed cache hit metric: before=%v after=%v", beforeHit, got)
+			}
+		})
+	}
 }
 
 func TestRelaySemanticCacheProviderRecheckContract(t *testing.T) {
