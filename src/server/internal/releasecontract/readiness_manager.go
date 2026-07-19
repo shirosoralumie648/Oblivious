@@ -278,7 +278,7 @@ func (m *Manager) Bootstrap(ctx context.Context) error {
 	if m.current.Load() != nil {
 		return readinessError(CodeReadinessUnavailable, "bootstrap", nil)
 	}
-	return m.refresh(ctx)
+	return m.refreshCandidate(ctx, true)
 }
 
 func (m *Manager) StartRefresh(ctx context.Context) {
@@ -305,6 +305,13 @@ func (m *Manager) refresh(ctx context.Context) error {
 	if m == nil || ctx == nil {
 		return readinessError(CodeReadinessUnavailable, "manager", nil)
 	}
+	if m.current.Load() == nil {
+		return readinessError(CodeReadinessUnavailable, "generation", nil)
+	}
+	return m.refreshCandidate(ctx, false)
+}
+
+func (m *Manager) refreshCandidate(ctx context.Context, allowInitial bool) error {
 	observations, err := m.runBoundedProbes(ctx)
 	if err != nil {
 		return err
@@ -312,8 +319,15 @@ func (m *Manager) refresh(ctx context.Context) error {
 	m.publicationMu.Lock()
 	defer m.publicationMu.Unlock()
 
+	current := m.current.Load()
+	if current == nil && !allowInitial {
+		return readinessError(CodeReadinessUnavailable, "generation", nil)
+	}
+	if current != nil && allowInitial {
+		return readinessError(CodeReadinessUnavailable, "bootstrap", nil)
+	}
 	nextGeneration := uint64(1)
-	if current := m.current.Load(); current != nil {
+	if current != nil {
 		nextGeneration = current.evaluation.Generation + 1
 		if nextGeneration == 0 {
 			return readinessError(CodeReadinessUnavailable, "generation", nil)

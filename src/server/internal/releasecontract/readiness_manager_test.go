@@ -346,6 +346,62 @@ func TestReadinessManagerCanceledRefreshDoesNotStartProbeContract(t *testing.T) 
 	}
 }
 
+func TestReadinessManagerBootstrapOwnsInitialGenerationContract(t *testing.T) {
+	contract, profile, identity := loadReadinessTestAuthority(t)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	probes := replaceManagerProbe(
+		managerTestProbes(t, contract, profile),
+		"postgres",
+		&gatedManagerProbe{id: "probe.postgres", dependency: "postgres", started: started, release: release},
+	)
+	writer := &recordingSnapshotWriter{}
+	manager := newTestManager(
+		t,
+		contract,
+		profile,
+		identity,
+		newManagerTestClock(time.Date(2026, time.July, 19, 4, 0, 0, 0, time.UTC)),
+		probes,
+		500*time.Millisecond,
+		writer,
+		filepath.Join(t.TempDir(), "readiness.json"),
+	)
+	var releaseOnce sync.Once
+	releaseProbe := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseProbe()
+
+	bootstrapResult := make(chan error, 1)
+	go func() { bootstrapResult <- manager.Bootstrap(context.Background()) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("bootstrap probe did not start")
+	}
+
+	refreshErr := manager.refresh(context.Background())
+	if !IsReadinessCode(refreshErr, CodeReadinessUnavailable) {
+		t.Fatalf("racing ordinary refresh error = %v, want readiness_unavailable", refreshErr)
+	}
+	if got := manager.Evaluate().Generation; got != 0 {
+		t.Fatalf("racing ordinary refresh published generation %d, want zero", got)
+	}
+	if got := writer.snapshotCount(); got != 0 {
+		t.Fatalf("racing ordinary refresh audit writes = %d, want zero", got)
+	}
+
+	releaseProbe()
+	if err := <-bootstrapResult; err != nil {
+		t.Fatalf("bootstrap after racing refresh: %v", err)
+	}
+	if got := manager.Evaluate().Generation; got != 1 {
+		t.Fatalf("bootstrap generation = %d, want 1", got)
+	}
+	if got := writer.snapshotCount(); got != 1 {
+		t.Fatalf("bootstrap audit writes = %d, want 1", got)
+	}
+}
+
 func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 19, 1, 0, 0, 0, time.UTC))
