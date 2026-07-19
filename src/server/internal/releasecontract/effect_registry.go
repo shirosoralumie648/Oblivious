@@ -1054,7 +1054,8 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effec
 		return false
 	}
 	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
-		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos())
+		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos()) &&
+		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos())
 }
 
 func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorObject *ast.Object, before token.Pos) (sourceCapabilityBinding, bool) {
@@ -1084,6 +1085,49 @@ func hasIdentifierWriteBetween(function *ast.FuncDecl, object *ast.Object, after
 		}
 	})
 	return found
+}
+
+func hasObjectWriteBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
+	if function == nil || function.Body == nil || object == nil || before <= after {
+		return true
+	}
+	found := false
+	inspectReachable(function.Body, func(node ast.Node) {
+		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
+			return
+		}
+		switch statement := node.(type) {
+		case *ast.AssignStmt:
+			for _, expression := range statement.Lhs {
+				if writtenExpressionObject(expression) == object {
+					found = true
+					return
+				}
+			}
+		case *ast.IncDecStmt:
+			found = writtenExpressionObject(statement.X) == object
+		case *ast.RangeStmt:
+			if statement.Tok == token.ASSIGN {
+				found = writtenExpressionObject(statement.Key) == object || writtenExpressionObject(statement.Value) == object
+			}
+		}
+	})
+	return found
+}
+
+func writtenExpressionObject(expression ast.Expr) *ast.Object {
+	switch value := expression.(type) {
+	case *ast.IndexExpr:
+		return writtenExpressionObject(value.X)
+	case *ast.IndexListExpr:
+		return writtenExpressionObject(value.X)
+	case *ast.StarExpr:
+		return writtenExpressionObject(value.X)
+	case *ast.ParenExpr:
+		return writtenExpressionObject(value.X)
+	default:
+		return sourceExpressionObject(expression)
+	}
 }
 
 func unwrapParentheses(expression ast.Expr) ast.Expr {

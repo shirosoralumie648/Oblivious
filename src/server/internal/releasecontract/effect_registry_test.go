@@ -1170,6 +1170,102 @@ func register(options Options, overwrite bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox row selector reassignment",
+				packageName: "sandboxrowselectorwrite",
+				source: `package sandboxrowselectorwrite
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		effect.id = releasecontract.EffectAgentToolPythonSandbox
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.selector", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowSelector"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row object reassignment",
+				packageName: "sandboxrowobjectwrite",
+				source: `package sandboxrowobjectwrite
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	otherEffect := struct{ id string }{id: "other"}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		effect = otherEffect
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.object", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowObject"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row tuple reassignment",
+				packageName: "sandboxrowtuplewrite",
+				source: `package sandboxrowtuplewrite
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	otherEffect := struct{ id string }{id: "other"}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		effect, otherEffect = otherEffect, effect
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.tuple", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowTuple"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox conditional row selector write",
+				packageName: "sandboxrowconditionalwrite",
+				source: `package sandboxrowconditionalwrite
+func register(options Options, overwrite bool) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if overwrite { effect.id = releasecontract.EffectAgentToolPythonSandbox }
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.conditional", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowConditional"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("mutated sandbox row was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
