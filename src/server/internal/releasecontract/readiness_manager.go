@@ -184,6 +184,7 @@ type Manager struct {
 	auditPath     string
 
 	current        atomic.Pointer[readinessGeneration]
+	bootstrapMu    sync.Mutex
 	publicationMu  sync.Mutex
 	refreshStarted atomic.Bool
 }
@@ -267,6 +268,8 @@ func (m *Manager) Bootstrap(ctx context.Context) error {
 	if m == nil {
 		return readinessError(CodeReadinessUnavailable, "manager", nil)
 	}
+	m.bootstrapMu.Lock()
+	defer m.bootstrapMu.Unlock()
 	if m.current.Load() != nil {
 		return readinessError(CodeReadinessUnavailable, "bootstrap", nil)
 	}
