@@ -77,6 +77,10 @@ func TestProductionToolExecutorConstructionContract(t *testing.T) {
 		"internal/http/router.go:newRouterWithOptions":   1,
 		"internal/http/server.go:buildRuntimeWithRouter": 1,
 	})
+	assertConstructorCallCounts(t, calls, "ToolExecutorComposite", map[string]int{
+		"internal/agent/executor.go:NewToolExecutor":           1,
+		"internal/agent/executor.go:NewAuthorizedToolExecutor": 1,
+	})
 }
 
 func TestAuthorizedToolExecutorFixtureMigrationContract(t *testing.T) {
@@ -98,6 +102,47 @@ func TestAuthorizedToolExecutorFixtureMigrationContract(t *testing.T) {
 	assertConstructorCallerCount(t, calls, "NewAuthorizedToolExecutor", "internal/agent/executor_test_helpers_test.go:newAuthorizedToolExecutorForTest", 1)
 	assertConstructorCallerCount(t, calls, "NewAuthorizedToolExecutor", "internal/http/workflow_executor_test.go:authorizedWorkflowToolExecutor", 1)
 	assertConstructorCallerCount(t, calls, "NewServiceWithRuntimeOptions", "internal/http/workflow_executor_test.go:authorizedAgentServiceForHTTPTest", 1)
+	assertConstructorCallCounts(t, calls, "ToolExecutorComposite", map[string]int{})
+}
+
+func TestToolExecutorConstructorInventoryMutationContract(t *testing.T) {
+	serverRoot := t.TempDir()
+	agentDir := filepath.Join(serverRoot, "internal", "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("create mutation package: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(serverRoot, "internal", "http"), 0o755); err != nil {
+		t.Fatalf("create mutation HTTP package: %v", err)
+	}
+	source := `package agent
+func direct() { NewToolExecutor(nil) }
+func parenthesized() { (NewToolExecutor)(nil) }
+func compatibilityAlias() { ctor := NewToolExecutor; ctor(nil) }
+func parenthesizedAlias() { ctor := (NewToolExecutor); (ctor)(nil) }
+func authorizedAlias() { ctor := NewAuthorizedToolExecutor; ctor(nil, ToolRuntimeOptions{}) }
+func serviceAlias() { ctor := NewServiceWithRuntimeOptions; ctor(nil, nil, nil, ToolRuntimeOptions{}) }
+func composites() { _ = ToolExecutor{}; _ = &ToolExecutor{} }
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "mutation.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("write mutation source: %v", err)
+	}
+
+	calls := collectToolExecutorConstructorCallsAtRoot(t, serverRoot, false)
+	assertConstructorCallCounts(t, calls, "NewToolExecutor", map[string]int{
+		"internal/agent/mutation.go:direct":             1,
+		"internal/agent/mutation.go:parenthesized":      1,
+		"internal/agent/mutation.go:compatibilityAlias": 1,
+		"internal/agent/mutation.go:parenthesizedAlias": 1,
+	})
+	assertConstructorCallCounts(t, calls, "NewAuthorizedToolExecutor", map[string]int{
+		"internal/agent/mutation.go:authorizedAlias": 1,
+	})
+	assertConstructorCallCounts(t, calls, "NewServiceWithRuntimeOptions", map[string]int{
+		"internal/agent/mutation.go:serviceAlias": 1,
+	})
+	assertConstructorCallCounts(t, calls, "ToolExecutorComposite", map[string]int{
+		"internal/agent/mutation.go:composites": 2,
+	})
 }
 
 func collectToolExecutorConstructorCalls(t *testing.T, tests bool) []toolExecutorConstructorCall {
@@ -107,6 +152,11 @@ func collectToolExecutorConstructorCalls(t *testing.T, tests bool) []toolExecuto
 		t.Fatal("resolve constructor contract source")
 	}
 	serverRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
+	return collectToolExecutorConstructorCallsAtRoot(t, serverRoot, tests)
+}
+
+func collectToolExecutorConstructorCallsAtRoot(t *testing.T, serverRoot string, tests bool) []toolExecutorConstructorCall {
+	t.Helper()
 	fset := token.NewFileSet()
 	var calls []toolExecutorConstructorCall
 	for _, dir := range []string{"internal/agent", "internal/http"} {
@@ -130,17 +180,21 @@ func collectToolExecutorConstructorCalls(t *testing.T, tests bool) []toolExecuto
 				if !ok || function.Body == nil {
 					continue
 				}
+				aliases := collectToolExecutorConstructorAliases(function.Body)
 				ast.Inspect(function.Body, func(node ast.Node) bool {
-					call, ok := node.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					name := calledFunctionName(call.Fun)
-					if name == "NewToolExecutor" && len(call.Args) != 1 {
-						return true
-					}
-					if name == "NewToolExecutor" || name == "NewAuthorizedToolExecutor" || name == "NewServiceWithRuntimeOptions" {
-						calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: name})
+					switch value := node.(type) {
+					case *ast.CallExpr:
+						name := calledFunctionName(value.Fun, aliases)
+						if name == "NewToolExecutor" && len(value.Args) != 1 {
+							return true
+						}
+						if isToolExecutorConstructor(name) {
+							calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: name})
+						}
+					case *ast.CompositeLit:
+						if isToolExecutorType(value.Type) {
+							calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: "ToolExecutorComposite"})
+						}
 					}
 					return true
 				})
@@ -154,14 +208,76 @@ func collectToolExecutorConstructorCalls(t *testing.T, tests bool) []toolExecuto
 	return calls
 }
 
-func calledFunctionName(expression ast.Expr) string {
+func collectToolExecutorConstructorAliases(body *ast.BlockStmt) map[string]string {
+	aliases := make(map[string]string)
+	type aliasAssignment struct {
+		name  string
+		value ast.Expr
+	}
+	var assignments []aliasAssignment
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch value := node.(type) {
+		case *ast.AssignStmt:
+			for index := 0; index < len(value.Lhs) && index < len(value.Rhs); index++ {
+				name, ok := value.Lhs[index].(*ast.Ident)
+				if ok {
+					assignments = append(assignments, aliasAssignment{name: name.Name, value: value.Rhs[index]})
+				}
+			}
+		case *ast.ValueSpec:
+			for index := 0; index < len(value.Names) && index < len(value.Values); index++ {
+				assignments = append(assignments, aliasAssignment{name: value.Names[index].Name, value: value.Values[index]})
+			}
+		}
+		return true
+	})
+	for _, assignment := range assignments {
+		name := calledFunctionName(assignment.value, aliases)
+		if isToolExecutorConstructor(name) {
+			aliases[assignment.name] = name
+		}
+	}
+	return aliases
+}
+
+func calledFunctionName(expression ast.Expr, aliases map[string]string) string {
+	expression = unwrapParenExpr(expression)
 	switch value := expression.(type) {
 	case *ast.Ident:
+		if name, ok := aliases[value.Name]; ok {
+			return name
+		}
 		return value.Name
 	case *ast.SelectorExpr:
 		return value.Sel.Name
 	default:
 		return ""
+	}
+}
+
+func unwrapParenExpr(expression ast.Expr) ast.Expr {
+	for {
+		parenthesized, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			return expression
+		}
+		expression = parenthesized.X
+	}
+}
+
+func isToolExecutorConstructor(name string) bool {
+	return name == "NewToolExecutor" || name == "NewAuthorizedToolExecutor" || name == "NewServiceWithRuntimeOptions"
+}
+
+func isToolExecutorType(expression ast.Expr) bool {
+	expression = unwrapParenExpr(expression)
+	switch value := expression.(type) {
+	case *ast.Ident:
+		return value.Name == "ToolExecutor"
+	case *ast.SelectorExpr:
+		return value.Sel.Name == "ToolExecutor"
+	default:
+		return false
 	}
 }
 
