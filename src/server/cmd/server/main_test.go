@@ -300,6 +300,23 @@ func TestDeploymentOwnedReadinessProbeContract(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("deployment probes = %#v, want %#v", got, want)
 	}
+	for _, broker := range []string{
+		" kafka.internal:9092",
+		"kafka .internal:9092",
+		"kafka.internal/path:9092",
+		"kafka..internal:9092",
+		"-kafka.internal:9092",
+		strings.Repeat("a", 64) + ".internal:9092",
+	} {
+		cfg := serverconfig.Config{KafkaBrokers: []string{broker}}
+		_, err := newDeploymentReadinessProbes(cfg, database)
+		if err == nil || !strings.Contains(err.Error(), "construct kafka readiness probe: invalid configuration") {
+			t.Fatalf("programmatic broker %q error = %v", broker, err)
+		}
+		if strings.Contains(err.Error(), broker) {
+			t.Fatalf("factory error leaked raw broker %q: %v", broker, err)
+		}
+	}
 
 	configured := serverconfig.Config{
 		RedisAddr:        "redis.internal:6379",

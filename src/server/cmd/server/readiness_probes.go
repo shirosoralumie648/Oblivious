@@ -4,10 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -147,8 +145,8 @@ func newDeploymentReadinessProbesWithOperations(cfg config.Config, database *sql
 	if err != nil {
 		return nil, fmt.Errorf("construct qdrant readiness probe: invalid configuration")
 	}
-	if err := validateKafkaBrokers(cfg.KafkaBrokers); err != nil {
-		return nil, err
+	if err := config.ValidateKafkaBrokers(cfg.KafkaBrokers); err != nil {
+		return nil, fmt.Errorf("construct kafka readiness probe: invalid configuration")
 	}
 
 	probes := []releasecontract.Probe{
@@ -184,20 +182,6 @@ func readinessHealthURL(raw string) (string, error) {
 	endpoint.RawQuery = ""
 	endpoint.Fragment = ""
 	return endpoint.String(), nil
-}
-
-func validateKafkaBrokers(brokers []string) error {
-	for _, broker := range brokers {
-		host, portRaw, err := net.SplitHostPort(strings.TrimSpace(broker))
-		if err != nil || strings.TrimSpace(host) == "" {
-			return fmt.Errorf("construct kafka readiness probe: invalid configuration")
-		}
-		port, err := strconv.Atoi(portRaw)
-		if err != nil || port < 1 || port > 65535 {
-			return fmt.Errorf("construct kafka readiness probe: invalid configuration")
-		}
-	}
-	return nil
 }
 
 func newStartupReadinessManager(_ context.Context, inputs config.ResolvedEntrypointInputs, cfg config.Config, database *sql.DB, auditPath string) (releasecontract.ReadinessManager, error) {
