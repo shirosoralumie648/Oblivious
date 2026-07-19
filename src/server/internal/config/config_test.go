@@ -19,6 +19,14 @@ func TestLoadReadinessDependencyConfigContract(t *testing.T) {
 		t.Setenv("SESSION_SECRET", "test-secret")
 		return Load()
 	}
+	redisTLS := func(t *testing.T, cfg Config) bool {
+		t.Helper()
+		field := reflect.ValueOf(cfg).FieldByName("RedisTLS")
+		if !field.IsValid() || field.Kind() != reflect.Bool {
+			t.Fatal("Config.RedisTLS bool is required to preserve REDIS_URL transport semantics")
+		}
+		return field.Bool()
+	}
 
 	t.Run("redis url is retained independently of rate limit backend", func(t *testing.T) {
 		t.Setenv("RELAY_RATE_LIMIT_BACKEND", "memory")
@@ -29,6 +37,21 @@ func TestLoadReadinessDependencyConfigContract(t *testing.T) {
 		}
 		if cfg.RedisAddr != "redis.internal:6380" || cfg.RedisPassword != "url-secret" || cfg.RedisDB != 4 {
 			t.Fatalf("redis readiness endpoint = %q/%q/%d", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		}
+		if redisTLS(t, cfg) {
+			t.Fatal("redis:// unexpectedly enabled TLS")
+		}
+	})
+
+	t.Run("rediss url preserves tls mode", func(t *testing.T) {
+		t.Setenv("RELAY_RATE_LIMIT_BACKEND", "memory")
+		t.Setenv("REDIS_URL", "rediss://:url-secret@redis.internal:6380/4")
+		cfg, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !redisTLS(t, cfg) {
+			t.Fatal("rediss:// did not enable TLS")
 		}
 	})
 
@@ -44,6 +67,24 @@ func TestLoadReadinessDependencyConfigContract(t *testing.T) {
 		}
 		if cfg.RedisAddr != "override.internal:6379" || cfg.RedisPassword != "override-secret" || cfg.RedisDB != 7 {
 			t.Fatalf("explicit redis override = %q/%q/%d", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		}
+		if redisTLS(t, cfg) {
+			t.Fatal("redis:// TLS mode changed when explicit fields overrode URL values")
+		}
+	})
+
+	t.Run("explicit redis fields retain rediss tls mode", func(t *testing.T) {
+		t.Setenv("RELAY_RATE_LIMIT_BACKEND", "none")
+		t.Setenv("REDIS_URL", "rediss://:url-secret@redis.internal:6380/4")
+		t.Setenv("REDIS_ADDR", "override.internal:6379")
+		t.Setenv("REDIS_PASSWORD", "override-secret")
+		t.Setenv("REDIS_DB", "7")
+		cfg, err := load(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !redisTLS(t, cfg) {
+			t.Fatal("rediss:// TLS mode was lost when explicit fields overrode URL values")
 		}
 	})
 

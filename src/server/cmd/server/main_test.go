@@ -3,14 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net"
 	stdhttp "net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -421,6 +425,279 @@ func TestDeploymentOwnedReadinessProbeContract(t *testing.T) {
 			t.Fatalf("deadline observation=%#v error=%v duration=%s", observation, err, time.Since(started))
 		}
 	})
+}
+
+func TestQdrantReadinessRedirectContract(t *testing.T) {
+	for _, sameOrigin := range []bool{false, true} {
+		name := "cross origin"
+		if sameOrigin {
+			name = "same origin"
+		}
+		t.Run(name+" redirect is rejected without forwarding credentials", func(t *testing.T) {
+			const apiKey = "redirect-secret"
+			calls := make(chan string, 1)
+			target := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				calls <- r.Header.Get("api-key")
+				w.WriteHeader(stdhttp.StatusOK)
+			}))
+			defer target.Close()
+
+			var source *httptest.Server
+			source = httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				location := target.URL
+				if sameOrigin {
+					location = source.URL + "/redirected"
+				}
+				if r.URL.Path == "/redirected" {
+					calls <- r.Header.Get("api-key")
+					w.WriteHeader(stdhttp.StatusOK)
+					return
+				}
+				stdhttp.Redirect(w, r, location, stdhttp.StatusTemporaryRedirect)
+			}))
+			defer source.Close()
+
+			err := defaultDeploymentReadinessOperations().qdrant(
+				context.Background(),
+				serverconfig.Config{QdrantAPIKey: apiKey},
+				source.URL+"/healthz",
+			)
+			var forwarded string
+			select {
+			case forwarded = <-calls:
+			default:
+			}
+			if err == nil || forwarded != "" {
+				t.Fatalf("redirect result error=%v forwarded_api_key=%q, want rejected redirect with no target call", err, forwarded)
+			}
+		})
+	}
+}
+
+func TestRedisReadinessTLSContract(t *testing.T) {
+	t.Run("client options preserve secure transport policy", func(t *testing.T) {
+		plain, err := redisOptionsFromConfig(serverconfig.Config{RedisAddr: "redis.internal:6379"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plain.TLSConfig != nil {
+			t.Fatal("redis:// options unexpectedly enabled TLS")
+		}
+
+		secure, err := redisOptionsFromConfig(serverconfig.Config{RedisAddr: "redis.internal:6380", RedisTLS: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if secure.TLSConfig == nil || secure.TLSConfig.MinVersion < tls.VersionTLS12 {
+			t.Fatalf("rediss:// TLS config = %#v, want TLS 1.2 minimum", secure.TLSConfig)
+		}
+		if secure.TLSConfig.ServerName != "redis.internal" || secure.TLSConfig.InsecureSkipVerify {
+			t.Fatalf("rediss:// verification policy server_name=%q insecure=%t", secure.TLSConfig.ServerName, secure.TLSConfig.InsecureSkipVerify)
+		}
+
+		const malformed = "redis-secret.invalid-address"
+		_, err = redisOptionsFromConfig(serverconfig.Config{RedisAddr: malformed, RedisTLS: true})
+		if err == nil || strings.Contains(err.Error(), malformed) {
+			t.Fatalf("malformed TLS address error = %v, want stable redacted error", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name      string
+		scheme    string
+		wantFirst byte
+	}{
+		{name: "redis uses plaintext RESP", scheme: "redis", wantFirst: '*'},
+		{name: "rediss starts a TLS handshake", scheme: "rediss", wantFirst: 0x16},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			firstByte := make(chan byte, 1)
+			go func() {
+				connection, acceptErr := listener.Accept()
+				if acceptErr != nil {
+					return
+				}
+				defer connection.Close()
+				buffer := []byte{0}
+				if _, readErr := connection.Read(buffer); readErr == nil {
+					firstByte <- buffer[0]
+				}
+			}()
+
+			t.Setenv("SERVER_PORT", "8080")
+			t.Setenv("APP_ENV", "test")
+			t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+			t.Setenv("SESSION_SECRET", "test-secret")
+			t.Setenv("REDIS_URL", fmt.Sprintf("%s://%s/0", test.scheme, listener.Addr()))
+			cfg, err := serverconfig.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			operationDone := make(chan struct{})
+			go func() {
+				_ = defaultDeploymentReadinessOperations().redis(ctx, cfg)
+				close(operationDone)
+			}()
+
+			select {
+			case got := <-firstByte:
+				if got != test.wantFirst {
+					t.Fatalf("first transport byte = 0x%02x, want 0x%02x", got, test.wantFirst)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("redis readiness probe did not connect within its bounded context")
+			}
+			cancel()
+			select {
+			case <-operationDone:
+			case <-time.After(time.Second):
+				t.Fatal("redis readiness probe did not stop after context cancellation")
+			}
+		})
+	}
+}
+
+func TestKafkaReadinessConcurrentBrokerContract(t *testing.T) {
+	t.Run("first success cancels an unresponsive peer", func(t *testing.T) {
+		peerCanceled := make(chan struct{})
+		err := probeKafkaBrokers(context.Background(), []string{"blackhole.internal:9092", "healthy.internal:9092"}, func(ctx context.Context, broker string) error {
+			if broker == "healthy.internal:9092" {
+				return nil
+			}
+			<-ctx.Done()
+			close(peerCanceled)
+			return ctx.Err()
+		})
+		if err != nil {
+			t.Fatalf("healthy later broker result = %v", err)
+		}
+		select {
+		case <-peerCanceled:
+		case <-time.After(time.Second):
+			t.Fatal("successful broker did not cancel its peer")
+		}
+	})
+
+	t.Run("all failures and invalid contexts are bounded and redacted", func(t *testing.T) {
+		const broker = "broker-secret.internal:9092"
+		const failure = "transport-secret"
+		err := probeKafkaBrokers(context.Background(), []string{broker}, func(context.Context, string) error {
+			return errors.New(failure)
+		})
+		if err == nil || err.Error() != "kafka readiness probe failed" || strings.Contains(err.Error(), broker) || strings.Contains(err.Error(), failure) {
+			t.Fatalf("all-fail error = %v, want stable redacted failure", err)
+		}
+
+		started := time.Now()
+		if err := probeKafkaBrokers(nil, []string{broker}, func(context.Context, string) error { return nil }); err == nil || time.Since(started) > time.Second {
+			t.Fatalf("nil-context error=%v duration=%s", err, time.Since(started))
+		}
+		expired, cancel := context.WithCancel(context.Background())
+		cancel()
+		started = time.Now()
+		if err := probeKafkaBrokers(expired, []string{broker}, func(context.Context, string) error { return nil }); err == nil || time.Since(started) > time.Second {
+			t.Fatalf("expired-context error=%v duration=%s", err, time.Since(started))
+		}
+	})
+
+	t.Run("default attempt closes its connection on cancellation", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		accepted := make(chan struct{})
+		closed := make(chan struct{})
+		go func() {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			close(accepted)
+			_, _ = io.Copy(io.Discard, connection)
+			_ = connection.Close()
+			close(closed)
+		}()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		attemptDone := make(chan error, 1)
+		go func() {
+			attemptDone <- probeKafkaBroker(ctx, listener.Addr().String())
+		}()
+		select {
+		case <-accepted:
+		case <-time.After(time.Second):
+			t.Fatal("default Kafka attempt did not connect")
+		}
+		cancel()
+		select {
+		case <-closed:
+		case <-time.After(time.Second):
+			t.Fatal("Kafka connection remained open after cancellation")
+		}
+		select {
+		case <-attemptDone:
+		case <-time.After(time.Second):
+			t.Fatal("Kafka attempt remained blocked after cancellation")
+		}
+	})
+
+	first, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	firstAccepted := make(chan struct{}, 1)
+	secondAccepted := make(chan struct{}, 1)
+	go func() {
+		connection, acceptErr := first.Accept()
+		if acceptErr != nil {
+			return
+		}
+		firstAccepted <- struct{}{}
+		<-ctx.Done()
+		_ = connection.Close()
+	}()
+	go func() {
+		connection, acceptErr := second.Accept()
+		if acceptErr != nil {
+			return
+		}
+		secondAccepted <- struct{}{}
+		_ = connection.Close()
+	}()
+
+	operationDone := make(chan error, 1)
+	go func() {
+		operationDone <- defaultDeploymentReadinessOperations().kafka(ctx, []string{first.Addr().String(), second.Addr().String()})
+	}()
+	select {
+	case <-firstAccepted:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("first broker was not attempted")
+	}
+	select {
+	case <-secondAccepted:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("healthy-later broker was starved behind an earlier unresponsive broker")
+	}
+	cancel()
+	<-operationDone
 }
 
 func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net.Listener, _ *stdhttp.Server) startupDependencies {
