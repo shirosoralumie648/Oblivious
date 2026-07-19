@@ -344,13 +344,19 @@ func (m *Manager) runBoundedProbes(ctx context.Context) ([]Observation, error) {
 	results := make(chan probeResult, len(m.probes))
 	for index, managed := range m.probes {
 		go func(index int, managed managedProbe) {
+			if err := ctx.Err(); err != nil {
+				results <- probeResult{index: index, err: err}
+				return
+			}
 			select {
 			case managed.inFlight <- struct{}{}:
-			case <-ctx.Done():
-				results <- probeResult{index: index, err: ctx.Err()}
-				return
 			default:
 				results <- probeResult{index: index, err: context.DeadlineExceeded}
+				return
+			}
+			if err := ctx.Err(); err != nil {
+				<-managed.inFlight
+				results <- probeResult{index: index, err: err}
 				return
 			}
 			probeCtx, cancel := context.WithTimeout(ctx, m.probeDeadline)
