@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-14-PLAN.md
-last_updated: "2026-07-19T09:15:55.362Z"
+stopped_at: Completed 31.1-15-PLAN.md
+last_updated: "2026-07-19T10:22:55.057Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 14 closed strict Agent web-search construction-order gap; Plan 31.1-15 is next
+last_activity_desc: Phase 31.1 Plan 15 closed deny-only compatibility ToolExecutor construction; Plan 31.1-16 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 21
-  percent: 48
+  completed_plans: 22
+  percent: 50
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 14 of 22
-Status: Plan 31.1-14 complete; Plan 31.1-15 is next
-Last activity: 2026-07-19 — Strict Agent web-search provider is injected before authorized executor construction
+Plan: 15 of 22
+Status: Plan 31.1-15 complete; Plan 31.1-16 is next
+Last activity: 2026-07-19 — Compatibility ToolExecutor is deny-only and behavior fixtures use explicit runtime authority
 
-Progress: [██████░░░░] 64%
+Progress: [███████░░░] 68%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
-- Average duration: 28 min
-- Total execution time: 6.6 hours
+- Total plans completed: 15
+- Average duration: 29 min
+- Total execution time: 7.3 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 14 plans in 394 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 15 plans in 436 minutes.
 
-**Recent Trend:** Plan 31.1-14 closed strict Agent web-search construction order in 21 minutes.
+**Recent Trend:** Plan 31.1-15 closed compatibility ToolExecutor authority and fixture migration in 42 minutes.
 
 ## Accumulated Context
 
@@ -93,6 +93,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Admin sync, detect, and apply guard once before their first read/probe and still resolve current model subjects before persistence. — Separates generic mutation admission from current catalog authorization without pinning a generation.
 - [Phase 31.1]: Marketplace HTTP checkout and local settlement consume the same startup financial carrier but guard their own effects independently. — Denial precedes local order intent and Provider checkout.
 - [Phase 31.1]: Strict BuildRuntime constructs the authority-aware Agent web-search provider before the authorized executor and passes the exact instance through ToolRuntimeOptions. — Compatibility setters remain outside strict composition; Plan 19 owns global descriptor exactness.
+- [Phase 31.1]: Compatibility ToolExecutor construction is deny-only; effect-capable behavior requires NewAuthorizedToolExecutor or NewServiceWithRuntimeOptions. — Prevents missing runtime authority from becoming implicit allow-all.
 
 ### Pending Todos
 
@@ -118,6 +119,7 @@ None yet.
 | Phase 31.1 P11 | 30 min | 2 tasks + 4 review fixes | 2 files |
 | Phase 31.1-readiness-fail-closed P13 | 25 min | 2 tasks | 6 files |
 | Phase 31.1-readiness-fail-closed P14 | 21 min | 2 tasks | 2 files |
+| Phase 31.1 P15 | 42 min | 2 tasks | 9 files |
 
 ### Roadmap Evolution
 
@@ -130,8 +132,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T09:15:55.343Z
-Stopped at: Completed 31.1-14-PLAN.md
+Last session: 2026-07-19T10:22:55.026Z
+Stopped at: Completed 31.1-15-PLAN.md
 Resume file: None
 
 ## Performance Metrics
