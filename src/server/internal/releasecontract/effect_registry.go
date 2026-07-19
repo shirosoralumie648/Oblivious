@@ -103,52 +103,52 @@ func selector(group, value, mode string) *EffectConfigurationSelector {
 // sole descriptor-to-EffectID mapping. Source discovery and runtime joining
 // consume the same exact owner, boundary, capability, and selection contract.
 var runtimeDescriptorSpecs = map[string]runtimeDescriptorSpec{
-	"worker.schedule.claim":             descriptorSpec(EffectScheduleClaim, "schedule.Worker", BoundaryWorkerClaim, "src/server/internal/schedule", "newScheduledReadiness", "", "runDueTasks:requireClaim", "runDueTasks:ClaimDueScheduledTaskRuns", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.workflow.start":    descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedWorkflowTask:requireWorkflowEffect", "runClaimedWorkflowTask:startClaimedWorkflow", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.workflow.continue": descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedWorkflowTask:requireWorkflowEffect", "runClaimedWorkflowTask:RunExecutionUntilBlocked", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
-	"worker.schedule.agent.start":       descriptorSpec(EffectScheduleAgent, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "runClaimedAgentTask:requireAgentEffect", "runClaimedAgentTask:StartRun", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.claim":             descriptorSpec(EffectScheduleClaim, "schedule.Worker", BoundaryWorkerClaim, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runDueTasks:requireClaim", "Service.runDueTasks:ClaimDueScheduledTaskRuns", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.start":    descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:requireWorkflowEffect", "Service.runClaimedWorkflowTask:startClaimedWorkflow", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.workflow.continue": descriptorSpec(EffectScheduleWorkflow, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedWorkflowTask:requireWorkflowEffect", "Service.runClaimedWorkflowTask:RunExecutionUntilBlocked", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
+	"worker.schedule.agent.start":       descriptorSpec(EffectScheduleAgent, "schedule.Service", BoundaryWorkerEffect, "src/server/internal/schedule", "newScheduledReadiness", "", "Service.runClaimedAgentTask:requireAgentEffect", "Service.runClaimedAgentTask:StartRun", CommitmentCommitted, selector("schedule.worker", "enabled", effectSelectorOptional)),
 
-	"worker.channel_retry.claim": descriptorSpec(EffectChannelRetryClaim, "channel.Service", BoundaryWorkerClaim, "src/server/internal/channel", "newChannelReadiness", "", "ClaimDueRetryMessages:requireRetryClaim", "ClaimDueRetryMessages:ClaimDueRetryMessages", CommitmentCommitted, nil),
-	"channel.delivery.send":      descriptorSpec(EffectChannelDelivery, "channel.Service", BoundaryOutbound, "src/server/internal/channel", "newChannelReadiness", "", "Send:requireDelivery", "Send:DeliverOutbound", CommitmentCommitted, nil),
-	"worker.archive.claim":       descriptorSpec(EffectArchiveClaim, "channel.ArchiveWorker", BoundaryWorkerClaim, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireClaim", "archiveExpiredMessageLogs:ListExpiredMessageLogsForArchive", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
-	"worker.archive.write":       descriptorSpec(EffectArchiveWrite, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireWrite", "archiveExpiredMessageLogs:ArchiveMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
-	"worker.archive.delete":      descriptorSpec(EffectArchiveDelete, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "archiveExpiredMessageLogs:requireDelete", "archiveExpiredMessageLogs:DeleteArchivedMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.channel_retry.claim": descriptorSpec(EffectChannelRetryClaim, "channel.Service", BoundaryWorkerClaim, "src/server/internal/channel", "newChannelReadiness", "", "Service.ClaimDueRetryMessages:requireRetryClaim", "Service.ClaimDueRetryMessages:ClaimDueRetryMessages", CommitmentCommitted, nil),
+	"channel.delivery.send":      descriptorSpec(EffectChannelDelivery, "channel.Service", BoundaryOutbound, "src/server/internal/channel", "newChannelReadiness", "", "Service.Send:requireDelivery", "Service.Send:DeliverOutbound", CommitmentCommitted, nil),
+	"worker.archive.claim":       descriptorSpec(EffectArchiveClaim, "channel.ArchiveWorker", BoundaryWorkerClaim, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireClaim", "Service.archiveExpiredMessageLogs:ListExpiredMessageLogsForArchive", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.write":       descriptorSpec(EffectArchiveWrite, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireWrite", "Service.archiveExpiredMessageLogs:ArchiveMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
+	"worker.archive.delete":      descriptorSpec(EffectArchiveDelete, "channel.Service", BoundaryWorkerEffect, "src/server/internal/channel", "newArchiveReadiness", "", "Service.archiveExpiredMessageLogs:requireDelete", "Service.archiveExpiredMessageLogs:DeleteArchivedMessageLogs", CommitmentCommitted, selector("channel.archive", "enabled", effectSelectorOptional)),
 
-	"worker.relay_batch.claim":             descriptorSpec(EffectRelayBatchClaim, "relay.BatchPollingWorker", BoundaryWorkerClaim, "src/server/internal/relay", "newBatchPollingReadiness", "", "runOnce:requireClaim", "runOnce:ClaimBatchPollingJobs", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.retrieve":          descriptorSpec(EffectRelayBatchProvider, "relay.BatchPollingWorker", BoundaryOutbound, "src/server/internal/relay", "newBatchPollingReadiness", "", "runOnce:requireProvider", "runOnce:RetrieveBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.complete.finalize": descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireFinalizer", "recordBatchStatus:FinalizeCompletedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.failure.finalize":  descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireFinalizer", "recordBatchStatus:FinalizeFailedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.succeeded":         descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireTerminal", "recordBatchStatus:MarkBatchPollingJobSucceeded", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
-	"worker.relay_batch.dead_letter":       descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "recordBatchStatus:requireTerminal", "recordBatchStatus>recordTerminalFailedJob:MarkBatchPollingJobDeadLetter", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.claim":             descriptorSpec(EffectRelayBatchClaim, "relay.BatchPollingWorker", BoundaryWorkerClaim, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:requireClaim", "BatchPollingWorker.runOnce:ClaimBatchPollingJobs", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.retrieve":          descriptorSpec(EffectRelayBatchProvider, "relay.BatchPollingWorker", BoundaryOutbound, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.runOnce:requireProvider", "BatchPollingWorker.runOnce:RetrieveBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.complete.finalize": descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireFinalizer", "BatchPollingWorker.recordBatchStatus:FinalizeCompletedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.failure.finalize":  descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireFinalizer", "BatchPollingWorker.recordBatchStatus:FinalizeFailedBatch", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.succeeded":         descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireTerminal", "BatchPollingWorker.recordBatchStatus:MarkBatchPollingJobSucceeded", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
+	"worker.relay_batch.dead_letter":       descriptorSpec(EffectRelayBatchFinalize, "relay.BatchPollingWorker", BoundaryWorkerEffect, "src/server/internal/relay", "newBatchPollingReadiness", "", "BatchPollingWorker.recordBatchStatus:requireTerminal", "BatchPollingWorker.recordBatchStatus>BatchPollingWorker.recordTerminalFailedJob:MarkBatchPollingJobDeadLetter", CommitmentCommitted, selector("relay.batch", "enabled", effectSelectorOptional)),
 
-	"marketplace.settlement.intent": descriptorSpec(EffectMarketplaceSettlement, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "CreatePaidInstallCheckout:requireSettlement", "CreatePaidInstallCheckout:BeginTx", CommitmentCommitted, nil),
-	"marketplace.payout.dispatch":   descriptorSpec(EffectMarketplacePayout, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "dispatchPersistedPayout:requirePayout", "dispatchPersistedPayout>dispatchPayout:CreatePayout", CommitmentCommitted, nil),
-	"relay.provider.dispatch":       descriptorSpec(EffectRelayProvider, "relay.Router", BoundaryOutbound, "src/server/internal/relay", "newRouterReadiness", "", "Route:requireProvider", "Route:fn", CommitmentCommitted, selector("relay.runtime", "enabled", effectSelectorOptional)),
-	"chat.provider.dispatch":        descriptorSpec(EffectChatProvider, "chat.RelayGateway", BoundaryOutbound, "src/server/internal/chat", "NewRelayGatewayWithOptions>newRelayGatewayReadiness", "", "complete:requireDispatch", "complete:Do", CommitmentCommitted, nil),
-	"chat.provider.fallback":        descriptorSpec(EffectChatProvider, "chat.CompositeGateway", BoundaryOutbound, "src/server/internal/chat", "NewCompositeGatewayWithOptions>newRelayGatewayReadiness", "", "GenerateReply:requireDispatch", "GenerateReply:GenerateReply", CommitmentCommitted, selector("chat.fallback", "enabled", effectSelectorOptional)),
+	"marketplace.settlement.intent": descriptorSpec(EffectMarketplaceSettlement, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.CreatePaidInstallCheckout:requireSettlement", "SettlementService.CreatePaidInstallCheckout:BeginTx", CommitmentCommitted, nil),
+	"marketplace.payout.dispatch":   descriptorSpec(EffectMarketplacePayout, "marketplace.SettlementService", BoundaryFinancial, "src/server/internal/marketplace", "WithMarketplaceFinancialReadiness", "", "SettlementService.dispatchPersistedPayout:requirePayout", "SettlementService.dispatchPersistedPayout>SettlementService.dispatchPayout:CreatePayout", CommitmentCommitted, nil),
+	"relay.provider.dispatch":       descriptorSpec(EffectRelayProvider, "relay.Router", BoundaryOutbound, "src/server/internal/relay", "newRouterReadiness", "", "Router.Route:requireProvider", "Router.Route:fn", CommitmentCommitted, selector("relay.runtime", "enabled", effectSelectorOptional)),
+	"chat.provider.dispatch":        descriptorSpec(EffectChatProvider, "chat.RelayGateway", BoundaryOutbound, "src/server/internal/chat", "NewRelayGatewayWithOptions>newRelayGatewayReadiness", "", "RelayGateway.complete:requireDispatch", "RelayGateway.complete:Do", CommitmentCommitted, nil),
+	"chat.provider.fallback":        descriptorSpec(EffectChatProvider, "chat.CompositeGateway", BoundaryOutbound, "src/server/internal/chat", "NewCompositeGatewayWithOptions>newRelayGatewayReadiness", "", "CompositeGateway.GenerateReply:requireDispatch", "CompositeGateway.GenerateReply:GenerateReply", CommitmentCommitted, selector("chat.fallback", "enabled", effectSelectorOptional)),
 
-	"admin.channel.model.mutation": descriptorSpec(EffectHTTPMutation, "admin.channel_service", BoundaryHTTP, "src/server/internal/admin", "newModelCatalogReadiness", "", "SyncChannelModels:requireMutation", "SyncChannelModels:TestChannel", CommitmentCommitted, nil),
-	"http.admin.refund":            descriptorSpec(EffectAdminRefund, "http.adminHandler", BoundaryFinancial, "src/server/internal/http", "newAdminFinancialReadiness", "", "recordTopupRefund:require", "recordTopupRefund:RecordTopupRefund", CommitmentCommitted, nil),
-	"http.billing.checkout":        descriptorSpec(EffectBillingCheckout, "http.billingHandler", BoundaryFinancial, "src/server/internal/http", "newBillingFinancialReadiness>newCheckoutFinancialReadiness", "", "checkout:require", "checkout:CreateCheckoutSession", CommitmentCommitted, nil),
-	"http.marketplace.checkout":    descriptorSpec(EffectBillingCheckout, "http.marketplaceHandler", BoundaryFinancial, "src/server/internal/http", "withMarketplaceFinancialReadiness>newCheckoutFinancialReadiness", "", "createPaidInstallCheckout:require", "createPaidInstallCheckout:CreateCheckoutSession", CommitmentCommitted, nil),
-	"http.mcp.mutation":            descriptorSpec(EffectHTTPMutation, "http.mcpHandler", BoundaryHTTP, "src/server/internal/http", "newMCPMutationReadiness", "", "addServer:authorize", "addServer:AddServer", CommitmentCommitted, nil),
+	"admin.channel.model.mutation": descriptorSpec(EffectHTTPMutation, "admin.channel_service", BoundaryHTTP, "src/server/internal/admin", "newModelCatalogReadiness", "", "Service.SyncChannelModels:requireMutation", "Service.SyncChannelModels:TestChannel", CommitmentCommitted, nil),
+	"http.admin.refund":            descriptorSpec(EffectAdminRefund, "http.adminHandler", BoundaryFinancial, "src/server/internal/http", "newAdminFinancialReadiness", "", "adminHandler.recordTopupRefund:require", "adminHandler.recordTopupRefund:RecordTopupRefund", CommitmentCommitted, nil),
+	"http.billing.checkout":        descriptorSpec(EffectBillingCheckout, "http.billingHandler", BoundaryFinancial, "src/server/internal/http", "newBillingFinancialReadiness>newCheckoutFinancialReadiness", "", "billingHandler.checkout:require", "billingHandler.checkout:CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.marketplace.checkout":    descriptorSpec(EffectBillingCheckout, "http.marketplaceHandler", BoundaryFinancial, "src/server/internal/http", "withMarketplaceFinancialReadiness>newCheckoutFinancialReadiness", "", "marketplaceHandler.createPaidInstallCheckout:require", "marketplaceHandler.createPaidInstallCheckout:CreateCheckoutSession", CommitmentCommitted, nil),
+	"http.mcp.mutation":            descriptorSpec(EffectHTTPMutation, "http.mcpHandler", BoundaryHTTP, "src/server/internal/http", "newMCPMutationReadiness", "", "mcpHandler.addServer:authorize", "mcpHandler.addServer:AddServer", CommitmentCommitted, nil),
 
-	"mcp.transport.dispatch": descriptorSpec(EffectMCPDispatch, "mcp.Client", BoundaryOutbound, "src/server/internal/mcp", "newClientReadiness", "", "sendRequest:authorize", "sendRequest:Do", CommitmentCommitted, nil),
-	"mcp.websearch.builtin":  descriptorSpec(EffectToolWebSearch, "mcp.WebSearchTool", BoundaryOutbound, "src/server/internal/mcp", "NewWebSearchTool>newWebSearchReadiness", "", "Execute:authorize", "Execute:Search", CommitmentConditional, nil),
-	"mcp.websearch.tavily":   descriptorSpec(EffectToolWebSearch, "mcp.TavilyWebSearchProvider", BoundaryOutbound, "src/server/internal/mcp", "newTavilyWebSearchProvider>newWebSearchReadiness", "", "Search:authorize", "Search:Do", CommitmentConditional, selector("websearch.provider", "tavily", effectSelectorOneOf)),
-	"mcp.websearch.chain":    descriptorSpec(EffectToolWebSearch, "mcp.websearch.Chain", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Search:authorize", "Search:Search", CommitmentConditional, selector("websearch.provider", "chain", effectSelectorOneOf)),
-	"mcp.websearch.provider": descriptorSpec(EffectToolWebSearch, "mcp.websearch.Provider", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Search:authorize", "Search:Search", CommitmentConditional, selector("websearch.provider", "provider", effectSelectorOneOf)),
+	"mcp.transport.dispatch": descriptorSpec(EffectMCPDispatch, "mcp.Client", BoundaryOutbound, "src/server/internal/mcp", "newClientReadiness", "", "Client.sendRequest:authorize", "Client.sendRequest:Do", CommitmentCommitted, nil),
+	"mcp.websearch.builtin":  descriptorSpec(EffectToolWebSearch, "mcp.WebSearchTool", BoundaryOutbound, "src/server/internal/mcp", "NewWebSearchTool>newWebSearchReadiness", "", "authorizedWebSearchTool.Execute:authorize", "authorizedWebSearchTool.Execute:Search", CommitmentConditional, nil),
+	"mcp.websearch.tavily":   descriptorSpec(EffectToolWebSearch, "mcp.TavilyWebSearchProvider", BoundaryOutbound, "src/server/internal/mcp", "newTavilyWebSearchProvider>newWebSearchReadiness", "", "tavilyWebSearchProvider.Search:authorize", "tavilyWebSearchProvider.Search:Do", CommitmentConditional, selector("websearch.provider", "tavily", effectSelectorOneOf)),
+	"mcp.websearch.chain":    descriptorSpec(EffectToolWebSearch, "mcp.websearch.Chain", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "Chain.Search:authorize", "Chain.Search:Search", CommitmentConditional, selector("websearch.provider", "chain", effectSelectorOneOf)),
+	"mcp.websearch.provider": descriptorSpec(EffectToolWebSearch, "mcp.websearch.Provider", BoundaryOutbound, "src/server/internal/mcp/websearch", "NewProviderFromConfig>newSearchReadiness", "", "guardedProvider.Search:authorize", "guardedProvider.Search:Search", CommitmentConditional, selector("websearch.provider", "provider", effectSelectorOneOf)),
 
-	"agent.tool.builtin":         descriptorSpec(EffectAgentToolBuiltin, "agent.ToolExecutor.builtin", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolBuiltin", "executeBuiltin:authorizeTool", "executeBuiltin:Execute", CommitmentCommitted, nil),
-	"agent.tool.custom_api_http": descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolCustomAPIHTTP", "executeCustomAPI:authorizeTool", "executeCustomAPI:Do", CommitmentConditional, nil),
-	"agent.tool.local_python":    descriptorSpec(EffectAgentToolLocalPython, "agent.ToolExecutor.local_python", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolLocalPython", "executeCustomPython:authorizeTool", "executeCustomPython:pythonProcessRunner", CommitmentConditional, nil),
-	"agent.tool.python_sandbox":  descriptorSpec(EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolPythonSandbox", "executeCustomPythonSandbox:authorizeTool", "executeCustomPythonSandbox:RunCustomPython", CommitmentExcluded, nil),
-	"agent.tool.mcp":             descriptorSpec(EffectAgentToolMCP, "agent.ToolExecutor.mcp", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolMCP", "executeMCP:authorizeTool", "executeMCP:CallTool", CommitmentCommitted, nil),
+	"agent.tool.builtin":         descriptorSpec(EffectAgentToolBuiltin, "agent.ToolExecutor.builtin", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolBuiltin", "ToolExecutor.executeBuiltin:authorizeTool", "ToolExecutor.executeBuiltin:Execute", CommitmentCommitted, nil),
+	"agent.tool.custom_api_http": descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.ToolExecutor.custom_api_http", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolCustomAPIHTTP", "ToolExecutor.executeCustomAPI:authorizeTool", "ToolExecutor.executeCustomAPI:Do", CommitmentConditional, nil),
+	"agent.tool.local_python":    descriptorSpec(EffectAgentToolLocalPython, "agent.ToolExecutor.local_python", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolLocalPython", "ToolExecutor.executeCustomPython:authorizeTool", "ToolExecutor.executeCustomPython:pythonProcessRunner", CommitmentConditional, nil),
+	"agent.tool.python_sandbox":  descriptorSpec(EffectAgentToolPythonSandbox, "agent.ToolExecutor.python_sandbox", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolPythonSandbox", "ToolExecutor.executeCustomPythonSandbox:authorizeTool", "ToolExecutor.executeCustomPythonSandbox:RunCustomPython", CommitmentExcluded, nil),
+	"agent.tool.mcp":             descriptorSpec(EffectAgentToolMCP, "agent.ToolExecutor.mcp", BoundaryOutbound, "src/server/internal/agent", "NewAuthorizedToolExecutor", "EffectAgentToolMCP", "ToolExecutor.executeMCP:authorizeTool", "ToolExecutor.executeMCP:CallTool", CommitmentCommitted, nil),
 
-	"agent.tool.registry.builtin": descriptorSpec(EffectAgentToolBuiltin, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryBuiltin", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.registry.custom":  descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryCustom", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.registry.mcp":     descriptorSpec(EffectAgentToolMCP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryMCP", "Execute:authorize", "Execute:executor", CommitmentExcluded, nil),
-	"agent.tool.web_search":       descriptorSpec(EffectToolWebSearch, "agent.tools.WebsearchTool", BoundaryOutbound, "src/server/internal/agent/tools", "newWebsearchReadiness", "", "Execute:authorize", "Execute:Search", CommitmentExcluded, nil),
+	"agent.tool.registry.builtin": descriptorSpec(EffectAgentToolBuiltin, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryBuiltin", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.registry.custom":  descriptorSpec(EffectAgentToolCustomAPIHTTP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryCustom", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.registry.mcp":     descriptorSpec(EffectAgentToolMCP, "agent.tools.Registry", BoundaryOutbound, "src/server/internal/agent/tools", "newRegistryReadiness", "CategoryMCP", "Registry.Execute:authorize", "Registry.Execute:executor", CommitmentExcluded, nil),
+	"agent.tool.web_search":       descriptorSpec(EffectToolWebSearch, "agent.tools.WebsearchTool", BoundaryOutbound, "src/server/internal/agent/tools", "newWebsearchReadiness", "", "WebsearchTool.Execute:authorize", "WebsearchTool.Execute:Search", CommitmentExcluded, nil),
 }
 
 type EffectSurfaceManifest struct {
@@ -308,6 +308,7 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 	}
 	fset := token.NewFileSet()
 	var discovered []discoveredEffect
+	packageDirectories := make(map[string]struct{})
 	err := filepath.WalkDir(filepath.Join(repoRoot, "src", "server"), func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -321,6 +322,7 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			return nil
 		}
+		packageDirectories[filepath.Dir(path)] = struct{}{}
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return err
@@ -351,19 +353,40 @@ func DiscoverEffectSurfaces(repoRoot string) ([]EffectSurface, error) {
 	if err != nil {
 		return nil, &EffectCoverageError{Code: "effect_discovery_failed", Err: err}
 	}
-	descriptorIDs := make([]string, 0, len(runtimeDescriptorSpecs))
-	for descriptorID := range runtimeDescriptorSpecs {
-		descriptorIDs = append(descriptorIDs, descriptorID)
+	effectValues, err := effectConstantValues(repoRoot)
+	if err != nil {
+		return nil, &EffectCoverageError{Code: "effect_discovery_failed", Err: err}
 	}
-	sort.Strings(descriptorIDs)
-	for _, descriptorID := range descriptorIDs {
-		spec := runtimeDescriptorSpecs[descriptorID]
-		present, err := descriptorStructurePresent(repoRoot, descriptorID, spec)
+	directories := make([]string, 0, len(packageDirectories))
+	for directory := range packageDirectories {
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	var registrations []sourceRegistration
+	for _, directory := range directories {
+		packageRegistrations, err := discoverPackageRegistrations(repoRoot, directory, effectValues)
 		if err != nil {
-			return nil, &EffectCoverageError{Code: "effect_discovery_failed", Field: descriptorID, Err: err}
+			return nil, &EffectCoverageError{Code: "effect_discovery_failed", Err: err}
+		}
+		registrations = append(registrations, packageRegistrations...)
+	}
+	for _, registration := range registrations {
+		spec, known := runtimeDescriptorSpecs[registration.DescriptorID]
+		if !known {
+			discovered = append(discovered, discoveredEffect{EffectSurface: EffectSurface{
+				SeamID: registration.DescriptorID + "@" + registration.Owner, DescriptorID: registration.DescriptorID,
+				OwnerPackage: registration.OwnerPackage, OwnerSymbol: registration.Owner, CapabilityID: registration.CapabilityID,
+				Boundary: registration.Boundary, ASTCall: "structural", RegistrationSymbol: registration.RegistrationSymbol,
+				ProfileDisposition: CommitmentCommitted,
+			}, File: registration.File, Line: registration.Line})
+			continue
+		}
+		present, err := descriptorStructurePresent(repoRoot, registration.DescriptorID, spec)
+		if err != nil {
+			return nil, &EffectCoverageError{Code: "effect_discovery_failed", Field: registration.DescriptorID, Err: err}
 		}
 		if present {
-			discovered = append(discovered, discoveredEffect{EffectSurface: effectSurfaceForSpec(descriptorID, spec), File: spec.OwnerPackage})
+			discovered = append(discovered, discoveredEffect{EffectSurface: effectSurfaceForSpec(registration.DescriptorID, spec), File: registration.File, Line: registration.Line})
 		}
 	}
 	sort.Slice(discovered, func(i, j int) bool {
@@ -418,12 +441,546 @@ func runEntrypointLiteral(call *ast.CallExpr) string {
 
 type sourceFunction struct {
 	declaration *ast.FuncDecl
+	receiver    string
+	receiverVar string
 	calls       []sourceCall
 }
 
 type sourceCall struct {
-	name     string
-	position token.Pos
+	name        string
+	localTarget string
+	position    token.Pos
+}
+
+type sourceRegistration struct {
+	DescriptorID       string
+	OwnerPackage       string
+	Owner              string
+	CapabilityID       string
+	Boundary           Boundary
+	RegistrationSymbol string
+	File               string
+	Line               int
+}
+
+type packageSourceFunction struct {
+	declaration *ast.FuncDecl
+	file        string
+}
+
+func effectConstantValues(repoRoot string) (map[string]string, error) {
+	values := make(map[string]string)
+	path := filepath.Join(repoRoot, "src", "server", "internal", "releasecontract", "catalog.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return values, nil
+		}
+		return nil, err
+	}
+	for _, declaration := range file.Decls {
+		constants, ok := declaration.(*ast.GenDecl)
+		if !ok || constants.Tok != token.CONST {
+			continue
+		}
+		for _, declarationSpec := range constants.Specs {
+			valueSpec, ok := declarationSpec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for index, expression := range valueSpec.Values {
+				if index >= len(valueSpec.Names) {
+					continue
+				}
+				literal, ok := expression.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					continue
+				}
+				value, err := strconv.Unquote(literal.Value)
+				if err == nil {
+					values[valueSpec.Names[index].Name] = value
+				}
+			}
+		}
+	}
+	return values, nil
+}
+
+func discoverPackageRegistrations(repoRoot, directory string, effectValues map[string]string) ([]sourceRegistration, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	fset := token.NewFileSet()
+	constants := make(map[string]string)
+	var functions []packageSourceFunction
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		collectStringConstants(file, constants)
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && function.Body != nil {
+				functions = append(functions, packageSourceFunction{declaration: function, file: path})
+			}
+		}
+	}
+
+	relativeDirectory, err := filepath.Rel(repoRoot, directory)
+	if err != nil {
+		return nil, err
+	}
+	ownerPackage := filepath.ToSlash(relativeDirectory)
+	var registrations []sourceRegistration
+	seen := make(map[string]struct{})
+	for _, function := range functions {
+		if !functionCallsRegister(function.declaration) {
+			continue
+		}
+		resolved := resolvedCapabilityBindings(function.declaration)
+		ast.Inspect(function.declaration.Body, func(node ast.Node) bool {
+			literal, ok := node.(*ast.CompositeLit)
+			if !ok || !isDescriptorLiteral(literal) || !descriptorLiteralFeedsRegister(function.declaration, literal) {
+				return true
+			}
+			environments := []map[string]string{nil}
+			environments = append(environments, descriptorParameterEnvironments(function.declaration, functions, constants, effectValues)...)
+			environments = append(environments, descriptorRangeEnvironments(function.declaration, literal, constants, effectValues)...)
+			for _, environment := range environments {
+				registration, ok := sourceRegistrationFromLiteral(repoRoot, literal, function, fset, ownerPackage, environment, constants, effectValues, resolved)
+				if !ok {
+					continue
+				}
+				key := registration.DescriptorID + "\x00" + registration.Owner + "\x00" + registration.File + "\x00" + strconv.Itoa(registration.Line)
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				seen[key] = struct{}{}
+				registrations = append(registrations, registration)
+			}
+			return true
+		})
+	}
+	sort.Slice(registrations, func(i, j int) bool {
+		if registrations[i].DescriptorID != registrations[j].DescriptorID {
+			return registrations[i].DescriptorID < registrations[j].DescriptorID
+		}
+		if registrations[i].File != registrations[j].File {
+			return registrations[i].File < registrations[j].File
+		}
+		return registrations[i].Line < registrations[j].Line
+	})
+	return registrations, nil
+}
+
+func collectStringConstants(file *ast.File, destination map[string]string) {
+	for _, declaration := range file.Decls {
+		constants, ok := declaration.(*ast.GenDecl)
+		if !ok || constants.Tok != token.CONST {
+			continue
+		}
+		for _, declarationSpec := range constants.Specs {
+			valueSpec, ok := declarationSpec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for index, expression := range valueSpec.Values {
+				if index >= len(valueSpec.Names) {
+					continue
+				}
+				if value, ok := evaluateSourceString(expression, nil, destination, nil); ok {
+					destination[valueSpec.Names[index].Name] = value
+				}
+			}
+		}
+	}
+}
+
+func functionCallsRegister(function *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := node.(*ast.CallExpr)
+		found = ok && calledName(call.Fun) == "Register"
+		return !found
+	})
+	return found
+}
+
+func descriptorLiteralFeedsRegister(function *ast.FuncDecl, descriptor *ast.CompositeLit) bool {
+	registered := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if registered {
+			return false
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok || calledName(call.Fun) != "Register" || len(call.Args) != 1 {
+			return true
+		}
+		if astNodeContains(call.Args[0], descriptor) {
+			registered = true
+			return false
+		}
+		argument, ok := call.Args[0].(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if identifierAssignedDescriptor(function, argument.Name, descriptor) || registeredRangeContainsDescriptor(function, argument.Name, descriptor) {
+			registered = true
+			return false
+		}
+		return true
+	})
+	return registered
+}
+
+func identifierAssignedDescriptor(function *ast.FuncDecl, identifier string, descriptor *ast.CompositeLit) bool {
+	assigned := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if assigned {
+			return false
+		}
+		switch value := node.(type) {
+		case *ast.AssignStmt:
+			for index, left := range value.Lhs {
+				name, ok := left.(*ast.Ident)
+				if ok && name.Name == identifier && index < len(value.Rhs) && astNodeContains(value.Rhs[index], descriptor) {
+					assigned = true
+					return false
+				}
+			}
+		case *ast.ValueSpec:
+			for index, name := range value.Names {
+				if name.Name == identifier && index < len(value.Values) && astNodeContains(value.Values[index], descriptor) {
+					assigned = true
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return assigned
+}
+
+func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable string, descriptor *ast.CompositeLit) bool {
+	matched := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if matched {
+			return false
+		}
+		rangeStatement, ok := node.(*ast.RangeStmt)
+		if !ok || expressionReference(rangeStatement.Value) != registeredVariable {
+			return true
+		}
+		source := assignedCompositeLiteral(function, rangeStatement.X)
+		if source != nil && astNodeContains(source, descriptor) {
+			matched = true
+			return false
+		}
+		collection := expressionReference(rangeStatement.X)
+		if collection != "" && descriptorAppendedToCollection(function, collection, descriptor) {
+			matched = true
+			return false
+		}
+		return true
+	})
+	return matched
+}
+
+func descriptorAppendedToCollection(function *ast.FuncDecl, collection string, descriptor *ast.CompositeLit) bool {
+	appended := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if appended {
+			return false
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok || calledName(call.Fun) != "append" || len(call.Args) < 2 || expressionReference(call.Args[0]) != collection {
+			return true
+		}
+		for _, argument := range call.Args[1:] {
+			if astNodeContains(argument, descriptor) {
+				appended = true
+				return false
+			}
+		}
+		return true
+	})
+	return appended
+}
+
+func descriptorParameterEnvironments(function *ast.FuncDecl, functions []packageSourceFunction, constants, effectValues map[string]string) []map[string]string {
+	parameters := functionParameterNames(function)
+	if len(parameters) == 0 {
+		return nil
+	}
+	var environments []map[string]string
+	for _, caller := range functions {
+		ast.Inspect(caller.declaration.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || calledName(call.Fun) != function.Name.Name {
+				return true
+			}
+			environment := make(map[string]string)
+			for index, parameter := range parameters {
+				if index >= len(call.Args) {
+					break
+				}
+				if value, ok := evaluateSourceString(call.Args[index], nil, constants, effectValues); ok {
+					environment[parameter] = value
+				}
+			}
+			if len(environment) > 0 {
+				environments = append(environments, environment)
+			}
+			return true
+		})
+	}
+	return environments
+}
+
+func descriptorRangeEnvironments(function *ast.FuncDecl, descriptor *ast.CompositeLit, constants, effectValues map[string]string) []map[string]string {
+	var environments []map[string]string
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		rangeStatement, ok := node.(*ast.RangeStmt)
+		if !ok || !astNodeContains(rangeStatement.Body, descriptor) {
+			return true
+		}
+		source := assignedCompositeLiteral(function, rangeStatement.X)
+		if source == nil {
+			return true
+		}
+		environments = append(environments, rangeCompositeEnvironments(rangeStatement, source, constants, effectValues)...)
+		return true
+	})
+	return environments
+}
+
+func astNodeContains(root ast.Node, target ast.Node) bool {
+	found := false
+	ast.Inspect(root, func(node ast.Node) bool {
+		if node == target {
+			found = true
+			return false
+		}
+		return !found
+	})
+	return found
+}
+
+func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr) *ast.CompositeLit {
+	if literal, ok := expression.(*ast.CompositeLit); ok {
+		return literal
+	}
+	identifier, ok := expression.(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	var result *ast.CompositeLit
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if result != nil {
+			return false
+		}
+		switch value := node.(type) {
+		case *ast.AssignStmt:
+			for index, left := range value.Lhs {
+				name, ok := left.(*ast.Ident)
+				if !ok || name.Name != identifier.Name || index >= len(value.Rhs) {
+					continue
+				}
+				result, _ = value.Rhs[index].(*ast.CompositeLit)
+			}
+		case *ast.ValueSpec:
+			for index, name := range value.Names {
+				if name.Name != identifier.Name || index >= len(value.Values) {
+					continue
+				}
+				result, _ = value.Values[index].(*ast.CompositeLit)
+			}
+		}
+		return result == nil
+	})
+	return result
+}
+
+func rangeCompositeEnvironments(statement *ast.RangeStmt, source *ast.CompositeLit, constants, effectValues map[string]string) []map[string]string {
+	switch source.Type.(type) {
+	case *ast.MapType:
+		keyName := expressionReference(statement.Key)
+		valueName := expressionReference(statement.Value)
+		var environments []map[string]string
+		for _, element := range source.Elts {
+			row, ok := element.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			environment := make(map[string]string)
+			if value, ok := evaluateSourceString(row.Key, nil, constants, effectValues); ok && keyName != "" {
+				environment[keyName] = value
+			}
+			if value, ok := evaluateSourceString(row.Value, nil, constants, effectValues); ok && valueName != "" {
+				environment[valueName] = value
+			}
+			if len(environment) > 0 {
+				environments = append(environments, environment)
+			}
+		}
+		return environments
+	case *ast.ArrayType:
+		valueName := expressionReference(statement.Value)
+		fieldNames := sourceStructFieldNames(source)
+		if valueName == "" || len(fieldNames) == 0 {
+			return nil
+		}
+		var environments []map[string]string
+		for _, element := range source.Elts {
+			row, ok := element.(*ast.CompositeLit)
+			if !ok {
+				continue
+			}
+			environment := make(map[string]string)
+			for index, fieldName := range fieldNames {
+				if index >= len(row.Elts) {
+					break
+				}
+				if value, ok := evaluateSourceString(row.Elts[index], nil, constants, effectValues); ok {
+					environment[valueName+"."+fieldName] = value
+				}
+			}
+			if len(environment) > 0 {
+				environments = append(environments, environment)
+			}
+		}
+		return environments
+	}
+	return nil
+}
+
+func sourceStructFieldNames(source *ast.CompositeLit) []string {
+	array, ok := source.Type.(*ast.ArrayType)
+	if !ok {
+		return nil
+	}
+	structure, ok := array.Elt.(*ast.StructType)
+	if !ok || structure.Fields == nil {
+		return nil
+	}
+	var names []string
+	for _, field := range structure.Fields.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	return names
+}
+
+func sourceRegistrationFromLiteral(repoRoot string, literal *ast.CompositeLit, function packageSourceFunction, fset *token.FileSet, ownerPackage string, environment, constants, effectValues, resolved map[string]string) (sourceRegistration, bool) {
+	descriptorID, idOK := evaluateSourceString(descriptorField(literal, "ID"), environment, constants, effectValues)
+	owner, ownerOK := evaluateSourceString(descriptorField(literal, "Owner"), environment, constants, effectValues)
+	boundary, boundaryOK := sourceBoundary(descriptorField(literal, "Boundary"))
+	if !idOK || !ownerOK || !boundaryOK || strings.TrimSpace(descriptorID) == "" || strings.TrimSpace(owner) == "" {
+		return sourceRegistration{}, false
+	}
+	capabilityID, _ := evaluateSourceString(descriptorField(literal, "CapabilityID"), environment, constants, effectValues)
+	if capabilityID == "" {
+		capabilityReference := expressionReference(descriptorField(literal, "CapabilityID"))
+		effectReference := resolved[capabilityReference]
+		effectID := sourceReferenceValue(effectReference, environment, constants, effectValues)
+		capabilityID = string(authoredEffectCapabilities[EffectID(effectID)])
+	}
+	position := fset.Position(literal.Pos())
+	relative, _ := filepath.Rel(repoRoot, function.file)
+	return sourceRegistration{
+		DescriptorID: descriptorID, OwnerPackage: ownerPackage, Owner: owner, CapabilityID: capabilityID, Boundary: boundary,
+		RegistrationSymbol: sourceFunctionKey(functionReceiverName(function.declaration), function.declaration.Name.Name), File: filepath.ToSlash(relative), Line: position.Line,
+	}, true
+}
+
+func functionReceiverName(function *ast.FuncDecl) string {
+	receiver, _ := functionReceiver(function)
+	return receiver
+}
+
+func evaluateSourceString(expression ast.Expr, environment, constants, effectValues map[string]string) (string, bool) {
+	if expression == nil {
+		return "", false
+	}
+	switch value := expression.(type) {
+	case *ast.BasicLit:
+		if value.Kind != token.STRING {
+			return "", false
+		}
+		literal, err := strconv.Unquote(value.Value)
+		return literal, err == nil
+	case *ast.Ident:
+		return sourceLookup(value.Name, environment, constants, effectValues)
+	case *ast.SelectorExpr:
+		return sourceLookup(expressionReference(value), environment, constants, effectValues)
+	case *ast.CallExpr:
+		if len(value.Args) == 1 {
+			return evaluateSourceString(value.Args[0], environment, constants, effectValues)
+		}
+	case *ast.BinaryExpr:
+		if value.Op == token.ADD {
+			left, leftOK := evaluateSourceString(value.X, environment, constants, effectValues)
+			right, rightOK := evaluateSourceString(value.Y, environment, constants, effectValues)
+			return left + right, leftOK && rightOK
+		}
+	case *ast.ParenExpr:
+		return evaluateSourceString(value.X, environment, constants, effectValues)
+	}
+	return "", false
+}
+
+func sourceLookup(reference string, environment, constants, effectValues map[string]string) (string, bool) {
+	if value, ok := environment[reference]; ok {
+		return value, true
+	}
+	short := reference
+	if index := strings.LastIndex(short, "."); index >= 0 {
+		short = short[index+1:]
+	}
+	if value, ok := constants[short]; ok {
+		return value, true
+	}
+	value, ok := effectValues[short]
+	return value, ok
+}
+
+func sourceReferenceValue(reference string, environment, constants, effectValues map[string]string) string {
+	if value, ok := sourceLookup(reference, environment, constants, effectValues); ok {
+		return value
+	}
+	return ""
+}
+
+func sourceBoundary(expression ast.Expr) (Boundary, bool) {
+	name := calledName(expression)
+	switch name {
+	case "BoundaryHTTP":
+		return BoundaryHTTP, true
+	case "BoundaryGRPC":
+		return BoundaryGRPC, true
+	case "BoundaryWorkerClaim":
+		return BoundaryWorkerClaim, true
+	case "BoundaryWorkerEffect":
+		return BoundaryWorkerEffect, true
+	case "BoundaryOutbound":
+		return BoundaryOutbound, true
+	case "BoundaryFinancial":
+		return BoundaryFinancial, true
+	case "BoundaryOperation":
+		return BoundaryOperation, true
+	default:
+		return "", false
+	}
 }
 
 func descriptorStructurePresent(repoRoot, descriptorID string, spec runtimeDescriptorSpec) (bool, error) {
@@ -467,18 +1024,72 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 			if !ok || function.Body == nil {
 				continue
 			}
-			indexed := sourceFunction{declaration: function}
+			receiver, receiverVar := functionReceiver(function)
+			indexed := sourceFunction{declaration: function, receiver: receiver, receiverVar: receiverVar}
 			ast.Inspect(function.Body, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if ok {
-					indexed.calls = append(indexed.calls, sourceCall{name: calledName(call.Fun), position: call.Pos()})
+					indexed.calls = append(indexed.calls, sourceCall{
+						name: calledName(call.Fun), localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(),
+					})
 				}
 				return true
 			})
-			functions[function.Name.Name] = append(functions[function.Name.Name], indexed)
+			key := sourceFunctionKey(receiver, function.Name.Name)
+			functions[key] = append(functions[key], indexed)
 		}
 	}
 	return functions, nil
+}
+
+func functionReceiver(function *ast.FuncDecl) (string, string) {
+	if function == nil || function.Recv == nil || len(function.Recv.List) != 1 {
+		return "", ""
+	}
+	field := function.Recv.List[0]
+	receiver := receiverTypeName(field.Type)
+	variable := ""
+	if len(field.Names) == 1 {
+		variable = field.Names[0].Name
+	}
+	return receiver, variable
+}
+
+func receiverTypeName(expression ast.Expr) string {
+	switch value := expression.(type) {
+	case *ast.Ident:
+		return value.Name
+	case *ast.StarExpr:
+		return receiverTypeName(value.X)
+	case *ast.IndexExpr:
+		return receiverTypeName(value.X)
+	case *ast.IndexListExpr:
+		return receiverTypeName(value.X)
+	case *ast.SelectorExpr:
+		if value.Sel != nil {
+			return value.Sel.Name
+		}
+	}
+	return ""
+}
+
+func sourceFunctionKey(receiver, name string) string {
+	if receiver == "" {
+		return name
+	}
+	return receiver + "." + name
+}
+
+func localCallTarget(expression ast.Expr, receiverVar, receiver string) string {
+	selector, ok := expression.(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil || receiverVar == "" || receiver == "" {
+		return ""
+	}
+	identifier, ok := selector.X.(*ast.Ident)
+	if !ok || identifier.Name != receiverVar {
+		return ""
+	}
+	return sourceFunctionKey(receiver, selector.Sel.Name)
 }
 
 func calledName(expression ast.Expr) string {
@@ -499,106 +1110,249 @@ func calledName(expression ast.Expr) string {
 
 func registrationContractPresent(functions map[string][]sourceFunction, contract, descriptorID, anchor, effectSymbol, owner string, boundary Boundary) bool {
 	path := strings.Split(contract, ">")
-	if len(path) == 0 {
+	if len(path) == 0 || len(path) > 2 {
 		return false
 	}
-	for _, first := range functions[path[0]] {
-		next := ""
-		if len(path) > 1 {
-			next = path[1]
-		}
-		if !functionHasRegistrationIdentity(first.declaration, descriptorID, anchor, owner, next) {
-			continue
-		}
-		current := first
-		valid := true
-		for index := 1; index < len(path); index++ {
-			if !hasCallAfter(current, path[index], 0) || len(functions[path[index]]) == 0 {
-				valid = false
-				break
-			}
-			current = functions[path[index]][0]
-		}
-		if valid && hasCallAfter(current, "Register", 0) && functionHasBoundary(current.declaration, boundary) && (functionHasEffectBinding(first.declaration, effectSymbol) || functionHasEffectBinding(current.declaration, effectSymbol)) {
-			return true
-		}
-	}
-	return false
-}
-
-func functionHasRegistrationIdentity(function *ast.FuncDecl, descriptorID, anchor, owner, next string) bool {
-	found := false
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		if next != "" {
-			call, ok := node.(*ast.CallExpr)
-			if !ok || calledName(call.Fun) != next {
+	if len(path) == 1 {
+		for _, function := range functions[path[0]] {
+			if functionHasExactRegistration(function, descriptorID, anchor, effectSymbol, owner, boundary, nil) {
 				return true
 			}
-			found = syntaxListContainsAnchor(call.Args, descriptorID) && syntaxListContainsAnchor(call.Args, owner)
-			return !found
 		}
-		literal, ok := node.(*ast.CompositeLit)
-		if ok && syntaxContainsAnchor(literal, anchor) && syntaxContainsAnchor(literal, owner) {
-			found = true
-		}
-		return !found
-	})
-	if found {
-		return true
+		return false
 	}
-	return next == "" && functionHasCompositeAnchor(function, anchor) && functionHasCompositeAnchor(function, owner)
-}
-
-func functionHasCompositeAnchor(function *ast.FuncDecl, anchor string) bool {
-	found := false
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		if found {
-			return false
-		}
-		literal, ok := node.(*ast.CompositeLit)
-		found = ok && syntaxContainsAnchor(literal, anchor)
-		return !found
-	})
-	return found
-}
-
-func syntaxListContainsAnchor(nodes []ast.Expr, anchor string) bool {
-	for _, node := range nodes {
-		if syntaxContainsAnchor(node, anchor) {
-			return true
+	for _, caller := range functions[path[0]] {
+		for _, helper := range functions[path[1]] {
+			bindings, ok := exactRegistrationCallBindings(caller, helper, path[1], descriptorID, owner)
+			if ok && functionHasExactRegistration(helper, descriptorID, anchor, effectSymbol, owner, boundary, bindings) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func functionHasEffectBinding(function *ast.FuncDecl, effectSymbol string) bool {
-	found := false
+func functionHasExactRegistration(function sourceFunction, descriptorID, anchor, effectSymbol, owner string, boundary Boundary, bindings map[string]string) bool {
+	if firstCallPosition(function, "Register") == 0 {
+		return false
+	}
+	resolved := resolvedCapabilityBindings(function.declaration)
+	foundLiteral := false
+	ast.Inspect(function.declaration.Body, func(node ast.Node) bool {
+		if foundLiteral {
+			return false
+		}
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok || !isDescriptorLiteral(literal) {
+			return true
+		}
+		foundLiteral = descriptorLiteralMatches(literal, descriptorID, effectSymbol, owner, boundary, bindings, resolved)
+		return !foundLiteral
+	})
+	if foundLiteral {
+		return true
+	}
+	return bindings == nil && anchor != "" && generatedDescriptorContractPresent(function.declaration, descriptorID, anchor, effectSymbol, owner, boundary)
+}
+
+func descriptorLiteralMatches(literal *ast.CompositeLit, descriptorID, effectSymbol, owner string, boundary Boundary, bindings, resolved map[string]string) bool {
+	idExpression := descriptorField(literal, "ID")
+	ownerExpression := descriptorField(literal, "Owner")
+	boundaryExpression := descriptorField(literal, "Boundary")
+	capabilityExpression := descriptorField(literal, "CapabilityID")
+	if idExpression == nil || ownerExpression == nil || boundaryExpression == nil || capabilityExpression == nil {
+		return false
+	}
+	if bindings != nil {
+		if expressionReference(idExpression) != bindings["ID"] || expressionReference(ownerExpression) != bindings["Owner"] {
+			return false
+		}
+	} else if !expressionIsExactString(idExpression, descriptorID) || !expressionIsExactString(ownerExpression, owner) {
+		return false
+	}
+	if !syntaxContainsAnchor(boundaryExpression, boundarySourceIdentifier(boundary)) {
+		return false
+	}
+	return sourceSymbolMatches(resolved[expressionReference(capabilityExpression)], effectSymbol)
+}
+
+func sourceSymbolMatches(reference, expected string) bool {
+	if reference == expected {
+		return true
+	}
+	if index := strings.LastIndex(reference, "."); index >= 0 {
+		return reference[index+1:] == expected
+	}
+	return false
+}
+
+func descriptorField(literal *ast.CompositeLit, name string) ast.Expr {
+	for _, element := range literal.Elts {
+		keyed, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		identifier, ok := keyed.Key.(*ast.Ident)
+		if ok && identifier.Name == name {
+			return keyed.Value
+		}
+	}
+	return nil
+}
+
+func isDescriptorLiteral(literal *ast.CompositeLit) bool {
+	if literal == nil {
+		return false
+	}
+	if calledName(literal.Type) == "EffectDescriptor" {
+		return true
+	}
+	return descriptorField(literal, "ID") != nil && descriptorField(literal, "CapabilityID") != nil && descriptorField(literal, "Boundary") != nil && descriptorField(literal, "Owner") != nil
+}
+
+func expressionIsExactString(expression ast.Expr, expected string) bool {
+	literal, ok := expression.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return false
+	}
+	value, err := strconv.Unquote(literal.Value)
+	return err == nil && value == expected
+}
+
+func expressionReference(expression ast.Expr) string {
+	switch value := expression.(type) {
+	case *ast.Ident:
+		return value.Name
+	case *ast.SelectorExpr:
+		prefix := expressionReference(value.X)
+		if prefix != "" && value.Sel != nil {
+			return prefix + "." + value.Sel.Name
+		}
+	case *ast.CallExpr:
+		if len(value.Args) == 1 {
+			return expressionReference(value.Args[0])
+		}
+	case *ast.ParenExpr:
+		return expressionReference(value.X)
+	}
+	return ""
+}
+
+func resolvedCapabilityBindings(function *ast.FuncDecl) map[string]string {
+	bindings := make(map[string]string)
+	if function == nil || function.Body == nil {
+		return bindings
+	}
 	ast.Inspect(function.Body, func(node ast.Node) bool {
-		if found {
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok || len(assignment.Lhs) == 0 || len(assignment.Rhs) != 1 {
+			return true
+		}
+		call, ok := assignment.Rhs[0].(*ast.CallExpr)
+		if !ok || calledName(call.Fun) != "Resolve" || len(call.Args) != 1 {
+			return true
+		}
+		binding := expressionReference(assignment.Lhs[0])
+		effect := expressionReference(call.Args[0])
+		if binding != "" && effect != "" {
+			bindings[binding] = effect
+		}
+		return true
+	})
+	return bindings
+}
+
+func exactRegistrationCallBindings(caller, helper sourceFunction, helperName, descriptorID, owner string) (map[string]string, bool) {
+	parameters := functionParameterNames(helper.declaration)
+	if len(parameters) == 0 {
+		return nil, false
+	}
+	idParameter := ""
+	ownerParameter := ""
+	ast.Inspect(helper.declaration.Body, func(node ast.Node) bool {
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok || !isDescriptorLiteral(literal) {
+			return true
+		}
+		idParameter = expressionReference(descriptorField(literal, "ID"))
+		ownerParameter = expressionReference(descriptorField(literal, "Owner"))
+		return false
+	})
+	idIndex, ownerIndex := -1, -1
+	for index, parameter := range parameters {
+		if parameter == idParameter {
+			idIndex = index
+		}
+		if parameter == ownerParameter {
+			ownerIndex = index
+		}
+	}
+	if idIndex < 0 || ownerIndex < 0 {
+		return nil, false
+	}
+	var bindings map[string]string
+	ast.Inspect(caller.declaration.Body, func(node ast.Node) bool {
+		if bindings != nil {
 			return false
 		}
-		if call, ok := node.(*ast.CallExpr); ok && calledName(call.Fun) == "Resolve" && syntaxListContainsAnchor(call.Args, effectSymbol) {
-			found = true
-			return false
+		call, ok := node.(*ast.CallExpr)
+		if !ok || calledName(call.Fun) != helperName || idIndex >= len(call.Args) || ownerIndex >= len(call.Args) {
+			return true
 		}
-		if literal, ok := node.(*ast.CompositeLit); ok && syntaxContainsAnchor(literal, effectSymbol) {
-			found = true
+		if expressionIsExactString(call.Args[idIndex], descriptorID) && expressionIsExactString(call.Args[ownerIndex], owner) {
+			bindings = map[string]string{"ID": idParameter, "Owner": ownerParameter}
 			return false
 		}
 		return true
 	})
-	return found
+	return bindings, bindings != nil
 }
 
-func functionHasBoundary(function *ast.FuncDecl, boundary Boundary) bool {
-	identifier := boundarySourceIdentifier(boundary)
-	if identifier == "" {
-		return false
+func functionParameterNames(function *ast.FuncDecl) []string {
+	if function == nil || function.Type == nil || function.Type.Params == nil {
+		return nil
 	}
-	return functionHasCompositeAnchor(function, identifier)
+	var names []string
+	for _, field := range function.Type.Params.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	return names
+}
+
+func generatedDescriptorContractPresent(function *ast.FuncDecl, descriptorID, anchor, effectSymbol, owner string, boundary Boundary) bool {
+	paired := false
+	template := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if keyed, ok := node.(*ast.KeyValueExpr); ok && syntaxContainsAnchor(keyed.Key, anchor) && syntaxContainsAnchor(keyed.Value, effectSymbol) {
+			paired = true
+		}
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		if isDescriptorLiteral(literal) {
+			idExpression := descriptorField(literal, "ID")
+			ownerExpression := descriptorField(literal, "Owner")
+			capabilityExpression := descriptorField(literal, "CapabilityID")
+			boundaryExpression := descriptorField(literal, "Boundary")
+			ownerBound := expressionIsExactString(ownerExpression, owner) || expressionReference(ownerExpression) == "effect.owner"
+			idBound := expressionReference(idExpression) == "effect.id" || syntaxContainsAnchor(idExpression, "agent.tool.registry.")
+			capabilityBound := expressionReference(capabilityExpression) == "capability" || expressionReference(capabilityExpression) == "capabilityID"
+			template = ownerBound && idBound && capabilityBound && syntaxContainsAnchor(boundaryExpression, boundarySourceIdentifier(boundary))
+			return true
+		}
+		for _, element := range literal.Elts {
+			row, ok := element.(*ast.CompositeLit)
+			if ok && syntaxContainsAnchor(row, anchor) && syntaxContainsAnchor(row, effectSymbol) && syntaxContainsAnchor(row, owner) {
+				paired = true
+			}
+		}
+		return true
+	})
+	_ = descriptorID
+	return paired && template
 }
 
 func boundarySourceIdentifier(boundary Boundary) string {
@@ -751,7 +1505,11 @@ func firstCallPosition(function sourceFunction, name string) token.Pos {
 
 func firstCallPositionAfter(function sourceFunction, name string, after token.Pos) token.Pos {
 	for _, call := range function.calls {
-		if call.name == name && call.position > after {
+		matched := call.name == name
+		if strings.Contains(name, ".") {
+			matched = call.localTarget == name
+		}
+		if matched && call.position > after {
 			return call.position
 		}
 	}

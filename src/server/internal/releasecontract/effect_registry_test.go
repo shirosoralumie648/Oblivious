@@ -179,8 +179,59 @@ const retiredDescriptorMarker = "builtin"
 		t.Fatal("production discovery returned zero rows")
 	}
 	if err := joinStatic(manifest.Surfaces, production); err != nil {
-		t.Fatalf("production structural join: %v", err)
+		t.Fatalf("production structural join: %v; discovered=%#v", err, production)
 	}
+	descriptorCounts := make(map[string]int, len(runtimeDescriptorSpecs))
+	for _, surface := range production {
+		if surface.DescriptorID != "" {
+			descriptorCounts[surface.DescriptorID]++
+		}
+	}
+	if len(descriptorCounts) != len(runtimeDescriptorSpecs) {
+		t.Fatalf("production descriptor rows=%d want=%d: %#v", len(descriptorCounts), len(runtimeDescriptorSpecs), descriptorCounts)
+	}
+	for descriptorID := range runtimeDescriptorSpecs {
+		if descriptorCounts[descriptorID] != 1 {
+			t.Fatalf("production descriptor %s count=%d want=1", descriptorID, descriptorCounts[descriptorID])
+		}
+	}
+
+	t.Run("extra production seam", func(t *testing.T) {
+		extraRoot := t.TempDir()
+		extraPackage := filepath.Join(extraRoot, "src", "server", "internal", "extra")
+		if err := os.MkdirAll(extraPackage, 0o755); err != nil {
+			t.Fatalf("create extra seam fixture: %v", err)
+		}
+		extraSource := `package extra
+
+import "oblivious/server/internal/releasecontract"
+
+func register(effects releasecontract.EffectRegistrar) error {
+	unused := releasecontract.EffectDescriptor{
+		ID: "unused.source.effect", CapabilityID: "mcp.tool_execution",
+		Boundary: releasecontract.BoundaryOutbound, Owner: "extra.Unused",
+	}
+	_ = unused
+	return effects.Register(releasecontract.EffectDescriptor{
+		ID: "unknown.source.effect", CapabilityID: "mcp.tool_execution",
+		Boundary: releasecontract.BoundaryOutbound, Owner: "extra.Owner",
+	})
+}
+`
+		if err := os.WriteFile(filepath.Join(extraPackage, "extra.go"), []byte(extraSource), 0o644); err != nil {
+			t.Fatalf("write extra seam fixture: %v", err)
+		}
+		extraProduction, err := DiscoverEffectSurfaces(extraRoot)
+		if err != nil {
+			t.Fatalf("discover extra source seam: %v", err)
+		}
+		if len(extraProduction) != 1 || extraProduction[0].DescriptorID != "unknown.source.effect" {
+			t.Fatalf("registered source inventory = %#v", extraProduction)
+		}
+		if err := joinStatic(nil, extraProduction); !IsEffectCoverageCode(err, "effect_coverage_extra_static") {
+			t.Fatalf("extra source seam error = %v, discovered=%#v", err, extraProduction)
+		}
+	})
 
 	mutations := []struct {
 		name         string
@@ -190,15 +241,30 @@ const retiredDescriptorMarker = "builtin"
 		replacement  string
 	}{
 		{"worker registration", "worker.schedule.claim", "worker.go", "effects.Register(descriptor)", "effects.RetiredRegister(descriptor)"},
+		{"schedule sibling capability binding", "worker.schedule.claim", "worker.go", "CapabilityID: string(claimCapability)", "CapabilityID: string(workflowCapability)"},
+		{"channel retry guard", "worker.channel_retry.claim", "service_legacy.go", "s.readiness.requireRetryClaim(ctx)", "s.readiness.retiredRequireRetryClaim(ctx)"},
+		{"channel delivery effect", "channel.delivery.send", "service_legacy.go", "deliverer.DeliverOutbound(ctx, req.Config, raw)", "deliverer.RetiredDeliverOutbound(ctx, req.Config, raw)"},
 		{"registration owner", "chat.provider.dispatch", "relay_gateway.go", "\"chat.RelayGateway\"", "\"chat.OtherGateway\""},
 		{"registration boundary", "mcp.transport.dispatch", "client.go", "Boundary:     releasecontract.BoundaryOutbound", "Boundary:     releasecontract.BoundaryHTTP"},
 		{"registration effect", "admin.channel.model.mutation", "service.go", "Resolve(releasecontract.EffectHTTPMutation)", "Resolve(releasecontract.EffectToolBuiltin)"},
 		{"relay chat guard", "chat.provider.dispatch", "relay_gateway.go", "g.readiness.requireDispatch(ctx, req.Model)", "g.readiness.retiredRequireDispatch(ctx, req.Model)"},
 		{"admin effect", "admin.channel.model.mutation", "channel_service.go", "s.store.TestChannel(ctx, actor.OrganizationID, id)", "s.store.RetiredTestChannel(ctx, actor.OrganizationID, id)"},
 		{"marketplace checkout effect", "http.marketplace.checkout", "marketplace_handler.go", "checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig", "checkoutCreator.RetiredCreateCheckoutSession(r.Context(), h.checkoutConfig"},
+		{"billing checkout effect", "http.billing.checkout", "billing_handler.go", "checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)", "checkoutCreator.RetiredCreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)"},
+		{"marketplace settlement sibling capability binding", "marketplace.settlement.intent", "settlement.go", "CapabilityID: string(readiness.settlement)", "CapabilityID: string(readiness.payout)"},
+		{"marketplace payout effect", "marketplace.payout.dispatch", "settlement.go", "s.payoutProvider.CreatePayout(ctx, request)", "s.payoutProvider.RetiredCreatePayout(ctx, request)"},
 		{"mcp transport effect", "mcp.transport.dispatch", "client.go", "c.httpClient.Do(httpReq)", "c.httpClient.RetiredDo(httpReq)"},
+		{"mcp builtin effect", "mcp.websearch.builtin", "builtin.go", "t.provider.Search(ctx, strings.TrimSpace(query))", "t.provider.RetiredSearch(ctx, strings.TrimSpace(query))"},
+		{"mcp tavily effect", "mcp.websearch.tavily", "web_search_provider.go", "p.client.Do(req)", "p.client.RetiredDo(req)"},
+		{"websearch chain receiver guard", "mcp.websearch.chain", "websearch.go", "c.readiness.authorize(ctx)", "c.readiness.retiredAuthorize(ctx)"},
+		{"websearch chain receiver effect", "mcp.websearch.chain", "websearch.go", "provider.Search(ctx, query)", "provider.RetiredSearch(ctx, query)"},
+		{"websearch provider receiver guard", "mcp.websearch.provider", "websearch.go", "p.readiness.authorize(ctx)", "p.readiness.retiredAuthorize(ctx)"},
+		{"websearch provider receiver effect", "mcp.websearch.provider", "websearch.go", "p.provider.Search(ctx, query)", "p.provider.RetiredSearch(ctx, query)"},
 		{"tool executor guard", "agent.tool.builtin", "executor.go", "e.authorizeTool(ctx, persistedTool)", "e.retiredAuthorizeTool(ctx, persistedTool)"},
 		{"independent registry effect", "agent.tool.registry.builtin", "registry.go", "return entry.executor(ctx, args)", "return retiredExecutor(ctx, args)"},
+		{"independent websearch effect", "agent.tool.web_search", "websearch.go", "provider.Search(ctx, query)", "provider.RetiredSearch(ctx, query)"},
+		{"archive sibling capability binding", "worker.archive.write", "archive.go", "CapabilityID: string(write)", "CapabilityID: string(deleteCapability)"},
+		{"relay batch sibling capability binding", "worker.relay_batch.claim", "batch_polling_worker.go", "CapabilityID: string(claim)", "CapabilityID: string(finalize)"},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -245,21 +311,6 @@ const retiredDescriptorMarker = "builtin"
 	}
 	if guardEffectContractPresent(functions, "run:guard", "run:effect") {
 		t.Fatal("guard moved after effect was accepted")
-	}
-	deadConstantRoot := filepath.Join(t.TempDir(), "src", "server", "internal", "deadconstant")
-	if err := os.MkdirAll(deadConstantRoot, 0o755); err != nil {
-		t.Fatalf("create dead constant fixture: %v", err)
-	}
-	deadConstantSource := "package deadconstant\nfunc register() { const retired = \"agent.tool.builtin\"; effects.Register(other) }\n"
-	if err := os.WriteFile(filepath.Join(deadConstantRoot, "dead.go"), []byte(deadConstantSource), 0o644); err != nil {
-		t.Fatalf("write dead constant fixture: %v", err)
-	}
-	deadFunctions, err := loadSourceFunctions(deadConstantRoot)
-	if err != nil {
-		t.Fatalf("parse dead constant fixture: %v", err)
-	}
-	if functionHasRegistrationIdentity(deadFunctions["register"][0].declaration, "agent.tool.builtin", "agent.tool.builtin", "agent.ToolExecutor.builtin", "") {
-		t.Fatal("dead string constant was accepted as descriptor registration evidence")
 	}
 }
 
