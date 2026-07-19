@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-12-PLAN.md
-last_updated: "2026-07-19T06:18:00Z"
+stopped_at: Completed 31.1-13-PLAN.md
+last_updated: "2026-07-19T07:32:58.495Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 12 closed Relay semantic-cache and provider reauthorization gaps; Plan 31.1-13 is next
+last_activity_desc: Phase 31.1 Plan 13 closed strict Admin and Marketplace readiness composition gaps; Plan 31.1-14 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 19
+  completed_plans: 20
   percent: 9
 ---
 
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 12 of 22
-Status: Plan 31.1-12 complete; Plan 31.1-13 is next
-Last activity: 2026-07-19 — Relay semantic-cache and provider reauthorization gaps closed
+Plan: 13 of 22
+Status: Plan 31.1-13 complete; Plan 31.1-14 is next
+Last activity: 2026-07-19 — Strict Admin and Marketplace readiness composition gaps closed
 
-Progress: [████░░░░░░] 45%
+Progress: [██████░░░░] 59%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 12
-- Average duration: 35 min
-- Total execution time: 5.8 hours
+- Total plans completed: 13
+- Average duration: 29 min
+- Total execution time: 6.2 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 9 plans in 349 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 13 plans in 373 minutes.
 
-**Recent Trend:** Plan 31.1-03 closed readiness control-plane, effect coverage, and report CLI in 55 minutes.
+**Recent Trend:** Plan 31.1-13 closed strict Admin and Marketplace readiness composition in 25 minutes.
 
 ## Accumulated Context
 
@@ -89,6 +89,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Signed provider events use reconciliation-only verbs. — Prevents inbound events from authorizing new outbound effects.
 - [Phase 31.1]: Bootstrap serialization spans the pre-publication state check through generation-one publication. — This makes the first generation linearizable without changing ordinary refresh publication semantics.
 - [Phase 31.1]: Each managed dependency owns one capacity-one in-flight probe lane. — Occupied lanes publish dependency_unproven candidates without spawning unbounded context-ignoring work.
+- [Phase 31.1]: Strict Router composition rejects caller-supplied Admin services and constructs Admin only from the startup authority carrier. — Prevents compatibility injection from bypassing model mutation readiness.
+- [Phase 31.1]: Admin sync, detect, and apply guard once before their first read/probe and still resolve current model subjects before persistence. — Separates generic mutation admission from current catalog authorization without pinning a generation.
+- [Phase 31.1]: Marketplace HTTP checkout and local settlement consume the same startup financial carrier but guard their own effects independently. — Denial precedes local order intent and Provider checkout.
 
 ### Pending Todos
 
@@ -112,6 +115,7 @@ None yet.
 | Phase 31.1 P09 | 20 min | 2 tasks | 9 files |
 | Phase 31.1 P03 | 55 min | 3 tasks | 12 files |
 | Phase 31.1 P11 | 30 min | 2 tasks + 4 review fixes | 2 files |
+| Phase 31.1-readiness-fail-closed P13 | 25 min | 2 tasks | 6 files |
 
 ### Roadmap Evolution
 
@@ -124,8 +128,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T06:18:00Z
-Stopped at: Completed 31.1-12-PLAN.md
+Last session: 2026-07-19T07:32:58.478Z
+Stopped at: Completed 31.1-13-PLAN.md
 Resume file: None
 
 ## Performance Metrics
