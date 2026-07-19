@@ -537,6 +537,8 @@ type sourceCapabilityBinding struct {
 	reference       string
 	object          *ast.Object
 	effectReference string
+	effectObject    *ast.Object
+	errorObject     *ast.Object
 	resolverPath    string
 	resolverObject  *ast.Object
 	position        token.Pos
@@ -850,12 +852,12 @@ func descriptorMembershipAfterStatement(function *ast.FuncDecl, statement ast.St
 		return mergeDescriptorMembership(thenState, elseState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
-			if hasUnsafeLoopControlBefore(value.Body, before) {
+			if hasUnsafeLoopControlBefore(function, value, descriptor, value.Body, before) {
 				return descriptorMembershipAmbiguous
 			}
 			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		}
-		if hasUnsafeLoopControlBefore(value.Body, descriptor.Pos()) {
+		if hasUnsafeLoopControlBefore(function, value, descriptor, value.Body, descriptor.Pos()) {
 			return descriptorMembershipAmbiguous
 		}
 		if iterations, known := knownRangeIterationCount(function, value); known {
@@ -877,12 +879,12 @@ func descriptorMembershipAfterStatement(function *ast.FuncDecl, statement ast.St
 			return state
 		}
 		if astNodeContainsPosition(value.Body, before) {
-			if hasUnsafeLoopControlBefore(value.Body, before) {
+			if hasUnsafeLoopControlBefore(function, nil, descriptor, value.Body, before) {
 				return descriptorMembershipAmbiguous
 			}
 			return descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
 		}
-		if hasUnsafeLoopControlBefore(value.Body, descriptor.Pos()) {
+		if hasUnsafeLoopControlBefore(function, nil, descriptor, value.Body, descriptor.Pos()) {
 			return descriptorMembershipAmbiguous
 		}
 		iterationState := descriptorMembershipAfterBlock(function, value.Body, object, descriptor, before, state)
@@ -937,20 +939,22 @@ func registrationHasUnsafeLoopControl(function *ast.FuncDecl, before token.Pos) 
 			return
 		}
 		var body *ast.BlockStmt
+		var rangeStatement *ast.RangeStmt
 		switch loop := node.(type) {
 		case *ast.RangeStmt:
 			body = loop.Body
+			rangeStatement = loop
 		case *ast.ForStmt:
 			body = loop.Body
 		}
-		if body != nil && astNodeContainsPosition(body, before) && hasUnsafeLoopControlBefore(body, before) {
+		if body != nil && astNodeContainsPosition(body, before) && hasUnsafeLoopControlBefore(function, rangeStatement, nil, body, before) {
 			unsafe = true
 		}
 	})
 	return unsafe
 }
 
-func hasUnsafeLoopControlBefore(body *ast.BlockStmt, before token.Pos) bool {
+func hasUnsafeLoopControlBefore(function *ast.FuncDecl, loop *ast.RangeStmt, descriptor *ast.CompositeLit, body *ast.BlockStmt, before token.Pos) bool {
 	if body == nil {
 		return false
 	}
@@ -958,7 +962,7 @@ func hasUnsafeLoopControlBefore(body *ast.BlockStmt, before token.Pos) bool {
 	safeContinue := make(map[*ast.BranchStmt]struct{})
 	inspectReachable(body, func(node ast.Node) {
 		statement, ok := node.(*ast.IfStmt)
-		if !ok || statement.Pos() >= before || !isOptionalDescriptorSkipCondition(statement.Cond) {
+		if !ok || statement.Pos() >= before || !isOptionalDescriptorSkipCondition(function, loop, descriptor, statement.Cond) {
 			return
 		}
 		branch, ok := directCurrentLoopContinue(body, statement, parents)
@@ -1007,30 +1011,51 @@ func directCurrentLoopContinue(loopBody *ast.BlockStmt, condition *ast.IfStmt, p
 	return nil, false
 }
 
-func isOptionalDescriptorSkipCondition(expression ast.Expr) bool {
+func isOptionalDescriptorSkipCondition(function *ast.FuncDecl, loop *ast.RangeStmt, descriptor *ast.CompositeLit, expression ast.Expr) bool {
+	if function == nil || loop == nil || descriptor == nil || loop.Value == nil {
+		return false
+	}
+	effectObject := sourceExpressionObject(loop.Value)
+	if effectObject == nil {
+		return false
+	}
 	condition, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
 	if !ok || condition.Op != token.LAND {
 		return false
 	}
-	return (isSandboxEffectComparison(condition.X) && isCapabilityUnknownCheck(condition.Y)) ||
-		(isSandboxEffectComparison(condition.Y) && isCapabilityUnknownCheck(condition.X))
+	return (isSandboxEffectComparison(condition.X, effectObject) && isCapabilityUnknownCheck(condition.Y, function, effectObject, descriptor)) ||
+		(isSandboxEffectComparison(condition.Y, effectObject) && isCapabilityUnknownCheck(condition.X, function, effectObject, descriptor))
 }
 
-func isSandboxEffectComparison(expression ast.Expr) bool {
+func isSandboxEffectComparison(expression ast.Expr, effectObject *ast.Object) bool {
 	comparison, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
-	if !ok || comparison.Op != token.EQL {
+	if !ok || comparison.Op != token.EQL || effectObject == nil {
 		return false
 	}
-	left := expressionReference(unwrapParentheses(comparison.X))
-	right := expressionReference(unwrapParentheses(comparison.Y))
-	return (left == "effect.id" && right == "releasecontract.EffectAgentToolPythonSandbox") ||
-		(right == "effect.id" && left == "releasecontract.EffectAgentToolPythonSandbox")
+	left := unwrapParentheses(comparison.X)
+	right := unwrapParentheses(comparison.Y)
+	return (expressionReference(left) == "effect.id" && sourceExpressionObject(left) == effectObject && expressionReference(right) == "releasecontract.EffectAgentToolPythonSandbox") ||
+		(expressionReference(right) == "effect.id" && sourceExpressionObject(right) == effectObject && expressionReference(left) == "releasecontract.EffectAgentToolPythonSandbox")
 }
 
-func isCapabilityUnknownCheck(expression ast.Expr) bool {
+func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effectObject *ast.Object, descriptor *ast.CompositeLit) bool {
 	call, ok := unwrapParentheses(expression).(*ast.CallExpr)
-	return ok && expressionReference(call.Fun) == "releasecontract.IsReadinessCode" && len(call.Args) == 2 &&
-		expressionReference(unwrapParentheses(call.Args[1])) == "releasecontract.CodeCapabilityUnknown"
+	if !ok || expressionReference(call.Fun) != "releasecontract.IsReadinessCode" || len(call.Args) != 2 ||
+		expressionReference(unwrapParentheses(call.Args[1])) != "releasecontract.CodeCapabilityUnknown" {
+		return false
+	}
+	errorObject := sourceExpressionObject(unwrapParentheses(call.Args[0]))
+	capabilityObject := sourceExpressionObject(descriptorField(descriptor, "CapabilityID"))
+	if errorObject == nil || capabilityObject == nil || effectObject == nil {
+		return false
+	}
+	for _, binding := range resolvedCapabilityBindings(function) {
+		if binding.position < call.Pos() && binding.effectReference == "effect.id" && binding.effectObject == effectObject &&
+			binding.errorObject == errorObject && binding.object == capabilityObject {
+			return true
+		}
+	}
+	return false
 }
 
 func unwrapParentheses(expression ast.Expr) ast.Expr {
@@ -1353,7 +1378,7 @@ func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, befor
 			return state
 		}
 		if astNodeContainsPosition(value.Body, before) {
-			if hasUnsafeLoopControlBefore(value.Body, before) {
+			if hasUnsafeLoopControlBefore(nil, nil, nil, value.Body, before) {
 				state.ambiguous = true
 				return state
 			}
@@ -1366,7 +1391,7 @@ func identifierStateAfterStatement(statement ast.Stmt, object *ast.Object, befor
 		return mergeSourceIdentifierStates(state, iterationState)
 	case *ast.RangeStmt:
 		if astNodeContainsPosition(value.Body, before) {
-			if hasUnsafeLoopControlBefore(value.Body, before) {
+			if hasUnsafeLoopControlBefore(nil, nil, nil, value.Body, before) {
 				state.ambiguous = true
 				return state
 			}
@@ -1873,7 +1898,7 @@ func resolvedCapabilityBindings(function *ast.FuncDecl) []sourceCapabilityBindin
 		if binding != "" && effect != "" {
 			bindings = append(bindings, sourceCapabilityBinding{
 				reference: binding, object: sourceExpressionObject(bindingExpression), effectReference: effect,
-				resolverPath: expressionReference(call.Fun), resolverObject: sourceExpressionObject(call.Fun), position: assignment.Pos(),
+				resolverPath: expressionReference(call.Fun), resolverObject: sourceExpressionObject(call.Fun), effectObject: sourceExpressionObject(call.Args[0]), errorObject: sourceExpressionObject(assignment.Lhs[len(assignment.Lhs)-1]), position: assignment.Pos(),
 			})
 		}
 	})
