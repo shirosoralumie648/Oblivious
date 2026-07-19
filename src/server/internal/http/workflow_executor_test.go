@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"io"
+	stdhttp "net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -15,8 +16,49 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/knowledge"
+	"oblivious/server/internal/releasecontract"
 	"oblivious/server/internal/workflow"
 )
+
+func authorizedWorkflowToolExecutor(t *testing.T) *agent.ToolExecutor {
+	t.Helper()
+	executor, err := agent.NewAuthorizedToolExecutor(nil, authorizedWorkflowToolRuntimeOptions(t))
+	if err != nil {
+		t.Fatalf("construct authorized workflow ToolExecutor: %v", err)
+	}
+	return executor
+}
+
+func authorizedAgentServiceForHTTPTest(t *testing.T, store agent.Store, gateway chat.ChatGateway) *agent.Service {
+	t.Helper()
+	service, err := agent.NewServiceWithRuntimeOptions(store, gateway, nil, authorizedWorkflowToolRuntimeOptions(t))
+	if err != nil {
+		t.Fatalf("construct authorized HTTP Agent service: %v", err)
+	}
+	return service
+}
+
+func authorizedWorkflowToolRuntimeOptions(t *testing.T) agent.ToolRuntimeOptions {
+	t.Helper()
+	contract, profile := loadFactoryReadinessContract(t)
+	for index := range contract.Capabilities {
+		if contract.Capabilities[index].ID == "sandbox.code_execution" {
+			contract.Capabilities[index].Commitment = releasecontract.CommitmentConditional
+		}
+	}
+	guard := &factoryReadinessGuard{}
+	guard.allow.Store(true)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build workflow tool runtime authorities: %v", err)
+	}
+	return agent.ToolRuntimeOptions{
+		Authorities: authorities,
+		Guard:       guard,
+		Effects:     &factoryReadinessRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)},
+		HTTPClient:  stdhttp.DefaultClient,
+	}
+}
 
 func TestWorkflowLLMGatewayAdapterUsesStructuredChatGateway(t *testing.T) {
 	gateway := &recordingWorkflowChatGateway{
@@ -89,7 +131,7 @@ func TestWorkflowLLMGatewayAdapterInjectsRelayAttributionMetadata(t *testing.T) 
 }
 
 func TestWorkflowNodeExecutorRegistryIncludesRealLLMKnowledgeAndAgentExecutors(t *testing.T) {
-	registry := workflowNodeExecutorRegistry(&recordingWorkflowChatGateway{}, knowledge.NewService(nil), &recordingWorkflowAgentStarter{}, workflowToolExecutorAdapter{executor: agent.NewToolExecutor(nil)}, workflowDatabaseSQLRunner{db: openWorkflowDatabaseSQLRunnerTestDB(t, &workflowDatabaseSQLRunnerCapture{})}, workflowJavaScriptCodeRunner{defaultTimeout: time.Second, maxTimeout: time.Second})
+	registry := workflowNodeExecutorRegistry(&recordingWorkflowChatGateway{}, knowledge.NewService(nil), &recordingWorkflowAgentStarter{}, workflowToolExecutorAdapter{executor: authorizedWorkflowToolExecutor(t)}, workflowDatabaseSQLRunner{db: openWorkflowDatabaseSQLRunnerTestDB(t, &workflowDatabaseSQLRunnerCapture{})}, workflowJavaScriptCodeRunner{defaultTimeout: time.Second, maxTimeout: time.Second})
 
 	if executor, ok := registry.Get("llm"); !ok || executor.Type() != "llm" {
 		t.Fatalf("expected llm executor in workflow registry, got %T ok=%v", executor, ok)
@@ -371,7 +413,7 @@ func TestWorkflowAgentServiceAdapterRunsPlanningControlsAndReloadsRunDetail(t *t
 }
 
 func TestWorkflowToolExecutorAdapterRunsBuiltinTool(t *testing.T) {
-	adapter := workflowToolExecutorAdapter{executor: agent.NewToolExecutor(nil)}
+	adapter := workflowToolExecutorAdapter{executor: authorizedWorkflowToolExecutor(t)}
 
 	result, err := adapter.RunWorkflowTool(context.Background(), workflow.WorkflowToolRequest{
 		OrganizationID: "org_1",

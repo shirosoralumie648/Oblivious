@@ -1580,7 +1580,7 @@ func TestServiceExecutePlanStepRunsCustomToolFromAgentConfig(t *testing.T) {
 			UpdatedAt:      now,
 		}},
 	}
-	service := NewService(store, &fakeGateway{})
+	service := newAuthorizedServiceForTest(t, store, &fakeGateway{})
 	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
 
 	completed, err := service.ExecutePlanStep(context.Background(), session, "step_1")
@@ -2019,7 +2019,7 @@ func TestExecutePlanStepRunsBuiltinTool(t *testing.T) {
 			UpdatedAt:      now,
 		}},
 	}
-	service := NewService(store, &fakeGateway{})
+	service := newAuthorizedServiceForTest(t, store, &fakeGateway{})
 
 	completed, err := service.ExecutePlanStep(
 		context.Background(),
@@ -2399,7 +2399,7 @@ func TestRunWithToolsUsesAgentMaxIterationsConfig(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	_, err := service.SendMessage(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "conv_1", "loop")
 	if !errors.Is(err, ErrMaxIterationsExceeded) {
@@ -2507,7 +2507,7 @@ func TestServiceSendMessageOverrideMaxIterationsUsesTemporaryAgentConfig(t *test
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	overrideMaxIterations := 1
 	_, err := service.SendMessage(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "conv_1", "loop", SendMessageOptions{
@@ -2714,7 +2714,7 @@ func TestServiceSendMessageUsesRunnerForToolEnabledAgents(t *testing.T) {
 		},
 	}
 
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 	service.runner.config.MaxIterations = 4
 
 	msg, err := service.SendMessage(context.Background(), auth.Session{
@@ -2842,7 +2842,7 @@ func TestRunWithToolsCreatesDurableRunAndToolRuns(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	msg, err := service.SendMessage(
 		chat.WithRelayRequestMetadata(context.Background(), chat.RelayRequestMetadata{RequestID: "req_durable_success"}),
@@ -2910,7 +2910,7 @@ func TestRunWithToolsRecordsAgentObservabilityMetrics(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	runBefore := testutil.ToFloat64(metrics.AgentRunTotal.WithLabelValues(string(RunStatusCompleted)))
 	toolBefore := testutil.ToFloat64(metrics.AgentToolCallTotal.WithLabelValues("datetime", string(ToolRunStatusCompleted)))
@@ -3045,7 +3045,7 @@ func TestServiceStartRunUsesAgentConfigModelRoutingRules(t *testing.T) {
 			Usage:   &chat.CompletionUsage{TotalTokens: 25},
 		}},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	result, err := service.StartRun(context.Background(), auth.Session{
 		OrganizationID: "org_1",
@@ -5067,7 +5067,7 @@ func TestServiceApproveToolRunExecutesToolAndCompletesDurableRun(t *testing.T) {
 			CreatedAt:      now,
 		}},
 	}
-	service := NewService(store, &fakeGateway{plainReply: "unused"})
+	service := newAuthorizedServiceForTest(t, store, &fakeGateway{plainReply: "unused"})
 
 	updated, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
 	if err != nil {
@@ -5161,7 +5161,7 @@ func TestServiceApproveToolRunResumesReactLoopToFinalAnswer(t *testing.T) {
 			{Content: "The approved tool result says it is noon.", FinishReason: "stop"},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	updated, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
 	if err != nil {
@@ -5264,7 +5264,7 @@ func TestServiceApproveToolRunResumePersistsNextPendingApprovalToolRun(t *testin
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	updated, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_datetime", "operator approved")
 	if err != nil {
@@ -5371,7 +5371,7 @@ func TestServiceApproveToolRunResumeStopsWhenTokenBudgetExceeded(t *testing.T) {
 			{Content: "This final answer is too expensive.", FinishReason: "stop", Usage: &chat.CompletionUsage{TotalTokens: 1200}},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	_, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
 	if !errors.Is(err, ErrTokenBudgetExceeded) {
@@ -5807,7 +5807,7 @@ func TestServiceApproveToolRunResumeStopsWhenMaxIterationsReached(t *testing.T) 
 			{Content: "This final answer should not be requested.", FinishReason: "stop"},
 		},
 	}
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 
 	_, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
 	if !errors.Is(err, ErrMaxIterationsExceeded) {
@@ -5875,7 +5875,7 @@ func TestServiceRetryToolRunReexecutesFailedToolAndRestoresRunDetail(t *testing.
 			UpdatedAt:      now,
 		}},
 	}
-	service := NewService(store, &fakeGateway{})
+	service := newAuthorizedServiceForTest(t, store, &fakeGateway{})
 	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
 
 	updated, err := service.RetryToolRun(context.Background(), session, "tool_run_failed")
@@ -6023,7 +6023,11 @@ func TestRunWithToolsPersistsFailedToolRun(t *testing.T) {
 			},
 		},
 	}
-	service := NewService(store, gateway)
+	provider := &liveWebSearchProvider{}
+	service := newAuthorizedServiceForTest(t, store, gateway, func(options *ToolRuntimeOptions) {
+		options.WebSearchProvider = provider
+	})
+	service.SetWebSearchProvider(nil)
 
 	toolMetricBefore := testutil.ToFloat64(metrics.AgentToolCallTotal.WithLabelValues("web_search", string(ToolRunStatusFailed)))
 	_, err := service.SendMessage(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "conv_1", "search")
@@ -6431,9 +6435,11 @@ func TestToolApprovalPolicyModesAndRiskLevels(t *testing.T) {
 					{Content: "final after tool", FinishReason: "stop"},
 				},
 			}
-			executor := &ToolExecutor{builtinTools: map[string]mcp.BuiltinTool{
-				tt.toolCallName: &recordingBuiltinTool{name: tt.toolCallName},
-			}}
+			executor := newAuthorizedToolExecutorForTest(t, nil, func(options *ToolRuntimeOptions) {
+				options.BuiltinTools = map[string]mcp.BuiltinTool{
+					tt.toolCallName: &recordingBuiltinTool{name: tt.toolCallName},
+				}
+			})
 			runner := NewRunner(store, gateway, executor, nil, DefaultRunnerConfig())
 
 			result, err := runner.RunWithTools(
@@ -6535,7 +6541,7 @@ func TestTieredMediumToolAutoExecutesAfterPriorApproval(t *testing.T) {
 			{Content: "final after medium tool", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	result, err := runner.RunWithTools(
 		context.Background(),
@@ -6632,7 +6638,7 @@ func TestRunWithToolsStoresLongTermInteractionMemoryWhenEnabled(t *testing.T) {
 			"User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard.": {0.4, 0.6},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(embedder)
 
 	_, err := runner.RunWithTools(
@@ -6695,7 +6701,7 @@ func TestRunWithToolsDerivesPreferenceAndFactLongTermMemories(t *testing.T) {
 			"Important fact: My company is Acme Labs":                                                    {0.5, 0.6},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(embedder)
 
 	_, err := runner.RunWithTools(
@@ -6764,7 +6770,7 @@ func TestRunWithToolsLLMAssistedLongTermMemoryExtractionStoresModelCandidates(t 
 			{Content: "I will keep the launch checklist in mind.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -6828,7 +6834,7 @@ func TestRunWithToolsLLMAssistedLongTermMemoryExtractionIgnoresInvalidJSON(t *te
 			{Content: "Done.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -6894,7 +6900,7 @@ func TestRunWithToolsLLMAssistedLongTermMemoryUpdatePolicyConsolidatesByMemoryKe
 			{Content: "I will use the updated company context.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -6973,7 +6979,7 @@ func TestRunWithToolsLongTermMemoryUpdatePolicyConsolidatesByMemoryKey(t *testin
 			{Content: "Updated.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7040,7 +7046,7 @@ func TestRunWithToolsLongTermMemoryDefaultUpdatePolicyDoesNotConsolidateByMemory
 			{Content: "Updated.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7101,7 +7107,7 @@ func TestRunWithToolsLongTermMemoryUpdatePolicyDoesNotMergeDifferentPreferences(
 			{Content: "Noted.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7168,7 +7174,7 @@ func TestRunWithToolsLongTermMemoryUpdatePolicyConsolidatesResponseLanguagePrefe
 			{Content: "我会用中文回复。", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7220,7 +7226,7 @@ func TestRunWithToolsLongTermMemoryExplicitOnlySkipsInteractionMemory(t *testing
 			{Content: "I will remember only explicit details.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7267,7 +7273,7 @@ func TestRunWithToolsLongTermMemoryInteractionOnlySkipsExplicitMemories(t *testi
 			{Content: "I will keep the conversation as one interaction.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7312,7 +7318,7 @@ func TestRunWithToolsLongTermMemoryManualOnlySkipsAutomaticWrites(t *testing.T) 
 			{Content: "No automatic memory should be written.", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7373,7 +7379,7 @@ func TestRunWithToolsDeduplicatesAutomaticLongTermInteractionMemory(t *testing.T
 			content: {0.4, 0.6},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(embedder)
 
 	_, err := runner.RunWithTools(
@@ -7444,7 +7450,7 @@ func TestRunWithToolsRefreshesDuplicateDerivedPreferenceMemory(t *testing.T) {
 			preferenceContent: {0.3, 0.4},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(embedder)
 
 	_, err := runner.RunWithTools(
@@ -7512,7 +7518,7 @@ func TestRunWithToolsUsesOnlyRecentShortTermMessages(t *testing.T) {
 			{Content: "short term bounded answer", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7579,7 +7585,7 @@ func TestRunWithToolsLimitsShortTermMessagesByEstimatedTokens(t *testing.T) {
 			{Content: "token bounded answer", FinishReason: "stop"},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	_, err := runner.RunWithTools(
 		context.Background(),
@@ -7644,7 +7650,7 @@ func TestRunnerInjectsUserManagedAgentMemoriesIntoPrompt(t *testing.T) {
 		},
 	}
 	gateway := &fakeGateway{plainReply: "ok"}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	result, err := runner.Run(
 		context.Background(),
@@ -7693,7 +7699,7 @@ func TestRunnerRunRejectsToolEnabledAgent(t *testing.T) {
 		},
 	}
 	gateway := &fakeGateway{plainReply: "plain fallback"}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	result, err := runner.Run(
 		context.Background(),
@@ -7753,7 +7759,7 @@ func TestRunnerInjectsLongTermAgentMemoriesFromTextFallback(t *testing.T) {
 			},
 		},
 	}
-	runner := NewRunner(store, &fakeGateway{}, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, &fakeGateway{}, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 
 	messages, evidence := runner.buildChatMessagesWithEvidence(
 		context.Background(),
@@ -7818,7 +7824,7 @@ func TestRunnerPrefersVectorAgentMemorySearchWhenEmbedderConfigured(t *testing.T
 		},
 	}
 	gateway := &fakeGateway{plainReply: "ok"}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(&fakeAgentMemoryEmbedder{
 		embeddings: map[string][]float32{"concise style": {0.25, 0.75}},
 	})
@@ -7894,7 +7900,7 @@ func TestRunnerVectorSearchCoversLongTermAgentMemories(t *testing.T) {
 			},
 		},
 	}
-	runner := NewRunner(store, &fakeGateway{}, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, &fakeGateway{}, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	runner.SetMemoryEmbedder(&fakeAgentMemoryEmbedder{
 		embeddings: map[string][]float32{"migration guard": {0.25, 0.75}},
 	})
@@ -8019,7 +8025,7 @@ func TestRunnerExhaustsIterationCap(t *testing.T) {
 		},
 	}
 
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 	service.runner.config.MaxIterations = 2
 
 	_, err := service.SendMessage(context.Background(), auth.Session{
@@ -8067,7 +8073,7 @@ func TestRunWithToolsStreaming(t *testing.T) {
 		},
 	}
 
-	service := NewService(store, gateway)
+	service := newAuthorizedServiceForTest(t, store, gateway)
 	service.runner.config.MaxIterations = 4
 
 	var chunks []string
@@ -8448,12 +8454,15 @@ func TestListAvailableToolsAllowsWebSearchWhenProviderConfigured(t *testing.T) {
 			UserID: "user_1",
 			Tools: []Tool{
 				{Name: "web_search", Type: "builtin", Enabled: true},
+				{Name: "calculator", Type: "builtin", Enabled: true},
 			},
 		},
 	}
-	service := NewService(store, &fakeGateway{})
-	service.SetWebSearchProvider(fakeAgentWebSearchProvider{
+	provider := fakeAgentWebSearchProvider{
 		results: []mcp.WebSearchResult{{Title: "Search ready", URL: "https://search.example.test", Snippet: "configured"}},
+	}
+	service := newAuthorizedServiceForTest(t, store, &fakeGateway{}, func(options *ToolRuntimeOptions) {
+		options.WebSearchProvider = provider
 	})
 
 	definitions, err := service.ListAvailableTools(context.Background(), auth.Session{
@@ -8592,12 +8601,11 @@ func TestListAvailableToolsIncludesApprovalMetadata(t *testing.T) {
 }
 
 func TestExecuteToolRejectsDisabledCommercialBuiltinBeforeCallingTool(t *testing.T) {
-	recording := &recordingBuiltinTool{name: "web_search"}
-	executor := &ToolExecutor{
-		builtinTools: map[string]mcp.BuiltinTool{
-			"web_search": recording,
-		},
-	}
+	provider := &liveWebSearchProvider{}
+	executor := newAuthorizedToolExecutorForTest(t, nil, func(options *ToolRuntimeOptions) {
+		options.WebSearchProvider = provider
+	})
+	executor.SetWebSearchProvider(nil)
 	agent := &Agent{
 		ID: "agent_policy",
 		Tools: []Tool{
@@ -8613,7 +8621,7 @@ func TestExecuteToolRejectsDisabledCommercialBuiltinBeforeCallingTool(t *testing
 	if err != nil {
 		t.Fatalf("Execute returned transport error: %v", err)
 	}
-	if recording.called {
+	if provider.calls.Load() != 0 {
 		t.Fatal("disabled commercial builtin was called before executor rejected it")
 	}
 	if result == nil || !result.IsError {
@@ -8626,11 +8634,11 @@ func TestExecuteToolRejectsDisabledCommercialBuiltinBeforeCallingTool(t *testing
 
 func TestExecuteToolRejectsLoremIpsumDemoBuiltinBeforeCallingTool(t *testing.T) {
 	recording := &recordingBuiltinTool{name: "lorem_ipsum"}
-	executor := &ToolExecutor{
-		builtinTools: map[string]mcp.BuiltinTool{
+	executor := newAuthorizedToolExecutorForTest(t, nil, func(options *ToolRuntimeOptions) {
+		options.BuiltinTools = map[string]mcp.BuiltinTool{
 			"lorem_ipsum": recording,
-		},
-	}
+		}
+	})
 	agent := &Agent{
 		ID: "agent_policy",
 		Tools: []Tool{
@@ -8643,22 +8651,19 @@ func TestExecuteToolRejectsLoremIpsumDemoBuiltinBeforeCallingTool(t *testing.T) 
 		Name:      "lorem_ipsum",
 		Arguments: map[string]any{"paragraphs": float64(1)},
 	})
-	if err != nil {
-		t.Fatalf("Execute returned transport error: %v", err)
+	if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+		t.Fatalf("Execute error = %v, want %s", err, releasecontract.CodeCapabilityUnknown)
 	}
 	if recording.called {
 		t.Fatal("demo-only lorem_ipsum builtin was called before executor rejected it")
 	}
-	if result == nil || !result.IsError {
-		t.Fatalf("Execute result = %+v, want disabled tool error result", result)
-	}
-	if !strings.Contains(strings.ToLower(result.Content), "disabled") {
-		t.Fatalf("Execute result content = %q, want disabled message", result.Content)
+	if result != nil {
+		t.Fatalf("Execute result = %+v, want no result before catalog authorization", result)
 	}
 }
 
 func TestExecuteToolAllowsEnabledCommercialBuiltin(t *testing.T) {
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 	agent := &Agent{
 		ID: "agent_policy",
 		Tools: []Tool{

@@ -60,7 +60,7 @@ func TestRunStreamWithToolsUsesStructuredToolLoop(t *testing.T) {
 			},
 		},
 	}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	agent := &Agent{
 		ID:    "agent-1",
 		Model: "gpt-4o-mini",
@@ -114,7 +114,7 @@ func TestRunStreamWithToolsUsesStructuredToolLoop(t *testing.T) {
 func TestRunStreamWithToolsRejectsPlainGateway(t *testing.T) {
 	store := &fakeStore{}
 	gateway := &plainOnlyGateway{reply: "plain streaming fallback"}
-	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner := NewRunner(store, gateway, newAuthorizedToolExecutorForTest(t, nil), nil, DefaultRunnerConfig())
 	agent := &Agent{
 		ID:    "agent-1",
 		Model: "gpt-4o-mini",
@@ -173,7 +173,7 @@ func TestExecuteReActWithModelRouting(t *testing.T) {
 		},
 	}
 
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 
 	routingRules := []ModelRoutingRule{
 		{
@@ -262,7 +262,7 @@ func TestExecuteReActKeepsCompletedRunWhenFinalStreamCallbackFails(t *testing.T)
 	runner := &Runner{
 		store:    store,
 		gateway:  gateway,
-		executor: NewToolExecutor(nil),
+		executor: newAuthorizedToolExecutorForTest(t, nil),
 		config:   DefaultRunnerConfig(),
 	}
 	agent := &Agent{
@@ -326,7 +326,7 @@ func TestExecuteReActModelSwitching(t *testing.T) {
 		},
 	}
 
-	executor := NewToolExecutor(nil)
+	executor := newAuthorizedToolExecutorForTest(t, nil)
 
 	routingRules := []ModelRoutingRule{
 		{

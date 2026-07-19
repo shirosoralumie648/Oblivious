@@ -278,7 +278,7 @@ func TestRunnerSkillSelectorIntegration(t *testing.T) {
 	runner := &Runner{
 		store:         store,
 		gateway:       mockGateway,
-		executor:      NewToolExecutor(nil),
+		executor:      newAuthorizedToolExecutorForTest(t, nil),
 		config:        DefaultRunnerConfig(),
 		SkillSelector: &SkillSelector{},
 	}

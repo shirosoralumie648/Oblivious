@@ -73,7 +73,7 @@ func TestRegisterAgentRunRoutesDispatchesApproveTool(t *testing.T) {
 		Status:         agent.ToolRunStatusPendingApproval,
 		ApprovalStatus: agent.ApprovalStatusPending,
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 	mux := stdhttp.NewServeMux()
 	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
 
@@ -139,7 +139,7 @@ func TestRegisterAgentRunRoutesApproveToolCanReturnNextPendingApproval(t *testin
 		ToolCalls:      []agent.ToolCall{{ID: "call_datetime_pending", Name: "datetime", Arguments: map[string]any{}}},
 		CreatedAt:      now,
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{
 		structured: []*chat.CompletionResponse{{
 			ToolCalls: []chat.ToolCall{
 				{ID: "call_write_file_pending", Type: "function", Function: chat.ToolFunction{Name: "write_file", Arguments: `{"path":"result.txt"}`}},
@@ -242,7 +242,7 @@ func TestRegisterAgentRunRoutesDispatchesRetryTool(t *testing.T) {
 		AttemptCount:   1,
 		Error:          "failed",
 	}}
-	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	handler := newAgentRunsHandler(authorizedAgentServiceForHTTPTest(t, store, &fakeAgentRunsGateway{}))
 	mux := stdhttp.NewServeMux()
 	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
 
