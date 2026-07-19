@@ -3,6 +3,7 @@ package releasecontract
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -347,15 +348,195 @@ func register(effects releasecontract.EffectRegistrar) error {
 	if guardEffectContractPresent(functions, "run:guard", "run:effect") {
 		t.Fatal("guard moved after effect was accepted")
 	}
+
+	t.Run("exact call paths reject dead and wrong receiver evidence", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			source string
+			want   bool
+		}{
+			{
+				name: "live exact receivers",
+				source: `package exact
+type readinessGate struct{}
+func (readinessGate) require() {}
+type effectStore struct{}
+func (effectStore) Effect() {}
+type Runner struct { readiness readinessGate; store effectStore }
+func (r *Runner) run() { r.readiness.require(); r.store.Effect() }
+`,
+				want: true,
+			},
+			{
+				name: "statically false guard",
+				source: `package exact
+type readinessGate struct{}
+func (readinessGate) require() {}
+type effectStore struct{}
+func (effectStore) Effect() {}
+type Runner struct { readiness readinessGate; store effectStore }
+func (r *Runner) run() { if false { r.readiness.require() }; r.store.Effect() }
+`,
+				want: false,
+			},
+			{
+				name: "wrong guard receiver",
+				source: `package exact
+type readinessGate struct{}
+func (readinessGate) require() {}
+type effectStore struct{}
+func (effectStore) Effect() {}
+type Runner struct { readiness readinessGate; store effectStore }
+func (r *Runner) run() { other.readiness.require(); r.store.Effect() }
+`,
+				want: false,
+			},
+			{
+				name: "wrong effect receiver",
+				source: `package exact
+type readinessGate struct{}
+func (readinessGate) require() {}
+type effectStore struct{}
+func (effectStore) Effect() {}
+type Runner struct { readiness readinessGate; store effectStore }
+func (r *Runner) run() { r.readiness.require(); other.store.Effect() }
+`,
+				want: false,
+			},
+			{
+				name: "shadowed receiver object",
+				source: `package exact
+type readinessGate struct{}
+func (readinessGate) require() {}
+type effectStore struct{}
+func (effectStore) Effect() {}
+type Runner struct { readiness readinessGate; store effectStore }
+func (r *Runner) run() { if true { r := &Runner{}; r.readiness.require() }; r.store.Effect() }
+`,
+				want: false,
+			},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				directory := t.TempDir()
+				if err := os.WriteFile(filepath.Join(directory, "exact.go"), []byte(testCase.source+"\n// preserved markers: r.readiness.require r.store.Effect\n"), 0o644); err != nil {
+					t.Fatalf("write exact-call fixture: %v", err)
+				}
+				functions, err := loadSourceFunctions(directory)
+				if err != nil {
+					t.Fatalf("parse exact-call fixture: %v", err)
+				}
+				got := guardEffectContractPresent(functions, "Runner.run:r.readiness.require", "Runner.run:r.store.Effect")
+				if got != testCase.want {
+					t.Fatalf("exact call proof=%v want=%v", got, testCase.want)
+				}
+			})
+		}
+	})
+
+	t.Run("descriptor provenance must precede consumption", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			source string
+		}{
+			{
+				name: "assignment after register",
+				source: `package late
+func register(effects Registrar) error {
+	var descriptor EffectDescriptor
+	err := effects.Register(descriptor)
+	descriptor = EffectDescriptor{ID: "late.assignment", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "late.Assignment"}
+	return err
+}
+`,
+			},
+			{
+				name: "append after range",
+				source: `package late
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	descriptors = append(descriptors, EffectDescriptor{ID: "late.append", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "late.Append"})
+	return nil
+}
+`,
+			},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				root := t.TempDir()
+				packageDirectory := filepath.Join(root, "src", "server", "internal", "late")
+				if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+					t.Fatalf("create late-provenance fixture: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(packageDirectory, "late.go"), []byte(testCase.source), 0o644); err != nil {
+					t.Fatalf("write late-provenance fixture: %v", err)
+				}
+				discovered, err := DiscoverEffectSurfaces(root)
+				if err != nil {
+					t.Fatalf("discover late-provenance fixture: %v", err)
+				}
+				if len(discovered) != 0 {
+					t.Fatalf("post-consumption provenance was accepted: %#v", discovered)
+				}
+			})
+		}
+	})
+}
+
+func TestEffectCoverageFirstFailureIsDeterministic(t *testing.T) {
+	unknownSurface := func(descriptorID string) EffectSurface {
+		return EffectSurface{
+			SeamID: descriptorID + "@unknown.Owner", DescriptorID: descriptorID, OwnerPackage: "unknown", OwnerSymbol: "unknown.Owner",
+			CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, ASTCall: "structural", RegistrationSymbol: "newUnknown",
+			GuardCall: "run:guard", EffectCall: "run:effect", ProfileDisposition: CommitmentCommitted,
+		}
+	}
+	for _, surfaces := range [][]EffectSurface{
+		{unknownSurface("z.unknown"), unknownSurface("a.unknown")},
+		{unknownSurface("a.unknown"), unknownSurface("z.unknown")},
+	} {
+		err := validateEffectSurfaceManifestAgainstSpecs(EffectSurfaceManifest{SchemaVersion: EffectSurfaceSchemaV1, Surfaces: surfaces}, runtimeDescriptorSpecs)
+		var coverageErr *EffectCoverageError
+		if !errors.As(err, &coverageErr) || coverageErr.Code != "effect_manifest_unknown_descriptor" || coverageErr.Field != "a.unknown" {
+			t.Fatalf("manifest first error = %v, want a.unknown", err)
+		}
+	}
+
+	runtimeRows := []EffectDescriptor{
+		{ID: "z.unknown", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "unknown.Owner"},
+		{ID: "a.unknown", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "unknown.Owner"},
+	}
+	for _, rows := range [][]EffectDescriptor{runtimeRows, {runtimeRows[1], runtimeRows[0]}} {
+		err := joinRuntime(nil, DeploymentProfile{}, rows, selectedRuntimeConfiguration())
+		var coverageErr *EffectCoverageError
+		if !errors.As(err, &coverageErr) || coverageErr.Code != "effect_coverage_extra_runtime" || coverageErr.Field != "a.unknown" {
+			t.Fatalf("runtime first error = %v, want a.unknown", err)
+		}
+	}
+
+	selection := selectedRuntimeConfiguration()
+	runtimeWithTwoDisabledGroups := selectedRuntimeDescriptors(selection)
+	runtimeWithTwoDisabledGroups = append(runtimeWithTwoDisabledGroups, descriptorForSpec("chat.provider.fallback"), descriptorForSpec("worker.archive.claim"))
+	expected := make([]EffectSurface, 0, len(runtimeDescriptorSpecs))
+	for _, descriptorID := range sortedRuntimeDescriptorSpecIDs(runtimeDescriptorSpecs) {
+		expected = append(expected, effectSurfaceForSpec(descriptorID, runtimeDescriptorSpecs[descriptorID]))
+	}
+	err := joinRuntime(expected, DeploymentProfile{}, runtimeWithTwoDisabledGroups, selection)
+	var coverageErr *EffectCoverageError
+	if !errors.As(err, &coverageErr) || coverageErr.Code != "effect_coverage_selection_drift" || coverageErr.Field != "channel.archive" {
+		t.Fatalf("selector first error = %v, want channel.archive", err)
+	}
 }
 
 func TestEffectCoverageRequiresRuntimeAuthoritiesContract(t *testing.T) {
 	_, manifest, contract, profile := effectCoverageFixture(t)
+	selection := selectedRuntimeConfiguration()
 	authorities, err := NewRuntimeAuthorities(contract, profile, effectCoverageGuard{})
 	if err != nil {
 		t.Fatalf("build runtime authorities: %v", err)
 	}
-	runtimeDescriptors := selectedRuntimeDescriptors()
+	runtimeDescriptors := selectedRuntimeDescriptors(selection)
 	modifiedContract := contract
 	modifiedContract.ReasonCodes = append([]ReasonCode(nil), contract.ReasonCodes...)
 	modifiedContract.ReasonCodes[0].Description += " changed"
@@ -380,7 +561,7 @@ func TestEffectCoverageRequiresRuntimeAuthoritiesContract(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: testCase.contract, Profile: testCase.profile, Authorities: testCase.authority, Runtime: runtimeDescriptors})
+			err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: testCase.contract, Profile: testCase.profile, Authorities: testCase.authority, Runtime: runtimeDescriptors, Selection: selection})
 			if !IsEffectCoverageCode(err, testCase.expected) {
 				t.Fatalf("error = %v, want %s", err, testCase.expected)
 			}
@@ -389,13 +570,13 @@ func TestEffectCoverageRequiresRuntimeAuthoritiesContract(t *testing.T) {
 	missingEffect := authorities
 	missingEffect.CapabilityBindings.bindings = cloneEffectBindings(authorities.CapabilityBindings.bindings)
 	delete(missingEffect.CapabilityBindings.bindings, EffectAgentToolBuiltin)
-	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: missingEffect, Runtime: runtimeDescriptors}); !IsEffectCoverageCode(err, "effect_coverage_unknown_effect") {
+	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: missingEffect, Runtime: runtimeDescriptors, Selection: selection}); !IsEffectCoverageCode(err, "effect_coverage_unknown_effect") {
 		t.Fatalf("missing effect binding error = %v", err)
 	}
 	mismatchedEffect := authorities
 	mismatchedEffect.CapabilityBindings.bindings = cloneEffectBindings(authorities.CapabilityBindings.bindings)
 	mismatchedEffect.CapabilityBindings.bindings[EffectAgentToolBuiltin] = authoredEffectCapabilities[EffectAgentToolCustomAPIHTTP]
-	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: mismatchedEffect, Runtime: runtimeDescriptors}); !IsEffectCoverageCode(err, "effect_coverage_capability_mismatch") {
+	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: mismatchedEffect, Runtime: runtimeDescriptors, Selection: selection}); !IsEffectCoverageCode(err, "effect_coverage_capability_mismatch") {
 		t.Fatalf("mismatched effect binding error = %v", err)
 	}
 }
@@ -435,11 +616,12 @@ func effectCoverageFixture(t *testing.T) (string, EffectSurfaceManifest, Authore
 
 func TestReadinessEffectCoverageContract(t *testing.T) {
 	repoRoot, manifest, contract, profile := effectCoverageFixture(t)
+	selection := selectedRuntimeConfiguration()
 	authorities, err := NewRuntimeAuthorities(contract, profile, effectCoverageGuard{})
 	if err != nil {
 		t.Fatalf("build runtime authorities: %v", err)
 	}
-	runtimeDescriptors := selectedRuntimeDescriptors()
+	runtimeDescriptors := selectedRuntimeDescriptors(selection)
 	registry := NewEffectRegistry()
 	for _, descriptor := range runtimeDescriptors {
 		if err := registry.Register(descriptor); err != nil {
@@ -464,14 +646,22 @@ func TestReadinessEffectCoverageContract(t *testing.T) {
 	if err := joinStatic(manifest.Surfaces, discovered); err != nil {
 		t.Fatalf("expected/static exact join: %v", err)
 	}
-	if err := VerifyEffectCoverage(EffectCoverageOptions{RepoRoot: repoRoot, Manifest: manifest, Contract: contract, Profile: profile, Authorities: authorities, Registry: registry}); err != nil {
+	if err := VerifyEffectCoverage(EffectCoverageOptions{RepoRoot: repoRoot, Manifest: manifest, Contract: contract, Profile: profile, Authorities: authorities, Registry: registry, Selection: selection}); err != nil {
 		t.Fatalf("valid exact join: %v", err)
+	}
+	disabledOptionalSelection := &EffectRuntimeConfiguration{WebSearchProvider: "provider"}
+	if err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: authorities, Runtime: selectedRuntimeDescriptors(disabledOptionalSelection), Selection: disabledOptionalSelection}); err != nil {
+		t.Fatalf("explicitly disabled optional cohorts: %v", err)
 	}
 
 	missing := withoutDescriptor(runtimeDescriptors, "agent.tool.builtin")
 	missingProvider := withoutDescriptor(runtimeDescriptors, "mcp.websearch.provider")
 	multipleProvider := append(cloneDescriptors(runtimeDescriptors), descriptorForSpec("mcp.websearch.chain"))
-	partialOptional := append(cloneDescriptors(runtimeDescriptors), descriptorForSpec("worker.schedule.claim"))
+	missingScheduleCohort := cloneDescriptors(runtimeDescriptors)
+	for _, descriptorID := range []string{"worker.schedule.claim", "worker.schedule.workflow.start", "worker.schedule.workflow.continue", "worker.schedule.agent.start"} {
+		missingScheduleCohort = withoutDescriptor(missingScheduleCohort, descriptorID)
+	}
+	partialOptional := append(cloneDescriptors(missingScheduleCohort), descriptorForSpec("worker.schedule.claim"))
 	extra := append(cloneDescriptors(runtimeDescriptors), EffectDescriptor{ID: "unknown.effect", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "unknown.Owner"})
 	duplicate := append(cloneDescriptors(runtimeDescriptors), runtimeDescriptors[0])
 	excluded := append(cloneDescriptors(runtimeDescriptors), descriptorForSpec("agent.tool.web_search"))
@@ -480,24 +670,28 @@ func TestReadinessEffectCoverageContract(t *testing.T) {
 	capabilityDrift := cloneDescriptors(runtimeDescriptors)
 	capabilityDrift[0].CapabilityID = "mcp.custom_execution"
 	cases := []struct {
-		name     string
-		runtime  []EffectDescriptor
-		expected string
+		name      string
+		runtime   []EffectDescriptor
+		selection *EffectRuntimeConfiguration
+		expected  string
 	}{
-		{"zero runtime", nil, "effect_coverage_zero_runtime"},
-		{"missing", missing, "effect_coverage_missing_runtime"},
-		{"extra", extra, "effect_coverage_extra_runtime"},
-		{"duplicate", duplicate, "effect_coverage_duplicate_runtime"},
-		{"excluded independent", excluded, "effect_coverage_profile_drift"},
-		{"owner drift", ownerDrift, "effect_coverage_runtime_drift"},
-		{"capability drift", capabilityDrift, "effect_coverage_runtime_drift"},
-		{"missing provider selection", missingProvider, "effect_coverage_selection_drift"},
-		{"multiple provider selection", multipleProvider, "effect_coverage_selection_drift"},
-		{"partial optional cohort", partialOptional, "effect_coverage_selection_drift"},
+		{"zero runtime", nil, selection, "effect_coverage_zero_runtime"},
+		{"missing selection", runtimeDescriptors, nil, "effect_coverage_configuration_required"},
+		{"missing", missing, selection, "effect_coverage_missing_runtime"},
+		{"extra", extra, selection, "effect_coverage_extra_runtime"},
+		{"duplicate", duplicate, selection, "effect_coverage_duplicate_runtime"},
+		{"excluded independent", excluded, selection, "effect_coverage_profile_drift"},
+		{"owner drift", ownerDrift, selection, "effect_coverage_runtime_drift"},
+		{"capability drift", capabilityDrift, selection, "effect_coverage_runtime_drift"},
+		{"missing selected schedule cohort", missingScheduleCohort, selection, "effect_coverage_selection_drift"},
+		{"missing provider selection", missingProvider, selection, "effect_coverage_selection_drift"},
+		{"multiple provider selection", multipleProvider, selection, "effect_coverage_selection_drift"},
+		{"partial optional cohort", partialOptional, selection, "effect_coverage_selection_drift"},
+		{"wrong selected websearch", runtimeDescriptors, &EffectRuntimeConfiguration{ScheduleWorkerEnabled: true, RelayRuntimeEnabled: true, WebSearchProvider: "tavily"}, "effect_coverage_selection_drift"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: authorities, Runtime: testCase.runtime})
+			err := VerifyEffectCoverage(EffectCoverageOptions{Manifest: manifest, Contract: contract, Profile: profile, Authorities: authorities, Runtime: testCase.runtime, Selection: testCase.selection})
 			if !IsEffectCoverageCode(err, testCase.expected) {
 				t.Fatalf("error = %v, want %s", err, testCase.expected)
 			}
@@ -518,7 +712,11 @@ func cloneRuntimeDescriptorSpecs(source map[string]runtimeDescriptorSpec) map[st
 	return result
 }
 
-func selectedRuntimeDescriptors() []EffectDescriptor {
+func selectedRuntimeConfiguration() *EffectRuntimeConfiguration {
+	return &EffectRuntimeConfiguration{ScheduleWorkerEnabled: true, RelayRuntimeEnabled: true, WebSearchProvider: "provider"}
+}
+
+func selectedRuntimeDescriptors(selection *EffectRuntimeConfiguration) []EffectDescriptor {
 	ids := make([]string, 0, len(runtimeDescriptorSpecs))
 	for descriptorID := range runtimeDescriptorSpecs {
 		ids = append(ids, descriptorID)
@@ -532,9 +730,18 @@ func selectedRuntimeDescriptors() []EffectDescriptor {
 		}
 		if spec.Configuration != nil {
 			if spec.Configuration.Mode == effectSelectorOptional {
-				continue
+				selected := map[string]bool{
+					"schedule.worker": selection.ScheduleWorkerEnabled,
+					"channel.archive": selection.ChannelArchiveEnabled,
+					"relay.batch":     selection.RelayBatchEnabled,
+					"relay.runtime":   selection.RelayRuntimeEnabled,
+					"chat.fallback":   selection.ChatFallbackEnabled,
+				}[spec.Configuration.Group]
+				if !selected {
+					continue
+				}
 			}
-			if spec.Configuration.Mode == effectSelectorOneOf && spec.Configuration.Value != "provider" {
+			if spec.Configuration.Mode == effectSelectorOneOf && spec.Configuration.Value != selection.WebSearchProvider {
 				continue
 			}
 		}
