@@ -326,7 +326,7 @@ func TestRelayReadinessPerAttemptContract(t *testing.T) {
 	})
 
 	t.Run("billing retry re-authorizes the next model attempt", func(t *testing.T) {
-		guard := &batchGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
+		guard := &batchGuardSpy{denyAtCall: 4, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
 		registrar := &batchEffectRegistrar{}
 		router := newBillingRouter(t, guard, registrar)
 		quotaManager := &stubQuotaManager{}
@@ -336,7 +336,7 @@ func TestRelayReadinessPerAttemptContract(t *testing.T) {
 			providerCalls++
 			return &types.ProviderResponse{StatusCode: http.StatusBadGateway, Error: &types.ProviderError{Code: "retryable", Retryable: true}}, nil
 		})
-		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) || providerCalls != 1 || quotaManager.preconsumeCalls != 1 {
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) || providerCalls != 1 || quotaManager.preconsumeCalls != 2 || quotaManager.refundCalls != 2 {
 			t.Fatalf("expected next-attempt denial, got err=%v calls=%#v provider=%d quota=%d", err, guard.calls, providerCalls, quotaManager.preconsumeCalls)
 		}
 		if len(registrar.descriptors) != 1 || registrar.descriptors[0].CapabilityID != "relay.provider_inference" {
