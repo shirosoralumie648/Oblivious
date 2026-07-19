@@ -62,8 +62,30 @@ func TestStrictRouterReadinessCompositionContract(t *testing.T) {
 				wantLegacyCalls:   1,
 			},
 			{
+				name:              "buildRuntime legacy function alias",
+				source:            `package http; func buildRuntime() { builder := NewRouterWithOptions; builder() }`,
+				wantBuildRuntimes: 1,
+				wantLegacyCalls:   1,
+			},
+			{
+				name:              "buildRuntime parenthesized legacy call",
+				source:            `package http; func buildRuntime() { (NewRouterWithOptions)() }`,
+				wantBuildRuntimes: 1,
+				wantLegacyCalls:   1,
+			},
+			{
+				name:              "buildRuntime method wrapper",
+				source:            `package http; type compatibilityBuilder struct{}; func (compatibilityBuilder) build() { NewRouterWithOptions() }; func buildRuntime() { var builder compatibilityBuilder; builder.build() }`,
+				wantBuildRuntimes: 1,
+				wantLegacyCalls:   1,
+			},
+			{
 				name:   "unrelated AdminService key is ignored",
 				source: `package http; type otherOptions struct { AdminService any }; var _ = otherOptions{AdminService: nil}; var _ = RouterOptions{Guard: nil}`,
+			},
+			{
+				name:   "unrelated typed AdminService assignment is ignored",
+				source: `package http; type otherOptions struct { AdminService any }; func mutate(other otherOptions) { other.AdminService = nil }`,
 			},
 		}
 		for _, test := range tests {
@@ -340,18 +362,16 @@ type strictRouterEntrypointCalls struct {
 	legacyCalls int
 }
 
+const (
+	strictRouterStrictTarget = "@router:strict"
+	strictRouterLegacyTarget = "@router:legacy"
+	strictRouterMethodTarget = "@method:"
+)
+
 func inspectStrictRouterSource(fileSet *token.FileSet, parsed *ast.File) strictRouterSourceAnalysis {
 	analysis := strictRouterSourceAnalysis{functions: map[string]strictRouterFunctionAnalysis{}}
 	ast.Inspect(parsed, func(node ast.Node) bool {
-		switch value := node.(type) {
-		case *ast.AssignStmt:
-			for _, expression := range value.Lhs {
-				selector, ok := expression.(*ast.SelectorExpr)
-				if ok && selector.Sel.Name == "AdminService" {
-					analysis.violations = append(analysis.violations, "AdminService assignment: "+fileSet.Position(selector.Pos()).String())
-				}
-			}
-		case *ast.CompositeLit:
+		if value, ok := node.(*ast.CompositeLit); ok {
 			if !isRouterOptionsType(value.Type) {
 				return true
 			}
@@ -369,34 +389,236 @@ func inspectStrictRouterSource(fileSet *token.FileSet, parsed *ast.File) strictR
 		}
 		return true
 	})
+	fileTypes := strictRouterFileVariableTypes(parsed)
+	importAliases := strictRouterImportAliases(parsed)
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv != nil {
+		if !ok {
 			continue
 		}
-		functionAnalysis := strictRouterFunctionAnalysis{}
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			identifier, ok := call.Fun.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			switch identifier.Name {
-			case "NewReadinessRouterWithOptions":
-				functionAnalysis.strictCalls++
-			case "NewRouterWithOptions":
-				functionAnalysis.legacyCalls++
-			default:
-				functionAnalysis.calls = append(functionAnalysis.calls, identifier.Name)
-			}
-			return true
-		})
-		analysis.functions[parsed.Name.Name+"."+function.Name.Name] = functionAnalysis
+		functionAnalysis := inspectStrictRouterFunction(fileSet, parsed.Name.Name, function, fileTypes, importAliases, &analysis.violations)
+		analysis.functions[strictRouterFunctionKey(parsed.Name.Name, function)] = functionAnalysis
 	}
 	return analysis
+}
+
+func inspectStrictRouterFunction(
+	fileSet *token.FileSet,
+	packageName string,
+	function *ast.FuncDecl,
+	fileTypes map[string]string,
+	importAliases map[string]bool,
+	violations *[]string,
+) strictRouterFunctionAnalysis {
+	analysis := strictRouterFunctionAnalysis{}
+	variableTypes := map[string]string{}
+	for name, typeName := range fileTypes {
+		variableTypes[name] = typeName
+	}
+	strictRouterRecordFieldTypes(variableTypes, function.Recv)
+	strictRouterRecordFieldTypes(variableTypes, function.Type.Params)
+	strictRouterRecordFieldTypes(variableTypes, function.Type.Results)
+	aliases := map[string]string{}
+
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		switch value := node.(type) {
+		case *ast.DeclStmt:
+			declaration, ok := value.Decl.(*ast.GenDecl)
+			if !ok || declaration.Tok != token.VAR {
+				return true
+			}
+			for _, specification := range declaration.Specs {
+				if values, ok := specification.(*ast.ValueSpec); ok {
+					strictRouterRecordValueSpec(values, packageName, variableTypes, aliases, importAliases)
+				}
+			}
+		case *ast.AssignStmt:
+			for index, left := range value.Lhs {
+				if selector, ok := unwrapStrictRouterExpr(left).(*ast.SelectorExpr); ok && selector.Sel.Name == "AdminService" && strictRouterExpressionType(selector.X, variableTypes) == "RouterOptions" {
+					*violations = append(*violations, "AdminService assignment: "+fileSet.Position(selector.Pos()).String())
+				}
+				identifier, ok := unwrapStrictRouterExpr(left).(*ast.Ident)
+				if !ok || index >= len(value.Rhs) {
+					continue
+				}
+				right := value.Rhs[index]
+				if typeName := strictRouterExpressionType(right, variableTypes); typeName != "" {
+					variableTypes[identifier.Name] = typeName
+				}
+				if target := strictRouterResolveReference(right, packageName, variableTypes, aliases, importAliases); target != "" {
+					aliases[identifier.Name] = target
+				} else {
+					delete(aliases, identifier.Name)
+				}
+			}
+		case *ast.CallExpr:
+			target := strictRouterResolveReference(value.Fun, packageName, variableTypes, aliases, importAliases)
+			switch target {
+			case strictRouterStrictTarget:
+				analysis.strictCalls++
+			case strictRouterLegacyTarget:
+				analysis.legacyCalls++
+			case "":
+			default:
+				analysis.calls = append(analysis.calls, target)
+			}
+		}
+		return true
+	})
+	return analysis
+}
+
+func strictRouterFileVariableTypes(parsed *ast.File) map[string]string {
+	variableTypes := map[string]string{}
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.VAR {
+			continue
+		}
+		for _, specification := range general.Specs {
+			values, ok := specification.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			typeName := strictRouterTypeName(values.Type)
+			for index, name := range values.Names {
+				inferred := typeName
+				if inferred == "" && index < len(values.Values) {
+					inferred = strictRouterExpressionType(values.Values[index], variableTypes)
+				}
+				if inferred != "" {
+					variableTypes[name.Name] = inferred
+				}
+			}
+		}
+	}
+	return variableTypes
+}
+
+func strictRouterImportAliases(parsed *ast.File) map[string]bool {
+	aliases := map[string]bool{}
+	for _, imported := range parsed.Imports {
+		if imported.Name != nil {
+			if imported.Name.Name != "_" && imported.Name.Name != "." {
+				aliases[imported.Name.Name] = true
+			}
+			continue
+		}
+		path := strings.Trim(imported.Path.Value, "\"")
+		if separator := strings.LastIndex(path, "/"); separator >= 0 {
+			path = path[separator+1:]
+		}
+		aliases[path] = true
+	}
+	return aliases
+}
+
+func strictRouterRecordFieldTypes(variableTypes map[string]string, fields *ast.FieldList) {
+	if fields == nil {
+		return
+	}
+	for _, field := range fields.List {
+		typeName := strictRouterTypeName(field.Type)
+		for _, name := range field.Names {
+			variableTypes[name.Name] = typeName
+		}
+	}
+}
+
+func strictRouterRecordValueSpec(values *ast.ValueSpec, packageName string, variableTypes map[string]string, aliases map[string]string, importAliases map[string]bool) {
+	explicitType := strictRouterTypeName(values.Type)
+	for index, name := range values.Names {
+		if explicitType != "" {
+			variableTypes[name.Name] = explicitType
+		}
+		if index >= len(values.Values) {
+			continue
+		}
+		right := values.Values[index]
+		if explicitType == "" {
+			if typeName := strictRouterExpressionType(right, variableTypes); typeName != "" {
+				variableTypes[name.Name] = typeName
+			}
+		}
+		if target := strictRouterResolveReference(right, packageName, variableTypes, aliases, importAliases); target != "" {
+			aliases[name.Name] = target
+		}
+	}
+}
+
+func strictRouterResolveReference(expression ast.Expr, packageName string, variableTypes map[string]string, aliases map[string]string, importAliases map[string]bool) string {
+	switch value := unwrapStrictRouterExpr(expression).(type) {
+	case *ast.Ident:
+		if target := aliases[value.Name]; target != "" {
+			return target
+		}
+		switch value.Name {
+		case "NewReadinessRouterWithOptions":
+			return strictRouterStrictTarget
+		case "NewRouterWithOptions":
+			return strictRouterLegacyTarget
+		default:
+			return packageName + "." + value.Name
+		}
+	case *ast.SelectorExpr:
+		if identifier, ok := unwrapStrictRouterExpr(value.X).(*ast.Ident); ok && importAliases[identifier.Name] {
+			return ""
+		}
+		if receiverType := strictRouterExpressionType(value.X, variableTypes); receiverType != "" {
+			return packageName + "." + receiverType + "." + value.Sel.Name
+		}
+		return strictRouterMethodTarget + value.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func strictRouterExpressionType(expression ast.Expr, variableTypes map[string]string) string {
+	switch value := unwrapStrictRouterExpr(expression).(type) {
+	case *ast.Ident:
+		return variableTypes[value.Name]
+	case *ast.CompositeLit:
+		return strictRouterTypeName(value.Type)
+	case *ast.UnaryExpr:
+		return strictRouterExpressionType(value.X, variableTypes)
+	case *ast.StarExpr:
+		return strictRouterExpressionType(value.X, variableTypes)
+	default:
+		return ""
+	}
+}
+
+func strictRouterTypeName(expression ast.Expr) string {
+	if expression == nil {
+		return ""
+	}
+	switch value := unwrapStrictRouterExpr(expression).(type) {
+	case *ast.Ident:
+		return value.Name
+	case *ast.SelectorExpr:
+		return value.Sel.Name
+	case *ast.StarExpr:
+		return strictRouterTypeName(value.X)
+	default:
+		return ""
+	}
+}
+
+func unwrapStrictRouterExpr(expression ast.Expr) ast.Expr {
+	for {
+		parenthesized, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			return expression
+		}
+		expression = parenthesized.X
+	}
+}
+
+func strictRouterFunctionKey(packageName string, function *ast.FuncDecl) string {
+	if function.Recv == nil || len(function.Recv.List) == 0 {
+		return packageName + "." + function.Name.Name
+	}
+	return packageName + "." + strictRouterTypeName(function.Recv.List[0].Type) + "." + function.Name.Name
 }
 
 func mergeStrictRouterSourceAnalysis(target *strictRouterSourceAnalysis, source strictRouterSourceAnalysis) {
@@ -413,8 +635,7 @@ func strictRouterEntrypointInventory(analysis strictRouterSourceAnalysis, packag
 	result := strictRouterEntrypointCalls{}
 	visited := map[string]bool{}
 	var visit func(string)
-	visit = func(functionName string) {
-		key := packageName + "." + functionName
+	visit = func(key string) {
 		if visited[key] {
 			return
 		}
@@ -426,12 +647,22 @@ func strictRouterEntrypointInventory(analysis strictRouterSourceAnalysis, packag
 		result.strictCalls += function.strictCalls
 		result.legacyCalls += function.legacyCalls
 		for _, callee := range function.calls {
+			if strings.HasPrefix(callee, strictRouterMethodTarget) {
+				methodName := strings.TrimPrefix(callee, strictRouterMethodTarget)
+				for candidate := range analysis.functions {
+					if strings.HasPrefix(candidate, packageName+".") && strings.HasSuffix(candidate, "."+methodName) {
+						visit(candidate)
+					}
+				}
+				continue
+			}
 			visit(callee)
 		}
 	}
-	if _, ok := analysis.functions[packageName+"."+root]; ok {
+	rootKey := packageName + "." + root
+	if _, ok := analysis.functions[rootKey]; ok {
 		result.found = true
-		visit(root)
+		visit(rootKey)
 	}
 	return result
 }
@@ -439,12 +670,13 @@ func strictRouterEntrypointInventory(analysis strictRouterSourceAnalysis, packag
 func strictRouterDirectCallers(analysis strictRouterSourceAnalysis, packageName, callee string) []string {
 	callers := []string{}
 	prefix := packageName + "."
+	target := prefix + callee
 	for qualifiedName, function := range analysis.functions {
 		if !strings.HasPrefix(qualifiedName, prefix) {
 			continue
 		}
 		for _, called := range function.calls {
-			if called == callee {
+			if called == target {
 				callers = append(callers, strings.TrimPrefix(qualifiedName, prefix))
 				break
 			}
