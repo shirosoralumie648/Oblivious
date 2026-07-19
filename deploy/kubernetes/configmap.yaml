@@ -40,6 +40,9 @@ data:
   CLICKHOUSE_DRIVER: "clickhouse"
   OBSERVABILITY_HTTP_LATENCY_SLO_THRESHOLD_MS: "5000"
 
+  # Kafka
+  KAFKA_BROKERS: "oblivious-kafka.oblivious.svc.cluster.local:9092"
+
   # LLM defaults (API key comes from Secret)
   RELAY_ENABLED: "true"
   RELAY_DEFAULT_MODEL: "gpt-4o-mini"

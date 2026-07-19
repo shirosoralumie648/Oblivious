@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"oblivious/server/internal/buildinfo"
 	serverconfig "oblivious/server/internal/config"
@@ -232,8 +234,9 @@ func TestServerStartupOrderContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime", "listen", "serve", "refresh", "background", "close"}
-		if !reflect.DeepEqual(events, want) {
-			t.Fatalf("startup events = %#v, want %#v", events, want)
+		got := snapshotStartupEvents(events)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("startup events = %#v, want %#v", got, want)
 		}
 	})
 
@@ -258,15 +261,157 @@ func TestServerStartupOrderContract(t *testing.T) {
 			}); err == nil {
 				t.Fatal("startup unexpectedly succeeded")
 			}
-			if !reflect.DeepEqual(events, test.want) {
-				t.Fatalf("failure events = %#v, want %#v", events, test.want)
+			got := snapshotStartupEvents(events)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("failure events = %#v, want %#v", got, test.want)
 			}
 		})
 	}
 }
 
+func TestDeploymentOwnedReadinessProbeContract(t *testing.T) {
+	database, err := sql.Open("postgres", "postgres://unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	probes, err := newDeploymentReadinessProbes(serverconfig.Config{
+		RedisAddr:        "redis.internal:6379",
+		QdrantURL:        "http://qdrant.internal:6333",
+		ClickHouseDSN:    "tcp://clickhouse.internal:9000?database=oblivious",
+		ClickHouseDriver: "clickhouse",
+		KafkaBrokers:     []string{"kafka.internal:9092"},
+	}, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]string, len(probes))
+	for _, probe := range probes {
+		got[probe.DependencyID()] = probe.ID()
+	}
+	want := map[string]string{
+		"postgres":   "runtime.postgres",
+		"redis":      "runtime.redis",
+		"qdrant":     "runtime.qdrant",
+		"clickhouse": "runtime.clickhouse",
+		"kafka":      "runtime.kafka",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deployment probes = %#v, want %#v", got, want)
+	}
+
+	configured := serverconfig.Config{
+		RedisAddr:        "redis.internal:6379",
+		QdrantURL:        "http://qdrant.internal:6333",
+		ClickHouseDSN:    "tcp://user:dsn-secret@clickhouse.internal:9000?database=oblivious",
+		ClickHouseDriver: "clickhouse",
+		KafkaBrokers:     []string{"kafka.internal:9092"},
+	}
+	newOperations := func(t *testing.T, failDependency string, calls map[string]int) deploymentReadinessOperations {
+		t.Helper()
+		call := func(ctx context.Context, dependencyID string) error {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > deploymentReadinessProbeTimeout+time.Second {
+				t.Fatalf("%s probe did not receive bounded context", dependencyID)
+			}
+			calls[dependencyID]++
+			if dependencyID == failDependency {
+				return errors.New("dsn-secret endpoint.internal response-body-secret")
+			}
+			return nil
+		}
+		return deploymentReadinessOperations{
+			postgres:   func(ctx context.Context, _ *sql.DB) error { return call(ctx, "postgres") },
+			redis:      func(ctx context.Context, _ serverconfig.Config) error { return call(ctx, "redis") },
+			qdrant:     func(ctx context.Context, _ serverconfig.Config, _ string) error { return call(ctx, "qdrant") },
+			clickhouse: func(ctx context.Context, _ serverconfig.Config) error { return call(ctx, "clickhouse") },
+			kafka:      func(ctx context.Context, _ []string) error { return call(ctx, "kafka") },
+		}
+	}
+
+	t.Run("all typed operations are bounded and enabled only on success", func(t *testing.T) {
+		calls := map[string]int{}
+		probes, err := newDeploymentReadinessProbesWithOperations(configured, database, newOperations(t, "", calls))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, probe := range probes {
+			observation, err := probe.Run(context.Background())
+			if err != nil || observation.Availability != releasecontract.AvailabilityEnabled || observation.ReasonCode != "" {
+				t.Fatalf("%s success observation = %#v, error=%v", probe.DependencyID(), observation, err)
+			}
+		}
+		for dependencyID := range want {
+			if calls[dependencyID] != 1 {
+				t.Fatalf("%s calls = %d, want 1", dependencyID, calls[dependencyID])
+			}
+		}
+	})
+
+	for dependencyID := range want {
+		t.Run(dependencyID+" failure is blocked and sanitized", func(t *testing.T) {
+			calls := map[string]int{}
+			probes, err := newDeploymentReadinessProbesWithOperations(configured, database, newOperations(t, dependencyID, calls))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, probe := range probes {
+				if probe.DependencyID() != dependencyID {
+					continue
+				}
+				observation, runErr := probe.Run(context.Background())
+				if runErr != nil || observation.Availability != releasecontract.AvailabilityBlocked || observation.ReasonCode != "dependency_unproven" || observation.Detail != nil {
+					t.Fatalf("failure observation = %#v, error=%v", observation, runErr)
+				}
+				encoded, _ := json.Marshal(observation)
+				for _, forbidden := range []string{"dsn-secret", "endpoint.internal", "response-body-secret"} {
+					if strings.Contains(string(encoded), forbidden) {
+						t.Fatalf("sanitized observation leaked %q: %s", forbidden, encoded)
+					}
+				}
+			}
+			if calls[dependencyID] != 1 {
+				t.Fatalf("%s calls = %d, want 1", dependencyID, calls[dependencyID])
+			}
+		})
+	}
+
+	t.Run("missing deployment config stays blocked and ignores synthetic authority", func(t *testing.T) {
+		t.Setenv("OBLIVIOUS_READINESS_PROBE_BASE_URL", "http://synthetic-authority.invalid")
+		probes, err := newDeploymentReadinessProbes(serverconfig.Config{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, probe := range probes {
+			observation, runErr := probe.Run(context.Background())
+			if runErr != nil || observation.Availability != releasecontract.AvailabilityBlocked || observation.ReasonCode != "dependency_unproven" {
+				t.Fatalf("%s missing-config observation = %#v, error=%v", probe.DependencyID(), observation, runErr)
+			}
+		}
+	})
+
+	t.Run("parent deadline bounds context-honoring work", func(t *testing.T) {
+		probe := deploymentReadinessProbe{id: "runtime.redis", dependencyID: "redis", run: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		started := time.Now()
+		observation, err := probe.Run(ctx)
+		if err != nil || observation.Availability != releasecontract.AvailabilityBlocked || time.Since(started) > time.Second {
+			t.Fatalf("deadline observation=%#v error=%v duration=%s", observation, err, time.Since(started))
+		}
+	})
+}
+
 func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net.Listener, _ *stdhttp.Server) startupDependencies {
-	appendEvent := func(event string) { *events = append(*events, event) }
+	appendEvent := func(event string) {
+		startupEventsMu.Lock()
+		defer startupEventsMu.Unlock()
+		*events = append(*events, event)
+	}
 	manager := &startupManagerSpy{events: events}
 	return startupDependencies{
 		loadConfig: func() (serverconfig.Config, error) {
@@ -298,7 +443,7 @@ func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net
 			}
 			return migrations.Result{}, nil
 		},
-		newManager: func(context.Context, serverconfig.ResolvedEntrypointInputs, string) (releasecontract.ReadinessManager, error) {
+		newManager: func(context.Context, serverconfig.ResolvedEntrypointInputs, serverconfig.Config, *sql.DB, string) (releasecontract.ReadinessManager, error) {
 			appendEvent("manager_construct")
 			if fail == "manager_construct" {
 				return nil, errors.New("manager failure")
@@ -345,12 +490,26 @@ func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net
 
 type startupManagerSpy struct{ events *[]string }
 
+var startupEventsMu sync.Mutex
+
+func snapshotStartupEvents(events []string) []string {
+	startupEventsMu.Lock()
+	defer startupEventsMu.Unlock()
+	return append([]string(nil), events...)
+}
+
 func (m *startupManagerSpy) Bootstrap(context.Context) error {
+	startupEventsMu.Lock()
+	defer startupEventsMu.Unlock()
 	*m.events = append(*m.events, "bootstrap")
 	return nil
 }
-func (m *startupManagerSpy) StartRefresh(context.Context) { *m.events = append(*m.events, "refresh") }
-func (m *startupManagerSpy) Require(string) error         { return nil }
+func (m *startupManagerSpy) StartRefresh(context.Context) {
+	startupEventsMu.Lock()
+	defer startupEventsMu.Unlock()
+	*m.events = append(*m.events, "refresh")
+}
+func (m *startupManagerSpy) Require(string) error { return nil }
 func (m *startupManagerSpy) Evaluate() releasecontract.Evaluation {
 	return releasecontract.Evaluation{}
 }
