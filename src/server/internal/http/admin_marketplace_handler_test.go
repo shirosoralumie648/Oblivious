@@ -2297,6 +2297,7 @@ type fakeMarketplaceSettlementService struct {
 	createCalls            int
 	setSessionCalls        int
 	failCalls              int
+	failErr                error
 }
 
 func (s *fakeMarketplaceSettlementService) CreatePaidInstallCheckout(ctx context.Context, input marketplace.PaidInstallCheckoutRequest) (*marketplace.MarketplaceOrder, error) {
@@ -2331,7 +2332,7 @@ func (s *fakeMarketplaceSettlementService) MarkPaidInstallCheckoutFailed(ctx con
 	s.failedOrderID = orderID
 	s.failedPaymentIntentID = paymentIntentID
 	s.failureReason = reason
-	return nil
+	return s.failErr
 }
 
 func (s *fakeMarketplaceStore) CreateAgent(ctx context.Context, ownerID, organizationID string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {

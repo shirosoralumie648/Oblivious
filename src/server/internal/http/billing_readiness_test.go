@@ -10,12 +10,17 @@ import (
 )
 
 type billingReadinessGuardSpy struct {
-	denial error
-	calls  []string
+	denial  error
+	denials []error
+	calls   []string
 }
 
 func (g *billingReadinessGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
+	callIndex := len(g.calls)
 	g.calls = append(g.calls, capabilityID+":"+string(boundary))
+	if callIndex < len(g.denials) {
+		return g.denials[callIndex]
+	}
 	return g.denial
 }
 
