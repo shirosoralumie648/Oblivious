@@ -41,12 +41,36 @@ func TestRedisClientOptionsContract(t *testing.T) {
 		}
 	})
 
-	for _, raw := range []string{"redis-secret.invalid-address", "redis-secret.invalid:invalid-port", "redis-secret.invalid:65536"} {
-		t.Run("invalid TLS address is redacted", func(t *testing.T) {
-			_, err := RedisClientOptions(Config{RedisAddr: raw, RedisTLS: true}, "")
-			if err == nil || err.Error() != "invalid redis TLS configuration" || strings.Contains(err.Error(), raw) || strings.Contains(err.Error(), "redis-secret") {
-				t.Fatalf("invalid TLS address error = %v, want stable redacted error", err)
-			}
-		})
+	malformed := []struct {
+		name string
+		raw  string
+	}{
+		{name: "leading whitespace", raw: " redis-secret.internal:6379"},
+		{name: "control byte", raw: "redis\x01-secret.internal:6379"},
+		{name: "path", raw: "redis-secret.internal/path:6379"},
+		{name: "query", raw: "redis-secret.internal?db=1:6379"},
+		{name: "userinfo", raw: "user@redis-secret.internal:6379"},
+		{name: "blank DNS label", raw: "redis-secret..internal:6379"},
+		{name: "leading hyphen", raw: "-redis-secret.internal:6379"},
+		{name: "missing port", raw: "redis-secret.invalid-address"},
+		{name: "nonnumeric port", raw: "redis-secret.invalid:invalid-port"},
+		{name: "zero port", raw: "redis-secret.invalid:0"},
+		{name: "overflow port", raw: "redis-secret.invalid:65536"},
+	}
+	for _, tlsEnabled := range []bool{false, true} {
+		mode := "plain"
+		wantError := "invalid redis configuration"
+		if tlsEnabled {
+			mode = "TLS"
+			wantError = "invalid redis TLS configuration"
+		}
+		for _, test := range malformed {
+			t.Run(mode+" rejects "+test.name, func(t *testing.T) {
+				_, err := RedisClientOptions(Config{RedisAddr: test.raw, RedisTLS: tlsEnabled}, "")
+				if err == nil || err.Error() != wantError || strings.Contains(err.Error(), test.raw) || strings.Contains(err.Error(), "redis-secret") {
+					t.Fatalf("invalid %s address error = %v, want stable redacted error", mode, err)
+				}
+			})
+		}
 	}
 }

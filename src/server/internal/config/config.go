@@ -1117,20 +1117,24 @@ func ValidateKafkaBrokers(brokers []string) error {
 }
 
 func validateKafkaBrokerEndpoint(broker string) error {
-	if broker == "" || broker != strings.TrimSpace(broker) {
-		return fmt.Errorf("invalid broker")
+	return validateHostPortEndpoint(broker)
+}
+
+func validateHostPortEndpoint(endpoint string) error {
+	if endpoint == "" || endpoint != strings.TrimSpace(endpoint) {
+		return fmt.Errorf("invalid endpoint")
 	}
-	host, portRaw, err := net.SplitHostPort(broker)
-	if err != nil || host == "" || !validKafkaBrokerPort(portRaw) {
-		return fmt.Errorf("invalid broker")
+	host, portRaw, err := net.SplitHostPort(endpoint)
+	if err != nil || host == "" || !validEndpointPort(portRaw) {
+		return fmt.Errorf("invalid endpoint")
 	}
-	if net.ParseIP(host) == nil && !validKafkaBrokerDNSName(host) {
-		return fmt.Errorf("invalid broker")
+	if net.ParseIP(host) == nil && !validEndpointDNSName(host) {
+		return fmt.Errorf("invalid endpoint")
 	}
 	return nil
 }
 
-func validKafkaBrokerPort(portRaw string) bool {
+func validEndpointPort(portRaw string) bool {
 	if portRaw == "" {
 		return false
 	}
@@ -1143,7 +1147,7 @@ func validKafkaBrokerPort(portRaw string) bool {
 	return err == nil && port >= 1 && port <= 65535
 }
 
-func validKafkaBrokerDNSName(host string) bool {
+func validEndpointDNSName(host string) bool {
 	if len(host) == 0 || len(host) > 253 {
 		return false
 	}

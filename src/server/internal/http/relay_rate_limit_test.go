@@ -145,10 +145,25 @@ func testRelayRateLimiterRedisTransport(
 		})
 	}
 
-	const malformed = "redis-secret.invalid-address"
-	limiter, closeLimiter, err := build(config.Config{RelayRateLimitBackend: "redis", RedisAddr: malformed, RedisTLS: true})
-	if err == nil || limiter != nil || closeLimiter != nil || strings.Contains(err.Error(), malformed) || strings.Contains(err.Error(), "redis-secret") {
-		t.Fatalf("invalid TLS limiter result limiter=%T close=%v error=%v", limiter, closeLimiter != nil, err)
+	for _, tlsEnabled := range []bool{false, true} {
+		for _, malformed := range []string{
+			" redis-secret.internal:6379",
+			"redis\x01-secret.internal:6379",
+			"redis-secret.internal/path:6379",
+			"redis-secret.internal?db=1:6379",
+			"user@redis-secret.internal:6379",
+			"redis-secret..internal:6379",
+			"-redis-secret.internal:6379",
+			"redis-secret.invalid-address",
+			"redis-secret.invalid:invalid-port",
+			"redis-secret.invalid:0",
+			"redis-secret.invalid:65536",
+		} {
+			limiter, closeLimiter, err := build(config.Config{RelayRateLimitBackend: "redis", RedisAddr: malformed, RedisTLS: tlsEnabled})
+			if err == nil || limiter != nil || closeLimiter != nil || strings.Contains(err.Error(), malformed) || strings.Contains(err.Error(), "redis-secret") {
+				t.Fatalf("invalid Redis limiter result tls=%t limiter=%T close=%v error=%v", tlsEnabled, limiter, closeLimiter != nil, err)
+			}
+		}
 	}
 }
 
