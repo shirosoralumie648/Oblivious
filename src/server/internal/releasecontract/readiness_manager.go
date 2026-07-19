@@ -192,6 +192,7 @@ type Manager struct {
 type managedProbe struct {
 	probe         Probe
 	capabilityIDs []string
+	inFlight      chan struct{}
 }
 
 type readinessGeneration struct {
@@ -258,7 +259,11 @@ func compileApplicableProbes(probes []Probe, expected map[string][]string) ([]ma
 		if !ok {
 			return nil, readinessError(CodeReadinessUnavailable, "probes.missing", nil)
 		}
-		managed = append(managed, managedProbe{probe: probe, capabilityIDs: append([]string(nil), capabilityIDs...)})
+		managed = append(managed, managedProbe{
+			probe:         probe,
+			capabilityIDs: append([]string(nil), capabilityIDs...),
+			inFlight:      make(chan struct{}, 1),
+		})
 	}
 	sort.Slice(managed, func(i, j int) bool { return managed[i].probe.DependencyID() < managed[j].probe.DependencyID() })
 	return managed, nil
@@ -339,10 +344,20 @@ func (m *Manager) runBoundedProbes(ctx context.Context) ([]Observation, error) {
 	results := make(chan probeResult, len(m.probes))
 	for index, managed := range m.probes {
 		go func(index int, managed managedProbe) {
+			select {
+			case managed.inFlight <- struct{}{}:
+			case <-ctx.Done():
+				results <- probeResult{index: index, err: ctx.Err()}
+				return
+			default:
+				results <- probeResult{index: index, err: context.DeadlineExceeded}
+				return
+			}
 			probeCtx, cancel := context.WithTimeout(ctx, m.probeDeadline)
 			defer cancel()
 			completed := make(chan probeResult, 1)
 			go func() {
+				defer func() { <-managed.inFlight }()
 				observation, err := managed.probe.Run(probeCtx)
 				completed <- probeResult{index: index, observation: observation, err: err}
 			}()
