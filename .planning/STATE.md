@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-17-PLAN.md
-last_updated: "2026-07-19T12:40:01.000Z"
-last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 17 wired deployment-owned five-dependency probes and passed exact-commit Docker E2; Plan 31.1-18 is next
+stopped_at: Completed 31.1-18-PLAN.md
+last_updated: "2026-07-19T17:01:09.822Z"
+last_activity: 2026-07-20
+last_activity_desc: Phase 31.1 Plan 18 completed exact descriptor, AST, and authority coverage at repository-local E1; Plan 31.1-21 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 24
-  percent: 55
+  completed_plans: 25
+  percent: 57
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 17 of 22
-Status: Plan 31.1-17 complete; Plan 31.1-18 is next
-Last activity: 2026-07-19 — Deployment-owned PostgreSQL, Redis, Qdrant, ClickHouse, and Kafka probes passed repository-local E1/E2
+Plan: 18 of 22
+Status: Plan 31.1-18 complete; Plan 31.1-21 is next
+Last activity: 2026-07-20 — Exact descriptor, structural AST, and mandatory RuntimeAuthorities coverage passed repository-local E1
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 17
-- Average duration: 29 min
-- Total execution time: 8.2 hours
+- Total plans completed: 18
+- Average duration: 34 min
+- Total execution time: 10.2 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 17 plans in 489 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 18 plans in 614 minutes.
 
-**Recent Trend:** Plan 31.1-17 closed canonical deployment probe ownership with exact-commit real-dependency E2 in 50 minutes.
+**Recent Trend:** Plan 31.1-18 closed the exact structural effect contract and mandatory authority join in 125 minutes.
 
 ## Accumulated Context
 
@@ -97,6 +97,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Admin and App reject any non-empty Evaluation.ErrorCode before sorting or projecting last-known capability state. — Keeps evaluator-owned freshness exact and prevents raw diagnostic or enabled-row leakage.
 - [Phase 31.1]: Normal monolith readiness constructs five typed probes only from deployment config plus the existing PostgreSQL handle. — Removes the synthetic probe-base authority while keeping missing dependencies fail closed.
 - [Phase 31.1]: Redis readiness configuration survives non-Redis rate limiting, and Kafka brokers are strict typed host:port values. — Keeps feature toggles from erasing deployment readiness addressability.
+- [Phase 31.1]: One exact runtimeDescriptorSpecs map owns descriptor identity, EffectID, owner, boundary, disposition, and configuration selection; structural AST proof plus matching RuntimeAuthorities are mandatory. — Prevents text markers, prefix or owner inference, independent APIs, and missing authority from certifying monolith runtime effects.
 
 ### Pending Todos
 
@@ -125,6 +126,7 @@ None yet.
 | Phase 31.1 P15 | 42 min | 2 tasks | 9 files |
 | Phase 31.1 P16 | 3 min | 2 tasks | 2 files |
 | Phase 31.1 P17 | 50 min | 2 tasks | 8 files |
+| Phase 31.1 P18 | 2h 5m | 3 tasks | 3 files |
 
 ### Roadmap Evolution
 
@@ -137,8 +139,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T12:40:01.000Z
-Stopped at: Completed 31.1-17-PLAN.md
+Last session: 2026-07-19T17:01:09.803Z
+Stopped at: Completed 31.1-18-PLAN.md
 Resume file: None
 
 ## Performance Metrics
