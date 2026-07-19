@@ -836,6 +836,83 @@ func register(effects Registrar, stop bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "nested loop labeled continue outer",
+				packageName: "continueouter",
+				source: `package continueouter
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effect := struct{ id string }{}
+	var err error
+outer:
+	for range []int{1} {
+		for range []int{1} {
+			if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				continue outer
+			}
+			descriptors = append(descriptors, EffectDescriptor{ID: "continue.outer", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "continue.Outer"})
+		}
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "labeled continue in sandbox condition",
+				packageName: "continuelabeled",
+				source: `package continuelabeled
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effect := struct{ id string }{}
+	var err error
+current:
+	for range []int{1} {
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue current
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "continue.labeled", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "continue.Labeled"})
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "nested inner continue bypasses append",
+				packageName: "continueinner",
+				source: `package continueinner
+func register(effects Registrar) error {
+	var descriptors []EffectDescriptor
+	effect := struct{ id string }{}
+	var err error
+	for range []int{1} {
+		for range []int{1} {
+			if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+				continue
+			}
+			descriptors = append(descriptors, EffectDescriptor{ID: "continue.inner", CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "continue.Inner"})
+		}
+	}
+	for _, descriptor := range descriptors { _ = effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("continue target ambiguity was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")

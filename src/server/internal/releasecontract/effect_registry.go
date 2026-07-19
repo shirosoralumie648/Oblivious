@@ -961,12 +961,10 @@ func hasUnsafeLoopControlBefore(body *ast.BlockStmt, before token.Pos) bool {
 		if !ok || statement.Pos() >= before || !isOptionalDescriptorSkipCondition(statement.Cond) {
 			return
 		}
-		inspectReachable(statement.Body, func(child ast.Node) {
-			branch, ok := child.(*ast.BranchStmt)
-			if ok && branch.Pos() < before && branch.Tok == token.CONTINUE {
-				safeContinue[branch] = struct{}{}
-			}
-		})
+		branch, ok := directCurrentLoopContinue(body, statement, parents)
+		if ok && branch.Pos() < before {
+			safeContinue[branch] = struct{}{}
+		}
 	})
 	unsafe := false
 	inspectReachable(body, func(node ast.Node) {
@@ -985,6 +983,28 @@ func hasUnsafeLoopControlBefore(body *ast.BlockStmt, before token.Pos) bool {
 		}
 	})
 	return unsafe
+}
+
+func directCurrentLoopContinue(loopBody *ast.BlockStmt, condition *ast.IfStmt, parents map[ast.Node]ast.Node) (*ast.BranchStmt, bool) {
+	if loopBody == nil || condition == nil || condition.Body == nil || len(condition.Body.List) != 1 {
+		return nil, false
+	}
+	branch, ok := condition.Body.List[0].(*ast.BranchStmt)
+	if !ok || branch.Tok != token.CONTINUE || branch.Label != nil {
+		return nil, false
+	}
+	for node := parents[branch]; node != nil && node != loopBody; node = parents[node] {
+		switch node.(type) {
+		case *ast.RangeStmt, *ast.ForStmt, *ast.FuncLit:
+			return nil, false
+		}
+	}
+	for node := ast.Node(branch); node != nil; node = parents[node] {
+		if node == loopBody {
+			return branch, true
+		}
+	}
+	return nil, false
 }
 
 func isOptionalDescriptorSkipCondition(expression ast.Expr) bool {
