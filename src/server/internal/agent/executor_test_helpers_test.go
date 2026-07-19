@@ -119,9 +119,12 @@ func direct() { NewToolExecutor(nil) }
 func parenthesized() { (NewToolExecutor)(nil) }
 func compatibilityAlias() { ctor := NewToolExecutor; ctor(nil) }
 func parenthesizedAlias() { ctor := (NewToolExecutor); (ctor)(nil) }
+func forwarding() { invoke(NewToolExecutor) }
+func aliasForwarding() { ctor := NewToolExecutor; invoke(ctor) }
 func authorizedAlias() { ctor := NewAuthorizedToolExecutor; ctor(nil, ToolRuntimeOptions{}) }
 func serviceAlias() { ctor := NewServiceWithRuntimeOptions; ctor(nil, nil, nil, ToolRuntimeOptions{}) }
 func composites() { _ = ToolExecutor{}; _ = &ToolExecutor{} }
+func allocations() { _ = new(ToolExecutor); _ = new((ToolExecutor)) }
 `
 	if err := os.WriteFile(filepath.Join(agentDir, "mutation.go"), []byte(source), 0o600); err != nil {
 		t.Fatalf("write mutation source: %v", err)
@@ -133,6 +136,8 @@ func composites() { _ = ToolExecutor{}; _ = &ToolExecutor{} }
 		"internal/agent/mutation.go:parenthesized":      1,
 		"internal/agent/mutation.go:compatibilityAlias": 1,
 		"internal/agent/mutation.go:parenthesizedAlias": 1,
+		"internal/agent/mutation.go:forwarding":         1,
+		"internal/agent/mutation.go:aliasForwarding":    1,
 	})
 	assertConstructorCallCounts(t, calls, "NewAuthorizedToolExecutor", map[string]int{
 		"internal/agent/mutation.go:authorizedAlias": 1,
@@ -141,7 +146,8 @@ func composites() { _ = ToolExecutor{}; _ = &ToolExecutor{} }
 		"internal/agent/mutation.go:serviceAlias": 1,
 	})
 	assertConstructorCallCounts(t, calls, "ToolExecutorComposite", map[string]int{
-		"internal/agent/mutation.go:composites": 2,
+		"internal/agent/mutation.go:composites":  2,
+		"internal/agent/mutation.go:allocations": 2,
 	})
 }
 
@@ -190,6 +196,15 @@ func collectToolExecutorConstructorCallsAtRoot(t *testing.T, serverRoot string, 
 						}
 						if isToolExecutorConstructor(name) {
 							calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: name})
+						}
+						for _, argument := range value.Args {
+							forwarded := calledFunctionName(argument, aliases)
+							if isToolExecutorConstructor(forwarded) {
+								calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: forwarded})
+							}
+						}
+						if name == "new" && len(value.Args) == 1 && isToolExecutorType(value.Args[0]) {
+							calls = append(calls, toolExecutorConstructorCall{file: filepath.ToSlash(rel), function: function.Name.Name, name: "ToolExecutorComposite"})
 						}
 					case *ast.CompositeLit:
 						if isToolExecutorType(value.Type) {
