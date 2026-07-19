@@ -16,6 +16,7 @@ import (
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/memory"
 	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/releasecontract"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -8481,6 +8482,63 @@ func TestListAvailableToolsAllowsWebSearchWhenProviderConfigured(t *testing.T) {
 	if result == nil || result.IsError || !strings.Contains(result.Content, "Search ready") {
 		t.Fatalf("expected provider-backed web_search result, got %+v", result)
 	}
+}
+
+func TestServiceRuntimeOptionsPreserveWebSearchProviderContract(t *testing.T) {
+	guard := &liveExecutorGuard{}
+	guard.allow.Store(true)
+	contract, profile := loadLiveExecutorAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("build runtime authorities: %v", err)
+	}
+	provider := &liveWebSearchProvider{}
+	store := &fakeStore{agent: &Agent{
+		ID: "agent_runtime_web_search", OrganizationID: "org_1", UserID: "user_1",
+		Tools: []Tool{{Name: "web_search", Type: "builtin", Enabled: true}},
+	}}
+	service, err := NewServiceWithRuntimeOptions(store, &fakeGateway{}, nil, ToolRuntimeOptions{
+		Authorities:       authorities,
+		Guard:             guard,
+		Effects:           &liveExecutorRegistrar{descriptors: make(map[string]releasecontract.EffectDescriptor)},
+		HTTPClient:        http.DefaultClient,
+		WebSearchProvider: provider,
+	})
+	if err != nil {
+		t.Fatalf("construct runtime service: %v", err)
+	}
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	guard.allow.Store(false)
+	if _, err := service.ExecuteTool(t.Context(), session, store.agent.ID, "web_search", map[string]any{"query": "denied"}); err == nil {
+		t.Fatal("denied runtime service web search unexpectedly succeeded")
+	}
+	if got := provider.calls.Load(); got != 0 {
+		t.Fatalf("denied runtime service provider calls = %d, want 0", got)
+	}
+
+	guard.allow.Store(true)
+	result, err := service.ExecuteTool(t.Context(), session, store.agent.ID, "web_search", map[string]any{"query": "current"})
+	if err != nil {
+		t.Fatalf("current runtime service web search: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("current runtime service result = %+v, want success", result)
+	}
+	if got := provider.calls.Load(); got != 1 {
+		t.Fatalf("current runtime service provider calls = %d, want 1", got)
+	}
+
+	definitions, err := service.ListAvailableTools(t.Context(), session, store.agent.ID)
+	if err != nil {
+		t.Fatalf("list runtime service tools: %v", err)
+	}
+	for _, definition := range definitions {
+		if definition.Name == "web_search" {
+			return
+		}
+	}
+	t.Fatalf("runtime service omitted web_search definition: %+v", definitions)
 }
 
 func TestListAvailableToolsIncludesApprovalMetadata(t *testing.T) {
