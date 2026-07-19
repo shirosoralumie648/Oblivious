@@ -6,14 +6,14 @@ current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
 stopped_at: Completed 31.1-11-PLAN.md
-last_updated: "2026-07-19T04:16:34.802Z"
+last_updated: "2026-07-19T06:18:00Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 11 serialized bootstrap and bounded probe work; Plan 31.1-12 is next
+last_activity_desc: Phase 31.1 Plan 12 closed Relay semantic-cache and provider reauthorization gaps; Plan 31.1-13 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 18
+  completed_plans: 19
   percent: 9
 ---
 
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 11 of 22
-Status: Plan 31.1-11 complete; Plan 31.1-12 is next
-Last activity: 2026-07-19 — Serialized bootstrap and bounded non-cooperative probe work
+Plan: 12 of 22
+Status: Plan 31.1-12 complete; Plan 31.1-13 is next
+Last activity: 2026-07-19 — Relay semantic-cache and provider reauthorization gaps closed
 
-Progress: [████░░░░░░] 41%
+Progress: [████░░░░░░] 45%
 
 ## Performance Metrics
 
@@ -124,8 +124,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T04:16:34.792Z
-Stopped at: Completed 31.1-11-PLAN.md
+Last session: 2026-07-19T06:18:00Z
+Stopped at: Completed 31.1-12-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -142,3 +142,4 @@ Resume file: None
 | Phase 31.1-readiness-fail-closed P01 | 37 min | 3 tasks | 10 files |
 | Phase 31.1-readiness-fail-closed | 04 | 20 min | 3 tasks, 11 files |
 | Phase 31.1-readiness-fail-closed | 05 | 31 min | 3 tasks, 10 files |
+| Phase 31.1-readiness-fail-closed | 12 | 12 min | 2 tasks, 2 files |
