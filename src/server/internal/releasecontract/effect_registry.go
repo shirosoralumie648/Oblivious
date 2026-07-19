@@ -1050,7 +1050,11 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, effec
 		return false
 	}
 	binding, found := latestCapabilityBindingForError(resolvedCapabilityBindings(function), errorObject, call.Pos())
-	return found && binding.effectReference == "effect.id" && binding.effectObject == effectObject && binding.object == capabilityObject
+	if !found || binding.effectReference != "effect.id" || binding.effectObject != effectObject || binding.object != capabilityObject {
+		return false
+	}
+	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
+		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos())
 }
 
 func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorObject *ast.Object, before token.Pos) (sourceCapabilityBinding, bool) {
@@ -1064,6 +1068,22 @@ func latestCapabilityBindingForError(bindings []sourceCapabilityBinding, errorOb
 		found = true
 	}
 	return latest, found
+}
+
+func hasIdentifierWriteBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
+	if function == nil || function.Body == nil || object == nil || before <= after {
+		return true
+	}
+	found := false
+	inspectReachable(function.Body, func(node ast.Node) {
+		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
+			return
+		}
+		if _, ok := identifierWrite(node, object); ok {
+			found = true
+		}
+	})
+	return found
 }
 
 func unwrapParentheses(expression ast.Expr) ast.Expr {
