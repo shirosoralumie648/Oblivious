@@ -39,6 +39,44 @@ func TestModelCatalogMutationContract(t *testing.T) {
 		}
 	})
 
+	t.Run("readiness denial precedes every model store read and probe", func(t *testing.T) {
+		denial := &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}
+		operations := []struct {
+			name string
+			run  func(*Service) error
+		}{
+			{name: "sync", run: func(service *Service) error {
+				_, err := service.SyncChannelModels(context.Background(), actor, "channel_1", httptest.NewRequest("POST", "/sync", nil))
+				return err
+			}},
+			{name: "detect", run: func(service *Service) error {
+				_, err := service.DetectChannelModelUpdates(context.Background(), actor.OrganizationID, "channel_1")
+				return err
+			}},
+			{name: "apply", run: func(service *Service) error {
+				_, err := service.ApplyChannelModelUpdates(context.Background(), actor, "channel_1", ChannelModelUpdateApplyRequest{Mode: "replace"}, httptest.NewRequest("POST", "/apply", nil))
+				return err
+			}},
+		}
+		for _, operation := range operations {
+			t.Run(operation.name, func(t *testing.T) {
+				store := &syncChannelModelsStore{
+					currentModels: []string{"gpt-4o-mini"},
+					testResult:    &ChannelTestResult{Success: true, Models: []string{"gpt-4o-mini"}},
+				}
+				guard := &adminModelGuardSpy{denial: denial}
+				service := newService(t, store, guard, &adminModelRegistrar{})
+				err := operation.run(service)
+				if !errors.Is(err, denial) {
+					t.Fatalf("expected readiness denial, got %v", err)
+				}
+				if len(guard.calls) != 1 || store.getCalls != 0 || store.testCalls != 0 || store.updateCalls != 0 {
+					t.Fatalf("denied %s reached store/probe: guard=%d get=%d test=%d update=%d", operation.name, len(guard.calls), store.getCalls, store.testCalls, store.updateCalls)
+				}
+			})
+		}
+	})
+
 	t.Run("unknown upstream model is rejected atomically", func(t *testing.T) {
 		store := &syncChannelModelsStore{testResult: &ChannelTestResult{Success: true, Models: []string{"caller-capability"}}}
 		service := newService(t, store, &adminModelGuardSpy{}, &adminModelRegistrar{})
@@ -93,12 +131,13 @@ type adminModelGuardCall struct {
 }
 
 type adminModelGuardSpy struct {
-	calls []adminModelGuardCall
+	calls  []adminModelGuardCall
+	denial error
 }
 
 func (g *adminModelGuardSpy) Require(_ context.Context, capabilityID string, boundary releasecontract.Boundary) error {
 	g.calls = append(g.calls, adminModelGuardCall{capabilityID: capabilityID, boundary: boundary})
-	return nil
+	return g.denial
 }
 
 type adminModelRegistrar struct {
@@ -746,13 +785,17 @@ type syncChannelModelsStore struct {
 	diagnostics   *ChannelDiagnosticsUpdate
 	auditEntry    *AuditEntry
 	updateCalls   int
+	getCalls      int
+	testCalls     int
 }
 
 func (s *syncChannelModelsStore) GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error) {
+	s.getCalls++
 	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.currentModels...)}, nil
 }
 
 func (s *syncChannelModelsStore) TestChannel(ctx context.Context, organizationID, id string) (*ChannelTestResult, error) {
+	s.testCalls++
 	return s.testResult, nil
 }
 

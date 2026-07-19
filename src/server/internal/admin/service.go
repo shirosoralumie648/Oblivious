@@ -115,6 +115,13 @@ type modelCatalogReadiness struct {
 	mutation    releasecontract.CapabilityID
 }
 
+func (r *modelCatalogReadiness) requireMutation(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return r.guard.Require(ctx, string(r.mutation), releasecontract.BoundaryHTTP)
+}
+
 func newModelCatalogReadiness(options ModelCatalogRuntimeOptions) (*modelCatalogReadiness, error) {
 	if options.Guard == nil || options.Effects == nil || !options.Authorities.Valid() {
 		return nil, &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessUnavailable, Field: "admin.channelModels"}
@@ -137,9 +144,6 @@ func newModelCatalogReadiness(options ModelCatalogRuntimeOptions) (*modelCatalog
 func (r *modelCatalogReadiness) requireModels(ctx context.Context, models []string) error {
 	if r == nil {
 		return nil
-	}
-	if err := r.guard.Require(ctx, string(r.mutation), releasecontract.BoundaryHTTP); err != nil {
-		return err
 	}
 	seen := make(map[string]struct{}, len(models))
 	for _, model := range models {
