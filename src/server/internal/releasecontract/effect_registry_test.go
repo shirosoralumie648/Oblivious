@@ -983,6 +983,28 @@ func register(effects Registrar) error {
 }
 `,
 			},
+			{
+				name:        "sandbox continue another resolve error",
+				packageName: "sandboxotherresolve",
+				source: `package sandboxotherresolve
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []struct{ id string }{{id: "row"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		otherCapability, otherErr := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		_ = err
+		_ = otherCapability
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(otherErr, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.other.resolve", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.OtherResolve"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
 		} {
 			t.Run(testCase.name, func(t *testing.T) {
 				discovered := discoverFixture(t, testCase.packageName, testCase.source)
