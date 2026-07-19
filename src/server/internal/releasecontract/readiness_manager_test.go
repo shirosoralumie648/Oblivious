@@ -298,6 +298,54 @@ func TestReadinessManagerBootstrapConcurrencyContract(t *testing.T) {
 	}
 }
 
+func TestReadinessManagerCanceledRefreshDoesNotStartProbeContract(t *testing.T) {
+	contract, profile, identity := loadReadinessTestAuthority(t)
+	release := make(chan struct{})
+	postgres := &cancellationIgnoringHealthyManagerProbe{
+		id:         "probe.postgres",
+		dependency: "postgres",
+		release:    release,
+	}
+	probes := replaceManagerProbe(managerTestProbes(t, contract, profile), "postgres", postgres)
+	manager := newTestManager(
+		t,
+		contract,
+		profile,
+		identity,
+		newManagerTestClock(time.Date(2026, time.July, 19, 3, 0, 0, 0, time.UTC)),
+		probes,
+		20*time.Millisecond,
+		&recordingSnapshotWriter{},
+		filepath.Join(t.TempDir(), "readiness.json"),
+	)
+	defer close(release)
+	if err := manager.Bootstrap(context.Background()); err != nil {
+		t.Fatalf("healthy bootstrap: %v", err)
+	}
+	initialCalls := postgres.calls.Load()
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for attempt := 0; attempt < 256; attempt++ {
+		if err := manager.refresh(canceled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled refresh %d error = %v, want context canceled", attempt+1, err)
+		}
+	}
+	if got := postgres.calls.Load(); got != initialCalls {
+		t.Fatalf("canceled refreshes started %d new postgres probes, want zero", got-initialCalls)
+	}
+	if got := manager.Evaluate().Generation; got != 1 {
+		t.Fatalf("canceled refreshes changed generation to %d, want 1", got)
+	}
+
+	if err := manager.refresh(context.Background()); err != nil {
+		t.Fatalf("healthy lane reuse refresh: %v", err)
+	}
+	if got := postgres.calls.Load(); got != initialCalls+1 {
+		t.Fatalf("healthy lane reuse calls = %d, want %d", got, initialCalls+1)
+	}
+}
+
 func TestReadinessManagerNonCooperativeProbeBoundContract(t *testing.T) {
 	contract, profile, identity := loadReadinessTestAuthority(t)
 	clock := newManagerTestClock(time.Date(2026, time.July, 19, 1, 0, 0, 0, time.UTC))
@@ -496,6 +544,23 @@ type fixedManagerProbe struct {
 	mu         sync.RWMutex
 	result     Observation
 	err        error
+}
+
+type cancellationIgnoringHealthyManagerProbe struct {
+	id         string
+	dependency string
+	calls      atomic.Int64
+	release    <-chan struct{}
+}
+
+func (p *cancellationIgnoringHealthyManagerProbe) ID() string           { return p.id }
+func (p *cancellationIgnoringHealthyManagerProbe) DependencyID() string { return p.dependency }
+func (p *cancellationIgnoringHealthyManagerProbe) Run(ctx context.Context) (Observation, error) {
+	p.calls.Add(1)
+	if ctx.Err() != nil {
+		<-p.release
+	}
+	return Observation{Availability: AvailabilityEnabled}, nil
 }
 
 func (p *fixedManagerProbe) ID() string           { return p.id }
