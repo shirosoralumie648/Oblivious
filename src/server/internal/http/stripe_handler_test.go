@@ -29,9 +29,11 @@ type fakeCheckoutCreator struct {
 	sessionURL string
 	request    stripebilling.CheckoutSessionRequest
 	err        error
+	calls      int
 }
 
 func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripebilling.CheckoutConfig, req stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
+	f.calls++
 	f.request = req
 	if f.database != nil {
 		var exists bool

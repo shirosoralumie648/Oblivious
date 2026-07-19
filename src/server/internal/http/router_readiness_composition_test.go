@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -22,6 +23,75 @@ import (
 
 func TestStrictRouterReadinessCompositionContract(t *testing.T) {
 	assertStrictRouterProductionSource(t)
+
+	t.Run("AST proof rejects strict composition bypasses", func(t *testing.T) {
+		tests := []struct {
+			name              string
+			source            string
+			wantViolation     string
+			wantBuildRuntimes int
+			wantStrictCalls   int
+			wantLegacyCalls   int
+		}{
+			{
+				name:          "keyed RouterOptions AdminService injection",
+				source:        `package http; var _ = RouterOptions{AdminService: nil}`,
+				wantViolation: "RouterOptions.AdminService",
+			},
+			{
+				name:          "selector AdminService assignment",
+				source:        `package http; func mutate(options RouterOptions) { options.AdminService = nil }`,
+				wantViolation: "AdminService assignment",
+			},
+			{
+				name:          "unkeyed RouterOptions literal",
+				source:        `package http; var _ = RouterOptions{nil}`,
+				wantViolation: "unkeyed RouterOptions",
+			},
+			{
+				name:              "buildRuntime call inventory",
+				source:            `package http; func buildRuntime() { NewReadinessRouterWithOptions(); NewRouterWithOptions() }`,
+				wantBuildRuntimes: 1,
+				wantStrictCalls:   1,
+				wantLegacyCalls:   1,
+			},
+			{
+				name:              "buildRuntime indirect legacy wrapper",
+				source:            `package http; func buildRuntime() { compatibilityRouter() }; func compatibilityRouter() { NewRouterWithOptions() }`,
+				wantBuildRuntimes: 1,
+				wantLegacyCalls:   1,
+			},
+			{
+				name:   "unrelated AdminService key is ignored",
+				source: `package http; type otherOptions struct { AdminService any }; var _ = otherOptions{AdminService: nil}; var _ = RouterOptions{Guard: nil}`,
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				fileSet := token.NewFileSet()
+				parsed, err := parser.ParseFile(fileSet, "mutation.go", test.source, 0)
+				if err != nil {
+					t.Fatalf("parse AST mutation: %v", err)
+				}
+				analysis := inspectStrictRouterSource(fileSet, parsed)
+				inventory := strictRouterEntrypointInventory(analysis, "http", "buildRuntime")
+				buildRuntimes := 0
+				if inventory.found {
+					buildRuntimes = 1
+				}
+				violations := strings.Join(analysis.violations, "\n")
+				if test.wantViolation == "" && violations != "" {
+					t.Fatalf("unexpected AST violation: %s", violations)
+				}
+				if test.wantViolation != "" && !strings.Contains(violations, test.wantViolation) {
+					t.Fatalf("AST violations %q do not contain %q", violations, test.wantViolation)
+				}
+				if buildRuntimes != test.wantBuildRuntimes || inventory.strictCalls != test.wantStrictCalls || inventory.legacyCalls != test.wantLegacyCalls {
+					t.Fatalf("buildRuntime inventory=(functions=%d strict=%d legacy=%d), want (%d,%d,%d)", buildRuntimes, inventory.strictCalls, inventory.legacyCalls, test.wantBuildRuntimes, test.wantStrictCalls, test.wantLegacyCalls)
+				}
+			})
+		}
+	})
 }
 
 func TestStrictRouterAdminReadinessCompositionContract(t *testing.T) {
@@ -153,6 +223,64 @@ func TestStrictRouterMarketplaceReadinessCompositionContract(t *testing.T) {
 			t.Fatalf("denial reached checkout effects: create=%d providerIntent=%q session=%d failure=%d", settlement.createCalls, checkout.request.PaymentIntentID, settlement.setSessionCalls, settlement.failCalls)
 		}
 	})
+
+	t.Run("late readiness denial compensates pending checkout before returning sanitized readiness", func(t *testing.T) {
+		denial := &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}
+		guard := &billingReadinessGuardSpy{denials: []error{nil, denial}}
+		registrar := &billingReadinessRegistrarSpy{}
+		settlement := &fakeMarketplaceSettlementService{}
+		checkout := &fakeCheckoutCreator{}
+		registry := payment.NewRegistry("stripe")
+		registry.Register(payment.Provider{Name: "stripe", Configured: true, Currency: "usd"})
+		handler, err := newMarketplaceHandlerWithFinancialReadiness(
+			nil, nil, settlement, checkout, stripebilling.CheckoutConfig{}, registry, nil,
+			newHTTPFinancialReadiness(t, guard, registrar),
+		)
+		if err != nil {
+			t.Fatalf("construct strict Marketplace handler: %v", err)
+		}
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_paid/install", nil)
+		handler.createPaidInstallCheckout(recorder, request, "buyer_1", "org_buyer", &marketplace.PublishedAgent{
+			ID: "agent_paid", Name: "Paid Agent", PricingType: "one_time", PricingAmount: 25,
+		}, "version_1", "stripe")
+
+		if recorder.Code != stdhttp.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), string(releasecontract.CodeReadinessStale)) || strings.Contains(recorder.Body.String(), "generation") {
+			t.Fatalf("late denial must remain sanitized readiness 503: status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		const wantReason = "marketplace checkout readiness denied before provider dispatch"
+		if len(guard.calls) != 2 || settlement.createCalls != 1 || settlement.failCalls != 1 || settlement.failedOrderID != "order_1" || settlement.failedPaymentIntentID != "pi_marketplace" || settlement.failureReason != wantReason || checkout.calls != 0 || settlement.setSessionCalls != 0 {
+			t.Fatalf("late denial compensation mismatch: guard=%#v create=%d fail=%d failedOrder=%q failedIntent=%q reason=%q provider=%d session=%d", guard.calls, settlement.createCalls, settlement.failCalls, settlement.failedOrderID, settlement.failedPaymentIntentID, settlement.failureReason, checkout.calls, settlement.setSessionCalls)
+		}
+	})
+
+	t.Run("late readiness compensation failure is internal error and provider remains untouched", func(t *testing.T) {
+		denial := &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}
+		guard := &billingReadinessGuardSpy{denials: []error{nil, denial}}
+		settlement := &fakeMarketplaceSettlementService{failErr: errors.New("sensitive settlement failure")}
+		checkout := &fakeCheckoutCreator{}
+		registry := payment.NewRegistry("stripe")
+		registry.Register(payment.Provider{Name: "stripe", Configured: true, Currency: "usd"})
+		handler, err := newMarketplaceHandlerWithFinancialReadiness(
+			nil, nil, settlement, checkout, stripebilling.CheckoutConfig{}, registry, nil,
+			newHTTPFinancialReadiness(t, guard, &billingReadinessRegistrarSpy{}),
+		)
+		if err != nil {
+			t.Fatalf("construct strict Marketplace handler: %v", err)
+		}
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_paid/install", nil)
+		handler.createPaidInstallCheckout(recorder, request, "buyer_1", "org_buyer", &marketplace.PublishedAgent{
+			ID: "agent_paid", Name: "Paid Agent", PricingType: "one_time", PricingAmount: 25,
+		}, "version_1", "stripe")
+
+		if recorder.Code != stdhttp.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "internal_error") || strings.Contains(recorder.Body.String(), "sensitive settlement failure") {
+			t.Fatalf("compensation failure must be sanitized internal_error: status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if settlement.createCalls != 1 || settlement.failCalls != 1 || checkout.calls != 0 || settlement.setSessionCalls != 0 {
+			t.Fatalf("compensation failure effects mismatch: create=%d fail=%d provider=%d session=%d", settlement.createCalls, settlement.failCalls, checkout.calls, settlement.setSessionCalls)
+		}
+	})
 }
 
 func newStrictRouterOptions(t *testing.T, guard releasecontract.Guard, registrar releasecontract.EffectRegistrar) RouterOptions {
@@ -195,6 +323,147 @@ func (s *strictRouterAdminStoreSpy) TestChannel(context.Context, string, string)
 	return nil, nil
 }
 
+type strictRouterFunctionAnalysis struct {
+	calls       []string
+	strictCalls int
+	legacyCalls int
+}
+
+type strictRouterSourceAnalysis struct {
+	violations []string
+	functions  map[string]strictRouterFunctionAnalysis
+}
+
+type strictRouterEntrypointCalls struct {
+	found       bool
+	strictCalls int
+	legacyCalls int
+}
+
+func inspectStrictRouterSource(fileSet *token.FileSet, parsed *ast.File) strictRouterSourceAnalysis {
+	analysis := strictRouterSourceAnalysis{functions: map[string]strictRouterFunctionAnalysis{}}
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		switch value := node.(type) {
+		case *ast.AssignStmt:
+			for _, expression := range value.Lhs {
+				selector, ok := expression.(*ast.SelectorExpr)
+				if ok && selector.Sel.Name == "AdminService" {
+					analysis.violations = append(analysis.violations, "AdminService assignment: "+fileSet.Position(selector.Pos()).String())
+				}
+			}
+		case *ast.CompositeLit:
+			if !isRouterOptionsType(value.Type) {
+				return true
+			}
+			for _, element := range value.Elts {
+				pair, keyed := element.(*ast.KeyValueExpr)
+				if !keyed {
+					analysis.violations = append(analysis.violations, "unkeyed RouterOptions literal: "+fileSet.Position(value.Pos()).String())
+					break
+				}
+				key, ok := pair.Key.(*ast.Ident)
+				if ok && key.Name == "AdminService" {
+					analysis.violations = append(analysis.violations, "RouterOptions.AdminService injection: "+fileSet.Position(pair.Pos()).String())
+				}
+			}
+		}
+		return true
+	})
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Recv != nil {
+			continue
+		}
+		functionAnalysis := strictRouterFunctionAnalysis{}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			identifier, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			switch identifier.Name {
+			case "NewReadinessRouterWithOptions":
+				functionAnalysis.strictCalls++
+			case "NewRouterWithOptions":
+				functionAnalysis.legacyCalls++
+			default:
+				functionAnalysis.calls = append(functionAnalysis.calls, identifier.Name)
+			}
+			return true
+		})
+		analysis.functions[parsed.Name.Name+"."+function.Name.Name] = functionAnalysis
+	}
+	return analysis
+}
+
+func mergeStrictRouterSourceAnalysis(target *strictRouterSourceAnalysis, source strictRouterSourceAnalysis) {
+	target.violations = append(target.violations, source.violations...)
+	if target.functions == nil {
+		target.functions = map[string]strictRouterFunctionAnalysis{}
+	}
+	for name, function := range source.functions {
+		target.functions[name] = function
+	}
+}
+
+func strictRouterEntrypointInventory(analysis strictRouterSourceAnalysis, packageName, root string) strictRouterEntrypointCalls {
+	result := strictRouterEntrypointCalls{}
+	visited := map[string]bool{}
+	var visit func(string)
+	visit = func(functionName string) {
+		key := packageName + "." + functionName
+		if visited[key] {
+			return
+		}
+		function, ok := analysis.functions[key]
+		if !ok {
+			return
+		}
+		visited[key] = true
+		result.strictCalls += function.strictCalls
+		result.legacyCalls += function.legacyCalls
+		for _, callee := range function.calls {
+			visit(callee)
+		}
+	}
+	if _, ok := analysis.functions[packageName+"."+root]; ok {
+		result.found = true
+		visit(root)
+	}
+	return result
+}
+
+func strictRouterDirectCallers(analysis strictRouterSourceAnalysis, packageName, callee string) []string {
+	callers := []string{}
+	prefix := packageName + "."
+	for qualifiedName, function := range analysis.functions {
+		if !strings.HasPrefix(qualifiedName, prefix) {
+			continue
+		}
+		for _, called := range function.calls {
+			if called == callee {
+				callers = append(callers, strings.TrimPrefix(qualifiedName, prefix))
+				break
+			}
+		}
+	}
+	return callers
+}
+
+func isRouterOptionsType(expression ast.Expr) bool {
+	switch value := expression.(type) {
+	case *ast.Ident:
+		return value.Name == "RouterOptions"
+	case *ast.SelectorExpr:
+		return value.Sel.Name == "RouterOptions"
+	default:
+		return false
+	}
+}
+
 func assertStrictRouterProductionSource(t *testing.T) {
 	t.Helper()
 	_, source, _, ok := runtime.Caller(0)
@@ -204,7 +473,7 @@ func assertStrictRouterProductionSource(t *testing.T) {
 	serverRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
 	paths := []string{filepath.Join(serverRoot, "internal/http"), filepath.Join(serverRoot, "cmd/server")}
 	fileSet := token.NewFileSet()
-	buildRuntimeUsesStrictEntrypoint := false
+	productionAnalysis := strictRouterSourceAnalysis{functions: map[string]strictRouterFunctionAnalysis{}}
 	for _, root := range paths {
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -217,39 +486,31 @@ func assertStrictRouterProductionSource(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			ast.Inspect(parsed, func(node ast.Node) bool {
-				if pair, ok := node.(*ast.KeyValueExpr); ok {
-					if key, ok := pair.Key.(*ast.Ident); ok && key.Name == "AdminService" {
-						t.Errorf("production source injects RouterOptions.AdminService: %s", fileSet.Position(pair.Pos()))
-					}
-				}
-				return true
-			})
-			if filepath.Base(path) == "server.go" {
-				for _, declaration := range parsed.Decls {
-					function, ok := declaration.(*ast.FuncDecl)
-					if !ok || function.Name.Name != "buildRuntime" {
-						continue
-					}
-					ast.Inspect(function.Body, func(node ast.Node) bool {
-						call, ok := node.(*ast.CallExpr)
-						if !ok {
-							return true
-						}
-						if identifier, ok := call.Fun.(*ast.Ident); ok && identifier.Name == "NewReadinessRouterWithOptions" {
-							buildRuntimeUsesStrictEntrypoint = true
-						}
-						return true
-					})
-				}
-			}
+			analysis := inspectStrictRouterSource(fileSet, parsed)
+			mergeStrictRouterSourceAnalysis(&productionAnalysis, analysis)
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("inspect production source %s: %v", root, err)
 		}
 	}
-	if !buildRuntimeUsesStrictEntrypoint {
-		t.Fatal("buildRuntime does not reach NewReadinessRouterWithOptions")
+	for _, violation := range productionAnalysis.violations {
+		t.Error(violation)
+	}
+	strictInventory := strictRouterEntrypointInventory(productionAnalysis, "http", "buildRuntime")
+	if !strictInventory.found || strictInventory.strictCalls != 1 || strictInventory.legacyCalls != 0 {
+		t.Errorf("production buildRuntime inventory=(found=%t strict=%d legacy=%d), want (true,1,0)", strictInventory.found, strictInventory.strictCalls, strictInventory.legacyCalls)
+	}
+	publicInventory := strictRouterEntrypointInventory(productionAnalysis, "http", "BuildRuntime")
+	if !publicInventory.found || publicInventory.strictCalls != 1 || publicInventory.legacyCalls != 0 {
+		t.Errorf("exported BuildRuntime inventory=(found=%t strict=%d legacy=%d), want (true,1,0)", publicInventory.found, publicInventory.strictCalls, publicInventory.legacyCalls)
+	}
+	compatibilityInventory := strictRouterEntrypointInventory(productionAnalysis, "http", "buildCompatibilityRuntime")
+	if !compatibilityInventory.found || compatibilityInventory.strictCalls != 0 || compatibilityInventory.legacyCalls != 1 {
+		t.Errorf("compatibility runtime inventory=(found=%t strict=%d legacy=%d), want (true,0,1)", compatibilityInventory.found, compatibilityInventory.strictCalls, compatibilityInventory.legacyCalls)
+	}
+	compatibilityCallers := strictRouterDirectCallers(productionAnalysis, "http", "buildCompatibilityRuntime")
+	if len(compatibilityCallers) != 1 || compatibilityCallers[0] != "NewServer" {
+		t.Errorf("buildCompatibilityRuntime callers=%#v, want []string{\"NewServer\"}", compatibilityCallers)
 	}
 }

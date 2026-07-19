@@ -75,20 +75,38 @@ func BuildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions) (
 	if err := routerOptions.ValidateReadinessAuthorities(); err != nil {
 		return nil, fmt.Errorf("build runtime: %w", err)
 	}
-	return buildRuntime(cfg, database, options, true)
+	return buildRuntime(cfg, database, options)
 }
 
 // NewServer remains a side-effect-free compatibility constructor for tests
 // that do not exercise the production readiness boundary.
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
-	runtime, err := buildRuntime(cfg, database, RuntimeOptions{}, false)
+	runtime, err := buildCompatibilityRuntime(cfg, database, RuntimeOptions{})
 	if err != nil {
 		panic(err)
 	}
 	return runtime.Server
 }
 
-func buildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions, requireReadiness bool) (*Runtime, error) {
+func buildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions) (*Runtime, error) {
+	return buildRuntimeWithRouter(cfg, database, options, true, func(cfg config.Config, database *sql.DB, options RouterOptions) (stdhttp.Handler, error) {
+		return NewReadinessRouterWithOptions(cfg, database, options)
+	})
+}
+
+func buildCompatibilityRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions) (*Runtime, error) {
+	return buildRuntimeWithRouter(cfg, database, options, false, func(cfg config.Config, database *sql.DB, options RouterOptions) (stdhttp.Handler, error) {
+		return NewRouterWithOptions(cfg, database, options), nil
+	})
+}
+
+func buildRuntimeWithRouter(
+	cfg config.Config,
+	database *sql.DB,
+	options RuntimeOptions,
+	requireReadiness bool,
+	buildRouter func(config.Config, *sql.DB, RouterOptions) (stdhttp.Handler, error),
+) (*Runtime, error) {
 	requestLogEvidenceStore, requestLogCloser := configureRequestLogSink(cfg)
 	closers := []func(){}
 	if requestLogCloser != nil {
@@ -250,16 +268,10 @@ func buildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions, r
 		AlertRoutingRuleStore:       alertRoutingRuleStore,
 		AlertProviderConfigStore:    alertProviderConfigStore,
 	}
-	var mainHandler stdhttp.Handler
-	if requireReadiness {
-		var err error
-		mainHandler, err = NewReadinessRouterWithOptions(cfg, database, routerOptions)
-		if err != nil {
-			closeRuntimeResources(closers)
-			return nil, fmt.Errorf("build runtime router: %w", err)
-		}
-	} else {
-		mainHandler = NewRouterWithOptions(cfg, database, routerOptions)
+	mainHandler, err := buildRouter(cfg, database, routerOptions)
+	if err != nil {
+		closeRuntimeResources(closers)
+		return nil, fmt.Errorf("build runtime router: %w", err)
 	}
 
 	if relayEngine != nil {
@@ -380,7 +392,6 @@ func buildRuntime(cfg config.Config, database *sql.DB, options RuntimeOptions, r
 	runtime.Close = lifecycle.closeRuntime
 	return runtime, nil
 }
-
 func (l *runtimeLifecycle) startBackground(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("start background: context is required")

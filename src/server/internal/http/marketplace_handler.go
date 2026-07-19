@@ -32,6 +32,8 @@ type marketplaceHandler struct {
 
 type marketplaceHandlerOption func(*marketplaceHandler)
 
+const marketplaceCheckoutReadinessFailureReason = "marketplace checkout readiness denied before provider dispatch"
+
 type marketplacePaymentProviderResponse struct {
 	Name string `json:"name"`
 }
@@ -347,6 +349,10 @@ func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, 
 	}
 
 	if err := h.readiness.require(r.Context()); err != nil {
+		if failErr := h.settlementService.MarkPaidInstallCheckoutFailed(r.Context(), order.ID, order.PaymentIntentID, marketplaceCheckoutReadinessFailureReason); failErr != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "mark marketplace checkout failed state failed")
+			return
+		}
 		writeBillingReadinessError(w, err)
 		return
 	}
