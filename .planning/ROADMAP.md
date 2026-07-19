@@ -129,7 +129,7 @@ Plans:
 - [x] 31.1-13-PLAN.md - Require strict Admin and Marketplace readiness composition and deny mutations before reads, probes, writes, or provider calls.
 - [x] 31.1-14-PLAN.md - Construct the authority-aware Agent web-search provider before the authorized ToolExecutor and prove exact ID-owner pairs.
 - [x] 31.1-15-PLAN.md - Make compatibility ToolExecutor construction deny-only and migrate behavior fixtures to explicit authority-backed construction.
-- [ ] 31.1-16-PLAN.md - Fail stale or unavailable Admin/app readiness projections closed at the exact evaluator freshness boundary.
+- [x] 31.1-16-PLAN.md - Fail stale or unavailable Admin/app readiness projections closed at the exact evaluator freshness boundary.
 - [ ] 31.1-17-PLAN.md - Replace harness-only dependency probes with typed deployment-owned DB, Redis, Qdrant, ClickHouse, and Kafka probes.
 - [ ] 31.1-18-PLAN.md - Complete the structural effect descriptor allowlist, mapping, manifest, authority join, and mutation proof.
 - [ ] 31.1-21-PLAN.md - Require Chat mutation decoding to reach EOF after exactly one JSON document before any business effect.
@@ -358,7 +358,7 @@ Cross-cutting constraints:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 15/22 | In Progress|  |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 16/22 | In Progress|  |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |

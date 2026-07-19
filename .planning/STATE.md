@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-15-PLAN.md
-last_updated: "2026-07-19T10:22:55.057Z"
+stopped_at: Completed 31.1-16-PLAN.md
+last_updated: "2026-07-19T11:31:08.000Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 31.1 Plan 15 closed deny-only compatibility ToolExecutor construction; Plan 31.1-16 is next
+last_activity_desc: Phase 31.1 Plan 16 closed stale readiness projections at the exact evaluator boundary; Plan 31.1-17 is next
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 22
-  percent: 50
+  completed_plans: 23
+  percent: 52
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 15 of 22
-Status: Plan 31.1-15 complete; Plan 31.1-16 is next
-Last activity: 2026-07-19 — Compatibility ToolExecutor is deny-only and behavior fixtures use explicit runtime authority
+Plan: 16 of 22
+Status: Plan 31.1-16 complete; Plan 31.1-17 is next
+Last activity: 2026-07-19 — Admin/App fail evaluation-level errors closed before projecting last-known readiness values
 
-Progress: [███████░░░] 68%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 15
-- Average duration: 29 min
+- Total plans completed: 16
+- Average duration: 27 min
 - Total execution time: 7.3 hours
 
-**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 15 plans in 436 minutes.
+**By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 16 plans in 439 minutes.
 
-**Recent Trend:** Plan 31.1-15 closed compatibility ToolExecutor authority and fixture migration in 42 minutes.
+**Recent Trend:** Plan 31.1-16 closed stale/unavailable projection leakage and the exact evaluator expiry boundary in 3 minutes.
 
 ## Accumulated Context
 
@@ -94,6 +94,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Marketplace HTTP checkout and local settlement consume the same startup financial carrier but guard their own effects independently. — Denial precedes local order intent and Provider checkout.
 - [Phase 31.1]: Strict BuildRuntime constructs the authority-aware Agent web-search provider before the authorized executor and passes the exact instance through ToolRuntimeOptions. — Compatibility setters remain outside strict composition; Plan 19 owns global descriptor exactness.
 - [Phase 31.1]: Compatibility ToolExecutor construction is deny-only; effect-capable behavior requires NewAuthorizedToolExecutor or NewServiceWithRuntimeOptions. — Prevents missing runtime authority from becoming implicit allow-all.
+- [Phase 31.1]: Admin and App reject any non-empty Evaluation.ErrorCode before sorting or projecting last-known capability state. — Keeps evaluator-owned freshness exact and prevents raw diagnostic or enabled-row leakage.
 
 ### Pending Todos
 
@@ -120,6 +121,7 @@ None yet.
 | Phase 31.1-readiness-fail-closed P13 | 25 min | 2 tasks | 6 files |
 | Phase 31.1-readiness-fail-closed P14 | 21 min | 2 tasks | 2 files |
 | Phase 31.1 P15 | 42 min | 2 tasks | 9 files |
+| Phase 31.1 P16 | 3 min | 2 tasks | 2 files |
 
 ### Roadmap Evolution
 
@@ -132,8 +134,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-19T10:22:55.026Z
-Stopped at: Completed 31.1-15-PLAN.md
+Last session: 2026-07-19T11:31:08.000Z
+Stopped at: Completed 31.1-16-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -151,3 +153,4 @@ Resume file: None
 | Phase 31.1-readiness-fail-closed | 04 | 20 min | 3 tasks, 11 files |
 | Phase 31.1-readiness-fail-closed | 05 | 31 min | 3 tasks, 10 files |
 | Phase 31.1-readiness-fail-closed | 12 | 12 min | 2 tasks, 2 files |
+| Phase 31.1-readiness-fail-closed | 16 | 3 min | 2 tasks, 2 files |
