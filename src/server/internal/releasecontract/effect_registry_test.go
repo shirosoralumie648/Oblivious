@@ -1605,6 +1605,120 @@ func register(options Options, overwrite bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox descriptor id method escape",
+				packageName: "sandboxdescriptoridmethod",
+				source: `package sandboxdescriptoridmethod
+type effectRow struct{ id string }
+func (row *effectRow) mutateAndID(id string) string {
+	row.id = releasecontract.EffectAgentToolPythonSandbox
+	return id
+}
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+		effectsRows := []effectRow{{id: "row"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: effect.mutateAndID("sandbox.descriptor.id.method"), CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.DescriptorIDMethod"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox descriptor owner first method escape",
+				packageName: "sandboxdescriptorownermethod",
+				source: `package sandboxdescriptorownermethod
+type effectRow struct{ id, owner string }
+func (row *effectRow) mutateAndOwner(owner string) string {
+	row.id = releasecontract.EffectAgentToolPythonSandbox
+	return owner
+}
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+		effectsRows := []effectRow{{id: "row", owner: "sandbox.DescriptorOwnerMethod"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{Owner: effect.mutateAndOwner("sandbox.DescriptorOwnerMethod"), ID: "sandbox.descriptor.owner.method", CapabilityID: string(capability), Boundary: BoundaryOutbound})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox descriptor id arbitrary wrapper",
+				packageName: "sandboxdescriptoridwrapper",
+				source: `package sandboxdescriptoridwrapper
+func fake(value string) string { return value }
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+		effectsRows := []struct{ id string }{{"sandbox.descriptor.id.wrapper"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: fake(effect.id), CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.DescriptorIDWrapper"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox descriptor owner arbitrary wrapper",
+				packageName: "sandboxdescriptorownerwrapper",
+				source: `package sandboxdescriptorownerwrapper
+func fake(value string) string { return value }
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+		effectsRows := []struct{ id, owner string }{{"sandbox.descriptor.owner.wrapper", "sandbox.DescriptorOwnerWrapper"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{Owner: fake(effect.owner), ID: string(effect.id), CapabilityID: string(capability), Boundary: BoundaryOutbound})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("unsafe descriptor endpoint was accepted: %#v", discovered)
+				}
+			})
+		}
+
+		t.Run("arbitrary scalar string wrapper is not transparent", func(t *testing.T) {
+			discovered := discoverFixture(t, "scalarwrapper", `package scalarwrapper
+func fake(value string) string { return value }
+func register(effects Registrar) error {
+	return effects.Register(EffectDescriptor{ID: fake("scalar.wrapper"), CapabilityID: "correct", Boundary: BoundaryOutbound, Owner: "scalar.Wrapper"})
+}
+`)
+			if len(discovered) != 0 {
+				t.Fatalf("arbitrary scalar wrapper was evaluated transparently: %#v", discovered)
+			}
+		})
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")

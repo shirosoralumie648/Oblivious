@@ -1055,8 +1055,8 @@ func isCapabilityUnknownCheck(expression ast.Expr, function *ast.FuncDecl, loop 
 	}
 	return !hasIdentifierWriteBetween(function, errorObject, binding.position, call.Pos()) &&
 		!hasIdentifierWriteBetween(function, capabilityObject, binding.position, descriptor.Pos()) &&
-		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.Pos()) &&
-		!hasObjectEscapeBetween(function, effectObject, objectAddressEscapeStart(loop, effectObject), descriptor.Pos())
+		!hasObjectWriteBetween(function, effectObject, binding.position, descriptor.End()) &&
+		!hasObjectEscapeBetween(function, effectObject, objectAddressEscapeStart(loop, effectObject), descriptor.End())
 }
 
 func objectAddressEscapeStart(loop *ast.RangeStmt, object *ast.Object) token.Pos {
@@ -1165,6 +1165,9 @@ func isSafeObjectSelectorRead(function *ast.FuncDecl, object *ast.Object, select
 			current = parenthesized
 			continue
 		}
+		if isSafeDescriptorSelectorRead(reference, selector, current, parents) {
+			return true
+		}
 		switch context := parent.(type) {
 		case *ast.CallExpr:
 			return reference == "effect.id" && len(context.Args) == 1 && unwrapParentheses(context.Args[0]) == selector && isCapabilityResolverCall(function, context)
@@ -1176,6 +1179,31 @@ func isSafeObjectSelectorRead(function *ast.FuncDecl, object *ast.Object, select
 			return false
 		}
 	}
+}
+
+func isSafeDescriptorSelectorRead(reference string, selector *ast.SelectorExpr, current ast.Node, parents map[ast.Node]ast.Node) bool {
+	if selector == nil || current == nil {
+		return false
+	}
+	if conversion, ok := parents[current].(*ast.CallExpr); ok {
+		if reference != "effect.id" || len(conversion.Args) != 1 || unwrapParentheses(conversion.Args[0]) != selector || !isSafeSourceStringConversion(conversion.Fun) {
+			return false
+		}
+		current = conversion
+	}
+	field, ok := parents[current].(*ast.KeyValueExpr)
+	if !ok {
+		return false
+	}
+	name, ok := field.Key.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	descriptor, ok := parents[field].(*ast.CompositeLit)
+	if !ok || !isDescriptorLiteral(descriptor) {
+		return false
+	}
+	return (name.Name == "ID" && reference == "effect.id") || (name.Name == "Owner" && reference == "effect.owner")
 }
 
 func writtenExpressionObject(expression ast.Expr) *ast.Object {
@@ -1704,7 +1732,7 @@ func evaluateSourceString(expression ast.Expr, environment, constants, effectVal
 	case *ast.SelectorExpr:
 		return sourceLookup(expressionReference(value), environment, constants, effectValues)
 	case *ast.CallExpr:
-		if len(value.Args) == 1 {
+		if len(value.Args) == 1 && isSafeSourceStringConversion(value.Fun) {
 			return evaluateSourceString(value.Args[0], environment, constants, effectValues)
 		}
 	case *ast.BinaryExpr:
@@ -1717,6 +1745,11 @@ func evaluateSourceString(expression ast.Expr, environment, constants, effectVal
 		return evaluateSourceString(value.X, environment, constants, effectValues)
 	}
 	return "", false
+}
+
+func isSafeSourceStringConversion(expression ast.Expr) bool {
+	identifier, ok := unwrapParentheses(expression).(*ast.Ident)
+	return ok && identifier.Name == "string" && identifier.Obj == nil
 }
 
 func sourceLookup(reference string, environment, constants, effectValues map[string]string) (string, bool) {
