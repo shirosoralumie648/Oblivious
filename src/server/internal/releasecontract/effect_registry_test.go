@@ -747,6 +747,42 @@ func run() { guarded := func() error { return guard() }; if err := guarded(); er
 `,
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
+			{
+				name: "nested invoked denial closure contains effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denial := func() { nested := func() { effect() }; nested() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "three level invoked denial closure contains effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denial := func() { middle := func() { nested := func() { effect() }; nested() }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "self referenced denial closure terminates expansion",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { var denial func(); denial = func() { denial() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "three level invoked guard closure dominates effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { guarded := func() error { middle := func() error { nested := func() error { return guard() }; return nested() }; return middle() }; if err := guarded(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
 		}
 		for _, testCase := range cases {
 			t.Run(testCase.name, func(t *testing.T) {
