@@ -197,6 +197,62 @@ const retiredDescriptorMarker = "builtin"
 		}
 	}
 
+	t.Run("package string shadow rejects conversions", func(t *testing.T) {
+		for _, testCase := range []struct {
+			name   string
+			source string
+		}{
+			{
+				name: "descriptor id",
+				source: `package packagestringshadow
+const descriptorID = "shadow.descriptor.id"
+func register(options Options) error {
+	return options.Effects.Register(EffectDescriptor{
+		ID: string(descriptorID), CapabilityID: "mcp.tool_execution",
+		Boundary: BoundaryOutbound, Owner: "shadow.DescriptorID",
+	})
+}
+`,
+			},
+			{
+				name: "capability id",
+				source: `package packagestringshadow
+func register(options Options) error {
+	capability, _ := options.Authorities.CapabilityBindings.Resolve(EffectAgentToolBuiltin)
+	return options.Effects.Register(EffectDescriptor{
+		ID: "shadow.capability.id", CapabilityID: string(capability),
+		Boundary: BoundaryOutbound, Owner: "shadow.CapabilityID",
+	})
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				root := t.TempDir()
+				packageDirectory := filepath.Join(root, "src", "server", "internal", "packagestringshadow")
+				if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+					t.Fatalf("create package-string-shadow fixture: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(packageDirectory, "registration.go"), []byte(testCase.source), 0o644); err != nil {
+					t.Fatalf("write package-string-shadow registration: %v", err)
+				}
+				shadow := "package packagestringshadow\nimport \"fmt\"\nvar string = fmt.Sprintln\n"
+				if err := os.WriteFile(filepath.Join(packageDirectory, "shadow.go"), []byte(shadow), 0o644); err != nil {
+					t.Fatalf("write package string shadow: %v", err)
+				}
+				registrations, err := discoverPackageRegistrations(root, packageDirectory, map[string]string{
+					"EffectAgentToolBuiltin": string(EffectAgentToolBuiltin),
+				})
+				if err != nil {
+					t.Fatalf("discover package-string-shadow fixture: %v", err)
+				}
+				if len(registrations) != 0 {
+					t.Fatalf("package string shadow certified %s conversion: %#v", testCase.name, registrations)
+				}
+			})
+		}
+	})
+
 	t.Run("extra production seam", func(t *testing.T) {
 		extraRoot := t.TempDir()
 		extraPackage := filepath.Join(extraRoot, "src", "server", "internal", "extra")

@@ -600,6 +600,8 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 	}
 	fset := token.NewFileSet()
 	constants := make(map[string]string)
+	var files []*ast.File
+	filePaths := make(map[*ast.File]string)
 	var functions []packageSourceFunction
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
@@ -610,11 +612,18 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 		if err != nil {
 			return nil, err
 		}
+		files = append(files, file)
+		filePaths[file] = path
+	}
+	if packageDeclaresString(files) {
+		markPackageStringShadow(files)
+	}
+	for _, file := range files {
 		collectStringConstants(file, constants)
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if ok && function.Body != nil {
-				functions = append(functions, packageSourceFunction{declaration: function, file: path})
+				functions = append(functions, packageSourceFunction{declaration: function, file: filePaths[file]})
 			}
 		}
 	}
@@ -674,6 +683,51 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 		return registrations[i].Line < registrations[j].Line
 	})
 	return registrations, nil
+}
+
+func packageDeclaresString(files []*ast.File) bool {
+	for _, file := range files {
+		for _, declaration := range file.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.FuncDecl:
+				if declaration.Name != nil && declaration.Name.Name == "string" {
+					return true
+				}
+			case *ast.GenDecl:
+				if declaration.Tok == token.IMPORT {
+					continue
+				}
+				for _, specification := range declaration.Specs {
+					switch specification := specification.(type) {
+					case *ast.TypeSpec:
+						if specification.Name != nil && specification.Name.Name == "string" {
+							return true
+						}
+					case *ast.ValueSpec:
+						for _, name := range specification.Names {
+							if name != nil && name.Name == "string" {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func markPackageStringShadow(files []*ast.File) {
+	shadow := &ast.Object{Kind: ast.Var, Name: "string"}
+	for _, file := range files {
+		ast.Inspect(file, func(node ast.Node) bool {
+			identifier, ok := node.(*ast.Ident)
+			if ok && identifier.Name == "string" && identifier.Obj == nil {
+				identifier.Obj = shadow
+			}
+			return true
+		})
+	}
 }
 
 func collectStringConstants(file *ast.File, destination map[string]string) {
