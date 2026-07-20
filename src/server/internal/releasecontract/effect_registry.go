@@ -2214,23 +2214,40 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
 	var calls []sourceCall
 	block, _ := root.(*ast.BlockStmt)
-	appendReachableSourceCalls(function, root, block, nil, make(map[*ast.FuncLit]bool), &calls)
+	scopes := []sourceLexicalScope{{block: block}}
+	if function.declaration != nil && function.declaration.Body != nil && block != function.declaration.Body {
+		scopes = append(scopes, sourceLexicalScope{block: function.declaration.Body})
+	}
+	appendReachableSourceCalls(function, root, scopes, nil, make(map[*ast.FuncLit]bool), &calls)
 	return calls
 }
 
-func appendReachableSourceCalls(function sourceFunction, root ast.Node, scope *ast.BlockStmt, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
+type sourceLexicalScope struct {
+	block  *ast.BlockStmt
+	before token.Pos
+}
+
+func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes []sourceLexicalScope, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
 	inspectReachableCalls(root, func(call *ast.CallExpr) {
 		site := call
-		if returnedSite != nil && blockDirectlyReturnsCall(scope, call) {
+		if returnedSite != nil && len(scopes) > 0 && blockDirectlyReturnsCall(scopes[0].block, call) {
 			site = returnedSite
 		}
 		*calls = append(*calls, sourceCallFromCall(function, call, site))
-		literal := invokedLocalFunctionLiteral(function.declaration, scope, call)
+		literal, scopeIndex := invokedLocalFunctionLiteral(scopes, call)
 		if literal == nil || visiting[literal] {
 			return
 		}
+		nextScopes := make([]sourceLexicalScope, 1, len(scopes)-scopeIndex+1)
+		nextScopes[0] = sourceLexicalScope{block: literal.Body}
+		for _, scope := range scopes[scopeIndex:] {
+			if scope.before == 0 {
+				scope.before = call.Pos()
+			}
+			nextScopes = append(nextScopes, scope)
+		}
 		visiting[literal] = true
-		appendReachableSourceCalls(function, literal.Body, literal.Body, site, visiting, calls)
+		appendReachableSourceCalls(function, literal.Body, nextScopes, site, visiting, calls)
 		delete(visiting, literal)
 	})
 }
@@ -2242,23 +2259,30 @@ func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) s
 	}
 }
 
-func invokedLocalFunctionLiteral(function *ast.FuncDecl, scope *ast.BlockStmt, call *ast.CallExpr) *ast.FuncLit {
-	if function == nil || call == nil {
-		return nil
+func invokedLocalFunctionLiteral(scopes []sourceLexicalScope, call *ast.CallExpr) (*ast.FuncLit, int) {
+	if call == nil {
+		return nil, -1
 	}
 	identifier, ok := unwrapParentheses(call.Fun).(*ast.Ident)
 	if !ok || identifier.Obj == nil {
-		return nil
+		return nil, -1
 	}
-	value, _, found := latestIdentifierValueInBlock(scope, identifier, call.Pos())
-	if !found && scope != function.Body {
-		value, _, found = latestIdentifierValue(function, identifier, call.Pos())
+	for index, scope := range scopes {
+		before := scope.before
+		if before == 0 {
+			before = call.Pos()
+		}
+		state := identifierStateAfterBlock(scope.block, identifier.Obj, before, sourceIdentifierState{})
+		if state.ambiguous {
+			return nil, -1
+		}
+		if !state.found {
+			continue
+		}
+		literal, _ := unwrapParentheses(state.value).(*ast.FuncLit)
+		return literal, index
 	}
-	if !found {
-		return nil
-	}
-	literal, _ := unwrapParentheses(value).(*ast.FuncLit)
-	return literal
+	return nil, -1
 }
 
 func blockDirectlyReturnsCall(block *ast.BlockStmt, call *ast.CallExpr) bool {

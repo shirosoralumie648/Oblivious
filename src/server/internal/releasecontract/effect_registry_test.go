@@ -766,6 +766,24 @@ func run() { denial := func() { middle := func() { nested := func() { effect() }
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
 			},
 			{
+				name: "captured denial helper from enclosing closure contains effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denial := func() { effectFn := func() { effect() }; middle := func() { effectFn() }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "nearest enclosing shadowed denial helper contains effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; denial := func() { middle := func() { effectFn := func() { effect() }; nested := func() { effectFn() }; nested() }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
 				name: "self referenced denial closure terminates expansion",
 				source: `package dominance
 func guard() error { return nil }
@@ -775,11 +793,38 @@ func run() { var denial func(); denial = func() { denial() }; if err := guard();
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
 			{
+				name: "cross scope self referenced denial closure terminates expansion",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denial := func() { var self func(); self = func() { self() }; self() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "cross scope mutual denial closures terminate expansion",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { var outer func(); outer = func() { var inner func(); inner = func() { outer() }; inner() }; if err := guard(); err != nil { outer(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "three level invoked guard closure dominates effect",
 				source: `package dominance
 func guard() error { return nil }
 func effect() {}
 func run() { guarded := func() error { middle := func() error { nested := func() error { return guard() }; return nested() }; return middle() }; if err := guarded(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "cross enclosing three level guard closure dominates effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { guarded := func() error { nested := func() error { return guard() }; middle := func() error { return nested() }; return middle() }; if err := guarded(); err != nil { return }; effect() }
 `,
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
