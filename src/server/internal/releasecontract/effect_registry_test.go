@@ -784,6 +784,33 @@ func run() { effectFn := func() {}; denial := func() { middle := func() { effect
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
 			},
 			{
+				name: "captured helper rebound in dynamic caller is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { effectFn = func() { effect() }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "captured helper without dynamic rewrite remains safe",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "different object shadow does not poison captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { effectFn := func() { effect() }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "self referenced denial closure terminates expansion",
 				source: `package dominance
 func guard() error { return nil }
