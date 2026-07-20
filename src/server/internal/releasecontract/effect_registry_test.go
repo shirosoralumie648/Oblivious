@@ -1513,6 +1513,98 @@ func register(options Options, overwrite bool) error {
 			})
 		}
 
+		for _, testCase := range []struct {
+			name        string
+			packageName string
+			source      string
+		}{
+			{
+				name:        "sandbox row setter method value escape",
+				packageName: "sandboxrowsettervalue",
+				source: `package sandboxrowsettervalue
+type effectRow struct{ id string }
+func (row *effectRow) setSandbox() {
+	row.id = releasecontract.EffectAgentToolPythonSandbox
+}
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []effectRow{{id: "row"}}
+	for _, effect := range effectsRows {
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		setter := effect.setSandbox
+		setter()
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.setter.value", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowSetterValue"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row pointer method value escape",
+				packageName: "sandboxrowpointervalue",
+				source: `package sandboxrowpointervalue
+type effectRow struct{ id string }
+func (row effectRow) ptr() *effectRow {
+	return &row
+}
+func register(options Options) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []effectRow{{id: "row"}}
+	for _, effect := range effectsRows {
+		pointerFactory := effect.ptr
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		pointer := pointerFactory()
+		pointer.id = releasecontract.EffectAgentToolPythonSandbox
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.pointer.value", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowPointerValue"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+			{
+				name:        "sandbox row conditional method value escape",
+				packageName: "sandboxrowconditionalvalue",
+				source: `package sandboxrowconditionalvalue
+type effectRow struct{ id string }
+func (row *effectRow) setSandbox() {
+	row.id = releasecontract.EffectAgentToolPythonSandbox
+}
+func register(options Options, overwrite bool) error {
+	var descriptors []EffectDescriptor
+	effectsRows := []effectRow{{id: "row"}}
+	for _, effect := range effectsRows {
+		if overwrite {
+			setter := effect.setSandbox
+			setter()
+		}
+		capability, err := options.Authorities.CapabilityBindings.Resolve(effect.id)
+		if effect.id == releasecontract.EffectAgentToolPythonSandbox && releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityUnknown) {
+			continue
+		}
+		descriptors = append(descriptors, EffectDescriptor{ID: "sandbox.row.conditional.value", CapabilityID: string(capability), Boundary: BoundaryOutbound, Owner: "sandbox.RowConditionalValue"})
+	}
+	for _, descriptor := range descriptors { _ = options.Effects.Register(descriptor) }
+	return nil
+}
+`,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				discovered := discoverFixture(t, testCase.packageName, testCase.source)
+				if len(discovered) != 0 {
+					t.Fatalf("sandbox row method value was accepted: %#v", discovered)
+				}
+			})
+		}
+
 		t.Run("last descriptor assignment wins", func(t *testing.T) {
 			root := t.TempDir()
 			packageDirectory := filepath.Join(root, "src", "server", "internal", "reaching")
