@@ -2037,7 +2037,7 @@ func expressionReference(expression ast.Expr) string {
 			return prefix + "." + value.Sel.Name
 		}
 	case *ast.CallExpr:
-		if len(value.Args) == 1 {
+		if len(value.Args) == 1 && isSafeSourceStringConversion(value.Fun) {
 			return expressionReference(value.Args[0])
 		}
 	case *ast.ParenExpr:
@@ -2131,7 +2131,7 @@ func sourceExpressionObject(expression ast.Expr) *ast.Object {
 	case *ast.SelectorExpr:
 		return sourceExpressionObject(value.X)
 	case *ast.CallExpr:
-		if len(value.Args) == 1 {
+		if len(value.Args) == 1 && isSafeSourceStringConversion(value.Fun) {
 			return sourceExpressionObject(value.Args[0])
 		}
 	case *ast.ParenExpr:
