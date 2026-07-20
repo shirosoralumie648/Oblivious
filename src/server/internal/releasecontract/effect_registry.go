@@ -1762,10 +1762,17 @@ func assignedCompositeLiteral(function *ast.FuncDecl, expression ast.Expr, befor
 }
 
 func latestIdentifierValue(function *ast.FuncDecl, identifier *ast.Ident, before token.Pos) (ast.Expr, token.Pos, bool) {
-	if function == nil || identifier == nil || identifier.Obj == nil {
+	if function == nil {
 		return nil, 0, false
 	}
-	state := identifierStateAfterBlock(function.Body, identifier.Obj, before, sourceIdentifierState{})
+	return latestIdentifierValueInBlock(function.Body, identifier, before)
+}
+
+func latestIdentifierValueInBlock(block *ast.BlockStmt, identifier *ast.Ident, before token.Pos) (ast.Expr, token.Pos, bool) {
+	if block == nil || identifier == nil || identifier.Obj == nil {
+		return nil, 0, false
+	}
+	state := identifierStateAfterBlock(block, identifier.Obj, before, sourceIdentifierState{})
 	if state.ambiguous {
 		return nil, 0, false
 	}
@@ -2206,21 +2213,26 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 
 func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
 	var calls []sourceCall
+	block, _ := root.(*ast.BlockStmt)
+	appendReachableSourceCalls(function, root, block, nil, make(map[*ast.FuncLit]bool), &calls)
+	return calls
+}
+
+func appendReachableSourceCalls(function sourceFunction, root ast.Node, scope *ast.BlockStmt, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
 	inspectReachableCalls(root, func(call *ast.CallExpr) {
-		calls = append(calls, sourceCallFromCall(function, call, call))
-		literal := invokedLocalFunctionLiteral(function.declaration, call)
-		if literal == nil {
+		site := call
+		if returnedSite != nil && blockDirectlyReturnsCall(scope, call) {
+			site = returnedSite
+		}
+		*calls = append(*calls, sourceCallFromCall(function, call, site))
+		literal := invokedLocalFunctionLiteral(function.declaration, scope, call)
+		if literal == nil || visiting[literal] {
 			return
 		}
-		inspectReachableCalls(literal.Body, func(inner *ast.CallExpr) {
-			site := inner
-			if functionLiteralDirectlyReturnsCall(literal, inner) {
-				site = call
-			}
-			calls = append(calls, sourceCallFromCall(function, inner, site))
-		})
+		visiting[literal] = true
+		appendReachableSourceCalls(function, literal.Body, literal.Body, site, visiting, calls)
+		delete(visiting, literal)
 	})
-	return calls
 }
 
 func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) sourceCall {
@@ -2230,7 +2242,7 @@ func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) s
 	}
 }
 
-func invokedLocalFunctionLiteral(function *ast.FuncDecl, call *ast.CallExpr) *ast.FuncLit {
+func invokedLocalFunctionLiteral(function *ast.FuncDecl, scope *ast.BlockStmt, call *ast.CallExpr) *ast.FuncLit {
 	if function == nil || call == nil {
 		return nil
 	}
@@ -2238,7 +2250,10 @@ func invokedLocalFunctionLiteral(function *ast.FuncDecl, call *ast.CallExpr) *as
 	if !ok || identifier.Obj == nil {
 		return nil
 	}
-	value, _, found := latestIdentifierValue(function, identifier, call.Pos())
+	value, _, found := latestIdentifierValueInBlock(scope, identifier, call.Pos())
+	if !found && scope != function.Body {
+		value, _, found = latestIdentifierValue(function, identifier, call.Pos())
+	}
 	if !found {
 		return nil
 	}
@@ -2246,12 +2261,32 @@ func invokedLocalFunctionLiteral(function *ast.FuncDecl, call *ast.CallExpr) *as
 	return literal
 }
 
-func functionLiteralDirectlyReturnsCall(literal *ast.FuncLit, call *ast.CallExpr) bool {
-	if literal == nil || literal.Body == nil || len(literal.Body.List) != 1 || call == nil {
+func blockDirectlyReturnsCall(block *ast.BlockStmt, call *ast.CallExpr) bool {
+	if block == nil || len(block.List) == 0 || call == nil {
 		return false
 	}
-	result, ok := literal.Body.List[0].(*ast.ReturnStmt)
+	for _, statement := range block.List[:len(block.List)-1] {
+		if !statementBindsOnlyFunctionLiterals(statement) {
+			return false
+		}
+	}
+	result, ok := block.List[len(block.List)-1].(*ast.ReturnStmt)
 	return ok && len(result.Results) == 1 && unwrapParentheses(result.Results[0]) == call
+}
+
+func statementBindsOnlyFunctionLiterals(statement ast.Stmt) bool {
+	assignment, ok := statement.(*ast.AssignStmt)
+	if !ok || len(assignment.Lhs) == 0 || len(assignment.Lhs) != len(assignment.Rhs) {
+		return false
+	}
+	for index, expression := range assignment.Rhs {
+		identifier, identifierOK := assignment.Lhs[index].(*ast.Ident)
+		_, literalOK := unwrapParentheses(expression).(*ast.FuncLit)
+		if !identifierOK || identifier.Obj == nil || !literalOK {
+			return false
+		}
+	}
+	return true
 }
 
 func functionRootObjects(function *ast.FuncDecl) map[string]*ast.Object {
