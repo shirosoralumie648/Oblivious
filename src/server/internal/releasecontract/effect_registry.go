@@ -2244,16 +2244,15 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes [
 		if !ok {
 			return
 		}
-		if _, deferred := parents[call].(*ast.DeferStmt); deferred && !completingFrame && !callWithinImmediatelyInvokedLiteral(call, parents) {
-			return
-		}
+		_, deferred := parents[call].(*ast.DeferStmt)
+		deferredInCurrentFrame := deferred && !completingFrame && !callWithinImmediatelyInvokedLiteral(call, parents)
 		site := call
 		if returnedSite != nil && len(scopes) > 0 && blockDirectlyReturnsCall(scopes[0].block, call) {
 			site = returnedSite
 		}
 		literal, scopeIndex, ambiguous := invokedLocalFunctionLiteral(scopes, discarded, call)
 		sourceCall := sourceCallFromCall(function, call, site)
-		sourceCall.ambiguous = ambiguous
+		sourceCall.ambiguous = ambiguous && !deferredInCurrentFrame
 		*calls = append(*calls, sourceCall)
 		if literal == nil || visiting[literal] {
 			return
@@ -2405,6 +2404,12 @@ func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Objec
 			return
 		}
 		literal, scopeIndex, ambiguous := invokedLocalFunctionLiteral(scopes, nil, call)
+		var executionScopes []sourceLexicalScope
+		if literal != nil {
+			executionScopes = invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
+		} else if !ambiguous {
+			literal, executionScopes, ambiguous = callbackExpressionExecutionScopes(scopes, call.Fun, call.Pos(), make(map[*ast.FuncLit]bool))
+		}
 		if ambiguous {
 			stable = false
 			return
@@ -2420,7 +2425,7 @@ func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Objec
 			return
 		}
 		visiting[literal] = true
-		stable = objectProvenanceStableBefore(invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos()), object, visiting, true)
+		stable = objectProvenanceStableBefore(executionScopes, object, visiting, true)
 		delete(visiting, literal)
 	})
 	return stable
@@ -2431,16 +2436,12 @@ func opaqueCallArgumentEscapesObject(scopes []sourceLexicalScope, call *ast.Call
 		return false
 	}
 	for _, argument := range call.Args {
-		literal, scopeIndex, ambiguous := callbackArgumentFunctionLiteral(scopes, argument, call.Pos())
+		literal, callbackScopes, ambiguous := callbackExpressionExecutionScopes(scopes, argument, call.Pos(), make(map[*ast.FuncLit]bool))
 		if ambiguous {
 			return true
 		}
 		if literal == nil {
 			continue
-		}
-		callbackScopes := invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
-		if scopeIndex == 0 && len(callbackScopes) > 1 {
-			callbackScopes[1].before = call.Pos()
 		}
 		if !objectProvenanceStableBefore(callbackScopes, object, make(map[*ast.FuncLit]bool), true) {
 			return true
@@ -2449,18 +2450,177 @@ func opaqueCallArgumentEscapesObject(scopes []sourceLexicalScope, call *ast.Call
 	return false
 }
 
-func callbackArgumentFunctionLiteral(scopes []sourceLexicalScope, expression ast.Expr, before token.Pos) (*ast.FuncLit, int, bool) {
+func callbackExpressionExecutionScopes(scopes []sourceLexicalScope, expression ast.Expr, before token.Pos, visiting map[*ast.FuncLit]bool) (*ast.FuncLit, []sourceLexicalScope, bool) {
 	switch value := unwrapParentheses(expression).(type) {
 	case *ast.FuncLit:
-		return value, 0, false
+		return value, callbackLiteralExecutionScopes(value, scopes, 0, before), false
 	case *ast.Ident:
 		if value.Obj == nil {
-			return nil, -1, false
+			return nil, nil, false
 		}
-		return resolveLocalFunctionLiteral(scopes, value.Obj, 0, before, make(map[*ast.Object]bool))
+		literal, scopeIndex, ambiguous := resolveLocalFunctionLiteral(scopes, value.Obj, 0, before, make(map[*ast.Object]bool))
+		if literal == nil || ambiguous {
+			return nil, nil, ambiguous
+		}
+		return literal, callbackLiteralExecutionScopes(literal, scopes, scopeIndex, before), false
+	case *ast.IndexExpr:
+		carrier, scopeIndex, found, ambiguous := callbackCarrierExpression(scopes, value.X, before, make(map[*ast.Object]bool))
+		if ambiguous || !found {
+			return nil, nil, ambiguous
+		}
+		literal, ambiguous := indexedCallbackLiteral(carrier, value.Index)
+		if literal == nil || ambiguous {
+			return nil, nil, ambiguous
+		}
+		return literal, callbackLiteralExecutionScopes(literal, scopes, scopeIndex, before), false
+	case *ast.SelectorExpr:
+		carrier, scopeIndex, found, ambiguous := callbackCarrierExpression(scopes, value.X, before, make(map[*ast.Object]bool))
+		if ambiguous || !found {
+			return nil, nil, ambiguous
+		}
+		literal, ambiguous := selectedCallbackLiteral(carrier, value.Sel.Name)
+		if literal == nil || ambiguous {
+			return nil, nil, ambiguous
+		}
+		return literal, callbackLiteralExecutionScopes(literal, scopes, scopeIndex, before), false
+	case *ast.TypeAssertExpr:
+		return callbackExpressionExecutionScopes(scopes, value.X, before, visiting)
+	case *ast.CallExpr:
+		factory, factoryScope, ambiguous := invokedLocalFunctionLiteral(scopes, nil, value)
+		if ambiguous {
+			return nil, nil, true
+		}
+		if factory == nil {
+			return nil, nil, false
+		}
+		if visiting[factory] {
+			return nil, nil, true
+		}
+		result, ok := directlyReturnedExpression(factory.Body)
+		if !ok {
+			return nil, nil, true
+		}
+		factoryScopes := callbackLiteralExecutionScopes(factory, scopes, factoryScope, value.Pos())
+		visiting[factory] = true
+		literal, resultScopes, resultAmbiguous := callbackExpressionExecutionScopes(factoryScopes, result, result.Pos(), visiting)
+		delete(visiting, factory)
+		return literal, resultScopes, resultAmbiguous
 	default:
-		return nil, -1, false
+		return nil, nil, false
 	}
+}
+
+func callbackLiteralExecutionScopes(literal *ast.FuncLit, scopes []sourceLexicalScope, scopeIndex int, before token.Pos) []sourceLexicalScope {
+	next := invokedLiteralLexicalScopes(literal, scopes, scopeIndex, before)
+	if scopeIndex == 0 && len(next) > 1 {
+		next[1].before = before
+	}
+	return next
+}
+
+func callbackCarrierExpression(scopes []sourceLexicalScope, expression ast.Expr, before token.Pos, visiting map[*ast.Object]bool) (ast.Expr, int, bool, bool) {
+	switch value := unwrapParentheses(expression).(type) {
+	case *ast.CompositeLit:
+		return value, 0, true, false
+	case *ast.Ident:
+		if value.Obj == nil {
+			return nil, -1, false, false
+		}
+		return resolveLocalCarrierExpression(scopes, value.Obj, 0, before, visiting)
+	case *ast.TypeAssertExpr:
+		return callbackCarrierExpression(scopes, value.X, before, visiting)
+	default:
+		return nil, -1, false, false
+	}
+}
+
+func resolveLocalCarrierExpression(scopes []sourceLexicalScope, object *ast.Object, startIndex int, firstBefore token.Pos, visiting map[*ast.Object]bool) (ast.Expr, int, bool, bool) {
+	if object == nil || startIndex < 0 || startIndex >= len(scopes) {
+		return nil, -1, false, false
+	}
+	if visiting[object] {
+		return nil, -1, false, true
+	}
+	visiting[object] = true
+	defer delete(visiting, object)
+	for index := startIndex; index < len(scopes); index++ {
+		scope := scopes[index]
+		cutoff := scope.before
+		if index == startIndex && firstBefore != 0 {
+			cutoff = firstBefore
+		}
+		if cutoff == 0 && scope.block != nil {
+			cutoff = scope.block.End()
+		}
+		state := identifierStateAfterBlock(scope.block, object, cutoff, sourceIdentifierState{})
+		if state.ambiguous {
+			if sourceObjectIsLocalToScopes(scopes[index:], object) {
+				return nil, -1, false, true
+			}
+			continue
+		}
+		if !state.found {
+			continue
+		}
+		resolved := unwrapParentheses(state.value)
+		if alias, ok := resolved.(*ast.Ident); ok {
+			if alias.Obj == nil {
+				return nil, -1, false, false
+			}
+			result, resultScope, found, ambiguous := resolveLocalCarrierExpression(scopes, alias.Obj, index, state.position, visiting)
+			if !found && !ambiguous && alias.Obj.Kind != ast.Fun {
+				return nil, -1, false, true
+			}
+			return result, resultScope, found, ambiguous
+		}
+		return resolved, index, true, false
+	}
+	return nil, -1, false, sourceObjectIsLocalToScopes(scopes[startIndex:], object)
+}
+
+func indexedCallbackLiteral(expression ast.Expr, index ast.Expr) (*ast.FuncLit, bool) {
+	composite, ok := unwrapParentheses(expression).(*ast.CompositeLit)
+	if !ok {
+		return nil, true
+	}
+	literalIndex, ok := unwrapParentheses(index).(*ast.BasicLit)
+	if !ok || literalIndex.Kind != token.INT {
+		return nil, true
+	}
+	position, err := strconv.Atoi(literalIndex.Value)
+	if err != nil || position < 0 || position >= len(composite.Elts) {
+		return nil, true
+	}
+	element, _ := unwrapParentheses(composite.Elts[position].(ast.Expr)).(*ast.FuncLit)
+	return element, element == nil
+}
+
+func selectedCallbackLiteral(expression ast.Expr, field string) (*ast.FuncLit, bool) {
+	composite, ok := unwrapParentheses(expression).(*ast.CompositeLit)
+	if !ok {
+		return nil, true
+	}
+	for _, element := range composite.Elts {
+		binding, ok := element.(*ast.KeyValueExpr)
+		if !ok || expressionReference(binding.Key) != field {
+			continue
+		}
+		literal, _ := unwrapParentheses(binding.Value).(*ast.FuncLit)
+		return literal, literal == nil
+	}
+	return nil, true
+}
+
+func directlyReturnedExpression(block *ast.BlockStmt) (ast.Expr, bool) {
+	if block == nil || len(block.List) != 1 {
+		return nil, false
+	}
+	result, ok := block.List[0].(*ast.ReturnStmt)
+	returnExpressionOK := ok && len(result.Results) == 1
+	if !returnExpressionOK {
+		return nil, false
+	}
+	return result.Results[0], true
 }
 
 func callWithinImmediatelyInvokedLiteral(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {

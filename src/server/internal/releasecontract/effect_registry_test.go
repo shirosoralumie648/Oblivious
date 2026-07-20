@@ -649,6 +649,42 @@ func run(r *readiness) { if r != nil { if err := r.guard(); err != nil { return 
 				guardContract: "run:r.guard", effectContract: "run:effect", want: true,
 			},
 			{
+				name: "deferred effect registered before guard reaches denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { defer effect(); if err := guard(); err != nil { return } }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "deferred effect registered after guard is dominated",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { return }; defer effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "denial branch deferred effect is reachable",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { defer effect(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "invoked denial helper deferred effect is reachable",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denial := func() { defer effect() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
 				name: "checked continue",
 				source: `package dominance
 func guard() error { return nil }
@@ -946,6 +982,106 @@ func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := f
 func guard() error { return nil }
 func effect() {}
 func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { writer := func() { effectFn = func() { effect() } }; _ = writer; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "opaque callback slice index writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { writers := []func(){func() { effectFn = func() { effect() } }}; invoke(writers[0]); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback slice index read only preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { readers := []func(){func() { _ = effectFn }}; invoke(readers[0]); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "opaque callback struct selector writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+type callbackHolder struct { writer func() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { holder := callbackHolder{writer: func() { effectFn = func() { effect() } }}; invoke(holder.writer); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback struct selector read only preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+type callbackHolder struct { reader func() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { holder := callbackHolder{reader: func() { _ = effectFn }}; invoke(holder.reader); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "opaque callback interface assertion writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { var carrier any = func() { effectFn = func() { effect() } }; invoke(carrier.(func())); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback interface assertion read only preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { var carrier any = func() { _ = effectFn }; invoke(carrier.(func())); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "opaque callback local factory writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { factory := func() func() { return func() { effectFn = func() { effect() } } }; invoke(factory()); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback local factory read only preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { factory := func() func() { return func() { _ = effectFn } }; invoke(factory()); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "direct local factory writer result is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { factory := func() func() { return func() { effectFn = func() { effect() } } }; factory()(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "direct local factory read only result preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { factory := func() func() { return func() { _ = effectFn } }; factory()(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
 `,
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
