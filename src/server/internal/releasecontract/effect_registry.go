@@ -2224,7 +2224,7 @@ func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
 	if function.declaration != nil && function.declaration.Body != nil && block != function.declaration.Body {
 		scopes = append(scopes, sourceLexicalScope{block: function.declaration.Body})
 	}
-	appendReachableSourceCalls(function, root, scopes, nil, nil, false, make(map[*ast.FuncLit]bool), &calls)
+	appendReachableSourceCalls(function, root, scopes, nil, nil, make(map[*ast.FuncLit]bool), &calls)
 	return calls
 }
 
@@ -2268,15 +2268,13 @@ type sourceDiscardedProvenance struct {
 	scopes []sourceLexicalScope
 }
 
-func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, returnedSite *ast.CallExpr, completingFrame bool, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
+func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
 	parents := astParentMap(root)
 	inspectReachableWithParents(root, parents, func(node ast.Node) {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return
 		}
-		_, deferred := parents[call].(*ast.DeferStmt)
-		deferredInCurrentFrame := deferred && !completingFrame && !callWithinImmediatelyInvokedLiteral(call, parents)
 		site := call
 		if returnedSite != nil && len(scopes) > 0 && blockDirectlyReturnsCall(scopes[0].block, call) {
 			site = returnedSite
@@ -2284,9 +2282,9 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes [
 		resolution := resolveImmediateSourceCallable(scopes, discarded, call.Fun, call.Pos())
 		sourceCall := sourceCallFromCall(function, call, site)
 		applyNamedCallableIdentity(&sourceCall, resolution)
-		sourceCall.ambiguous = resolution.ambiguous && !deferredInCurrentFrame
+		sourceCall.ambiguous = resolution.ambiguous
 		*calls = append(*calls, sourceCall)
-		appendOpaqueNamedCallbackCalls(function, scopes, call, site, calls)
+		appendOpaqueCallbackCalls(function, scopes, discarded, call, site, visiting, calls)
 		literal := resolution.literal
 		scopeIndex := resolution.scopeIndex
 		if literal == nil || visiting[literal] {
@@ -2296,19 +2294,24 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes [
 		if len(nextScopes) == 0 {
 			nextScopes = invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
 		}
-		nextDiscarded := make([]sourceDiscardedProvenance, len(discarded), len(discarded)+scopeIndex)
-		copy(nextDiscarded, discarded)
-		for index := range scopes[:scopeIndex] {
-			ancestry := append([]sourceLexicalScope(nil), scopes[index:]...)
-			if ancestry[0].before == 0 {
-				ancestry[0].before = call.Pos()
-			}
-			nextDiscarded = append(nextDiscarded, sourceDiscardedProvenance{scopes: ancestry})
-		}
+		nextDiscarded := discardedSourceProvenanceAtInvocation(scopes, discarded, scopeIndex, call.Pos())
 		visiting[literal] = true
-		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, true, visiting, calls)
+		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, visiting, calls)
 		delete(visiting, literal)
 	})
+}
+
+func discardedSourceProvenanceAtInvocation(scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, scopeIndex int, callPosition token.Pos) []sourceDiscardedProvenance {
+	next := make([]sourceDiscardedProvenance, len(discarded), len(discarded)+scopeIndex)
+	copy(next, discarded)
+	for index := range scopes[:scopeIndex] {
+		ancestry := append([]sourceLexicalScope(nil), scopes[index:]...)
+		if ancestry[0].before == 0 {
+			ancestry[0].before = callPosition
+		}
+		next = append(next, sourceDiscardedProvenance{scopes: ancestry})
+	}
+	return next
 }
 
 func invokedLiteralLexicalScopes(literal *ast.FuncLit, scopes []sourceLexicalScope, scopeIndex int, callPosition token.Pos) []sourceLexicalScope {
@@ -2340,18 +2343,35 @@ func applyNamedCallableIdentity(call *sourceCall, resolution sourceCallableResol
 	call.localTarget = ""
 }
 
-func appendOpaqueNamedCallbackCalls(function sourceFunction, scopes []sourceLexicalScope, call, site *ast.CallExpr, calls *[]sourceCall) {
+func appendOpaqueCallbackCalls(function sourceFunction, scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, call, site *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
 	if call == nil || site == nil {
 		return
 	}
 	for _, argument := range call.Args {
-		resolution := resolveCallbackExpression(scopes, argument, call.Pos())
-		if resolution.target == nil || resolution.targetName == "" {
+		resolution := resolveCallbackExpression(scopes, discarded, argument, call.Pos())
+		if resolution.target != nil && resolution.targetName != "" {
+			candidate := sourceCallFromCall(function, call, site)
+			applyNamedCallableIdentity(&candidate, resolution)
+			*calls = append(*calls, candidate)
+		}
+		literal := resolution.literal
+		if literal == nil || visiting[literal] {
 			continue
 		}
-		candidate := sourceCallFromCall(function, call, site)
-		applyNamedCallableIdentity(&candidate, resolution)
-		*calls = append(*calls, candidate)
+		nextScopes := resolution.executionScopes
+		if len(nextScopes) == 0 {
+			nextScopes = invokedLiteralLexicalScopes(literal, scopes, resolution.scopeIndex, call.Pos())
+		}
+		nextDiscarded := discardedSourceProvenanceAtInvocation(scopes, discarded, resolution.scopeIndex, call.Pos())
+		var callbackCalls []sourceCall
+		visiting[literal] = true
+		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, nil, visiting, &callbackCalls)
+		delete(visiting, literal)
+		for _, candidate := range callbackCalls {
+			candidate.position = site.Pos()
+			candidate.node = site
+			*calls = append(*calls, candidate)
+		}
 	}
 }
 
@@ -2370,9 +2390,12 @@ func resolveImmediateSourceCallable(scopes []sourceLexicalScope, discarded []sou
 	return newSourceExpressionResolver(false).resolveCallable(context, expression, 0)
 }
 
-func resolveCallbackExpression(scopes []sourceLexicalScope, expression ast.Expr, before token.Pos) sourceCallableResolution {
+func resolveCallbackExpression(scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, expression ast.Expr, before token.Pos) sourceCallableResolution {
 	if len(scopes) == 0 || expression == nil {
 		return sourceCallableResolution{scopeIndex: -1}
+	}
+	if object := callableRootObject(expression); object != nil && !capturedObjectStableBeforeCall(discarded, object) {
+		return sourceCallableResolution{scopeIndex: -1, ambiguous: true}
 	}
 	context := sourceResolutionContext{scopes: scopes, lookupBefore: before, invocationBefore: before}
 	return newSourceExpressionResolver(true).resolveCallable(context, expression, 0)
@@ -2459,7 +2482,7 @@ func (resolver *sourceExpressionResolver) resolveCallableIdentifier(context sour
 	next.startIndex = scopeIndex
 	next.lookupBefore = state.position
 	resolved := resolver.resolveCallable(next, state.value, depth+1)
-	if resolved.literal == nil && resolved.target == nil && !resolved.ambiguous && sourceObjectIsFunctionLocal(context.scopes[scopeIndex:], object) {
+	if resolved.literal == nil && resolved.target == nil && !resolved.ambiguous && expressionHasLocalRoot(context.scopes[scopeIndex:], state.value) {
 		resolved.ambiguous = true
 	}
 	return resolved
@@ -2581,7 +2604,7 @@ func opaqueCallArgumentEscapesObject(scopes []sourceLexicalScope, call *ast.Call
 		return false
 	}
 	for _, argument := range call.Args {
-		resolution := resolveCallbackExpression(scopes, argument, call.Pos())
+		resolution := resolveCallbackExpression(scopes, nil, argument, call.Pos())
 		if resolution.ambiguous {
 			return true
 		}

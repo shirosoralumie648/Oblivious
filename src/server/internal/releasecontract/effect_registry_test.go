@@ -667,6 +667,25 @@ func run() { if err := guard(); err != nil { return }; defer effect() }
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
 			{
+				name: "stable named noop defer before guard preserves denial",
+				source: `package dominance
+func guard() error { return nil }
+func noop() {}
+func effect() {}
+func run() { noopFn := noop; defer noopFn(); if err := guard(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "stable named effect defer after guard is dominated",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := effect; if err := guard(); err != nil { return }; defer effectFn() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "denial branch deferred effect is reachable",
 				source: `package dominance
 func guard() error { return nil }
@@ -723,6 +742,45 @@ func run() { effectFn := effect; if err := guard(); err != nil { invoke(effectFn
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
 			},
 			{
+				name: "opaque inline effect callback reaches denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { if err := guard(); err != nil { invoke(func() { effect() }); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque stable alias effect callback reaches denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { callback := func() { effect() }; if err := guard(); err != nil { invoke(callback); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque inline read only callback preserves denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { if err := guard(); err != nil { invoke(func() { _ = effect }); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "unpassed uninvoked effect closure preserves denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { callback := func() { effect() }; _ = callback; if err := guard(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "named non effect alias preserves denial",
 				source: `package dominance
 func guard() error { return nil }
@@ -751,6 +809,17 @@ func condition() bool { return false }
 func noop() {}
 func effect() {}
 func run() { effectFn := noop; if condition() { effectFn = effect }; if err := guard(); err != nil { effectFn(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "conditional named effect alias deferred before guard is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func condition() bool { return false }
+func noop() {}
+func effect() {}
+func run() { effectFn := noop; if condition() { effectFn = effect }; defer effectFn(); if err := guard(); err != nil { return }; effect() }
 `,
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
 			},
