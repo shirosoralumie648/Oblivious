@@ -1134,6 +1134,7 @@ func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, b
 	if function == nil || function.Body == nil || object == nil || before <= after {
 		return true
 	}
+	parents := astParentMap(function.Body)
 	found := false
 	inspectReachable(function.Body, func(node ast.Node) {
 		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
@@ -1145,9 +1146,36 @@ func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, b
 		case *ast.CallExpr:
 			method, ok := unwrapParentheses(expression.Fun).(*ast.SelectorExpr)
 			found = ok && sourceExpressionObject(method.X) == object
+		case *ast.SelectorExpr:
+			found = sourceExpressionObject(expression) == object && !isSafeObjectSelectorRead(function, object, expression, parents)
 		}
 	})
 	return found
+}
+
+func isSafeObjectSelectorRead(function *ast.FuncDecl, object *ast.Object, selector *ast.SelectorExpr, parents map[ast.Node]ast.Node) bool {
+	if function == nil || object == nil || selector == nil {
+		return false
+	}
+	reference := expressionReference(selector)
+	current := ast.Node(selector)
+	for {
+		parent := parents[current]
+		if parenthesized, ok := parent.(*ast.ParenExpr); ok {
+			current = parenthesized
+			continue
+		}
+		switch context := parent.(type) {
+		case *ast.CallExpr:
+			return reference == "effect.id" && len(context.Args) == 1 && unwrapParentheses(context.Args[0]) == selector && isCapabilityResolverCall(function, context)
+		case *ast.BinaryExpr:
+			return reference == "effect.id" && isSandboxEffectComparison(context, object)
+		case *ast.IndexExpr:
+			return reference == "effect.key" && context.Index == current
+		default:
+			return false
+		}
+	}
 }
 
 func writtenExpressionObject(expression ast.Expr) *ast.Object {
