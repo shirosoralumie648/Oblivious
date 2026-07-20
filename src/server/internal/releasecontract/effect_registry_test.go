@@ -811,6 +811,69 @@ func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := f
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
 			{
+				name: "captured helper range assignment is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { for _, effectFn = range []func(){func() { effect() }} {}; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "captured helper address escape is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { pointer := &effectFn; _ = pointer; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "invoked helper rebinding captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { rewrite := func() { effectFn = func() { effect() } }; rewrite(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "range declaration shadow preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { for _, effectFn := range []func(){func() { effect() }} { _ = effectFn }; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "captured helper write after call remains safe",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { middle(); effectFn = func() { effect() } }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "uninvoked helper rebinding captured helper remains safe",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { rewrite := func() { effectFn = func() { effect() } }; _ = rewrite; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "invoked read only helper preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { read := func() { _ = effectFn }; read(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "self referenced denial closure terminates expansion",
 				source: `package dominance
 func guard() error { return nil }

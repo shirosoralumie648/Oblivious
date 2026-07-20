@@ -1420,23 +1420,28 @@ func hasObjectWriteBetween(function *ast.FuncDecl, object *ast.Object, after, be
 		if found || node == nil || node.Pos() <= after || node.Pos() >= before {
 			return
 		}
-		switch statement := node.(type) {
-		case *ast.AssignStmt:
-			for _, expression := range statement.Lhs {
-				if writtenExpressionObject(expression) == object {
-					found = true
-					return
-				}
-			}
-		case *ast.IncDecStmt:
-			found = writtenExpressionObject(statement.X) == object
-		case *ast.RangeStmt:
-			if statement.Tok == token.ASSIGN {
-				found = writtenExpressionObject(statement.Key) == object || writtenExpressionObject(statement.Value) == object
-			}
-		}
+		found = astNodeWritesObject(node, object)
 	})
 	return found
+}
+
+func astNodeWritesObject(node ast.Node, object *ast.Object) bool {
+	if node == nil || object == nil {
+		return false
+	}
+	switch statement := node.(type) {
+	case *ast.AssignStmt:
+		for _, expression := range statement.Lhs {
+			if writtenExpressionObject(expression) == object {
+				return true
+			}
+		}
+	case *ast.IncDecStmt:
+		return writtenExpressionObject(statement.X) == object
+	case *ast.RangeStmt:
+		return statement.Tok == token.ASSIGN && (writtenExpressionObject(statement.Key) == object || writtenExpressionObject(statement.Value) == object)
+	}
+	return false
 }
 
 func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, before token.Pos) bool {
@@ -2241,16 +2246,9 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes, 
 		if literal == nil || visiting[literal] {
 			return
 		}
-		nextScopes := make([]sourceLexicalScope, 1, len(scopes)-scopeIndex+1)
-		nextScopes[0] = sourceLexicalScope{block: literal.Body}
+		nextScopes := invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
 		nextDiscarded := make([]sourceLexicalScope, len(discarded), len(discarded)+scopeIndex)
 		copy(nextDiscarded, discarded)
-		for _, scope := range scopes[scopeIndex:] {
-			if scope.before == 0 {
-				scope.before = call.Pos()
-			}
-			nextScopes = append(nextScopes, scope)
-		}
 		for _, scope := range scopes[:scopeIndex] {
 			if scope.before == 0 {
 				scope.before = call.Pos()
@@ -2261,6 +2259,18 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes, 
 		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, visiting, calls)
 		delete(visiting, literal)
 	})
+}
+
+func invokedLiteralLexicalScopes(literal *ast.FuncLit, scopes []sourceLexicalScope, scopeIndex int, callPosition token.Pos) []sourceLexicalScope {
+	next := make([]sourceLexicalScope, 1, len(scopes)-scopeIndex+1)
+	next[0] = sourceLexicalScope{block: literal.Body}
+	for _, scope := range scopes[scopeIndex:] {
+		if scope.before == 0 {
+			scope.before = callPosition
+		}
+		next = append(next, scope)
+	}
+	return next
 }
 
 func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) sourceCall {
@@ -2278,7 +2288,7 @@ func invokedLocalFunctionLiteral(scopes, discarded []sourceLexicalScope, call *a
 	if !ok || identifier.Obj == nil {
 		return nil, -1, false
 	}
-	if sourceObjectReboundBefore(discarded, identifier.Obj) {
+	if !capturedObjectStableBeforeCall(discarded, identifier.Obj) {
 		return nil, -1, true
 	}
 	for index, scope := range scopes {
@@ -2299,11 +2309,67 @@ func invokedLocalFunctionLiteral(scopes, discarded []sourceLexicalScope, call *a
 	return nil, -1, false
 }
 
-func sourceObjectReboundBefore(scopes []sourceLexicalScope, object *ast.Object) bool {
+func capturedObjectStableBeforeCall(scopes []sourceLexicalScope, object *ast.Object) bool {
 	for _, scope := range scopes {
-		if scope.before != 0 && hasIdentifierWriteBefore(scope.block, object, scope.before) {
-			return true
+		if scope.before == 0 || !objectProvenanceStableBefore([]sourceLexicalScope{scope}, object, make(map[*ast.FuncLit]bool)) {
+			return false
 		}
+	}
+	return true
+}
+
+func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Object, visiting map[*ast.FuncLit]bool) bool {
+	if len(scopes) == 0 || scopes[0].block == nil || object == nil {
+		return false
+	}
+	before := scopes[0].before
+	if before == 0 {
+		before = scopes[0].block.End()
+	}
+	stable := true
+	inspectReachable(scopes[0].block, func(node ast.Node) {
+		if !stable || node == nil || node.Pos() >= before {
+			return
+		}
+		if astNodeWritesObject(node, object) || astNodeEscapesObject(node, object) {
+			stable = false
+			return
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return
+		}
+		literal, scopeIndex, ambiguous := invokedLocalFunctionLiteral(scopes, nil, call)
+		if ambiguous {
+			stable = false
+			return
+		}
+		if literal == nil {
+			return
+		}
+		if visiting[literal] {
+			stable = false
+			return
+		}
+		visiting[literal] = true
+		stable = objectProvenanceStableBefore(invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos()), object, visiting)
+		delete(visiting, literal)
+	})
+	return stable
+}
+
+func astNodeEscapesObject(node ast.Node, object *ast.Object) bool {
+	if node == nil || object == nil {
+		return false
+	}
+	switch expression := node.(type) {
+	case *ast.UnaryExpr:
+		return expression.Op == token.AND && sourceExpressionObject(unwrapParentheses(expression.X)) == object
+	case *ast.CallExpr:
+		method, ok := unwrapParentheses(expression.Fun).(*ast.SelectorExpr)
+		return ok && sourceExpressionObject(method.X) == object
+	case *ast.SelectorExpr:
+		return sourceExpressionObject(expression) == object
 	}
 	return false
 }
