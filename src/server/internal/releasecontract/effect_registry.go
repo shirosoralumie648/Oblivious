@@ -511,6 +511,7 @@ type sourceCall struct {
 	localTarget string
 	position    token.Pos
 	node        *ast.CallExpr
+	ambiguous   bool
 }
 
 type sourceRegistration struct {
@@ -2218,7 +2219,7 @@ func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
 	if function.declaration != nil && function.declaration.Body != nil && block != function.declaration.Body {
 		scopes = append(scopes, sourceLexicalScope{block: function.declaration.Body})
 	}
-	appendReachableSourceCalls(function, root, scopes, nil, make(map[*ast.FuncLit]bool), &calls)
+	appendReachableSourceCalls(function, root, scopes, nil, nil, make(map[*ast.FuncLit]bool), &calls)
 	return calls
 }
 
@@ -2227,27 +2228,37 @@ type sourceLexicalScope struct {
 	before token.Pos
 }
 
-func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes []sourceLexicalScope, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
+func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes, discarded []sourceLexicalScope, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
 	inspectReachableCalls(root, func(call *ast.CallExpr) {
 		site := call
 		if returnedSite != nil && len(scopes) > 0 && blockDirectlyReturnsCall(scopes[0].block, call) {
 			site = returnedSite
 		}
-		*calls = append(*calls, sourceCallFromCall(function, call, site))
-		literal, scopeIndex := invokedLocalFunctionLiteral(scopes, call)
+		literal, scopeIndex, ambiguous := invokedLocalFunctionLiteral(scopes, discarded, call)
+		sourceCall := sourceCallFromCall(function, call, site)
+		sourceCall.ambiguous = ambiguous
+		*calls = append(*calls, sourceCall)
 		if literal == nil || visiting[literal] {
 			return
 		}
 		nextScopes := make([]sourceLexicalScope, 1, len(scopes)-scopeIndex+1)
 		nextScopes[0] = sourceLexicalScope{block: literal.Body}
+		nextDiscarded := make([]sourceLexicalScope, len(discarded), len(discarded)+scopeIndex)
+		copy(nextDiscarded, discarded)
 		for _, scope := range scopes[scopeIndex:] {
 			if scope.before == 0 {
 				scope.before = call.Pos()
 			}
 			nextScopes = append(nextScopes, scope)
 		}
+		for _, scope := range scopes[:scopeIndex] {
+			if scope.before == 0 {
+				scope.before = call.Pos()
+			}
+			nextDiscarded = append(nextDiscarded, scope)
+		}
 		visiting[literal] = true
-		appendReachableSourceCalls(function, literal.Body, nextScopes, site, visiting, calls)
+		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, visiting, calls)
 		delete(visiting, literal)
 	})
 }
@@ -2259,13 +2270,16 @@ func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) s
 	}
 }
 
-func invokedLocalFunctionLiteral(scopes []sourceLexicalScope, call *ast.CallExpr) (*ast.FuncLit, int) {
+func invokedLocalFunctionLiteral(scopes, discarded []sourceLexicalScope, call *ast.CallExpr) (*ast.FuncLit, int, bool) {
 	if call == nil {
-		return nil, -1
+		return nil, -1, false
 	}
 	identifier, ok := unwrapParentheses(call.Fun).(*ast.Ident)
 	if !ok || identifier.Obj == nil {
-		return nil, -1
+		return nil, -1, false
+	}
+	if sourceObjectReboundBefore(discarded, identifier.Obj) {
+		return nil, -1, true
 	}
 	for index, scope := range scopes {
 		before := scope.before
@@ -2274,15 +2288,24 @@ func invokedLocalFunctionLiteral(scopes []sourceLexicalScope, call *ast.CallExpr
 		}
 		state := identifierStateAfterBlock(scope.block, identifier.Obj, before, sourceIdentifierState{})
 		if state.ambiguous {
-			return nil, -1
+			return nil, -1, false
 		}
 		if !state.found {
 			continue
 		}
 		literal, _ := unwrapParentheses(state.value).(*ast.FuncLit)
-		return literal, index
+		return literal, index, false
 	}
-	return nil, -1
+	return nil, -1, false
+}
+
+func sourceObjectReboundBefore(scopes []sourceLexicalScope, object *ast.Object) bool {
+	for _, scope := range scopes {
+		if scope.before != 0 && hasIdentifierWriteBefore(scope.block, object, scope.before) {
+			return true
+		}
+	}
+	return false
 }
 
 func blockDirectlyReturnsCall(block *ast.BlockStmt, call *ast.CallExpr) bool {
@@ -2670,6 +2693,11 @@ func guardEffectContractPresent(functions map[string][]sourceFunction, guardCont
 func guardDominatesTarget(function sourceFunction, guardName, targetName string) bool {
 	if function.declaration == nil || function.declaration.Body == nil {
 		return false
+	}
+	for _, call := range function.calls {
+		if call.ambiguous {
+			return false
+		}
 	}
 	parents := astParentMap(function.declaration.Body)
 	var guards, targets []sourceCall
