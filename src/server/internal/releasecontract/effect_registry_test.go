@@ -413,6 +413,9 @@ func register(effects releasecontract.EffectRegistrar) error {
 			{"schedule whole row reassignment", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor = descriptors[1]`},
 			{"schedule address escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `mutateDescriptor(&descriptor)`},
 			{"schedule method escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.Mutate()`},
+			{"schedule invoked closure id write", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `mutate := func() { descriptor.ID = "worker.schedule.workflow.start" }; mutate()`},
+			{"schedule invoked closure address escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `mutate := func() { mutateDescriptor(&descriptor) }; mutate()`},
+			{"schedule invoked closure method escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `mutate := func() { descriptor.Mutate() }; mutate()`},
 			{"generated row reassignment", "agent.tool.builtin", "executor.go", "if err := options.Effects.Register(descriptor); err != nil {", `descriptor = descriptors[len(descriptors)-1]`},
 			{"generated row method escape", "agent.tool.builtin", "executor.go", "if err := options.Effects.Register(descriptor); err != nil {", `descriptor.Mutate()`},
 		}
@@ -664,6 +667,24 @@ func run(rows []string) { for range rows { if err := guard(); err != nil { break
 				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
 			{
+				name: "goto effect label",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { goto allowed }; return; allowed: effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "goto denial exit rejected conservatively",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { goto denied }; effect(); return; denied: return }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
 				name: "runtime conditional bypass",
 				source: `package dominance
 func guard() error { return nil }
@@ -707,6 +728,24 @@ func effect() {}
 func run() { if err := guard(); err != nil { effect(); return }; effect() }
 `,
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "denial invoked closure contains effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { denialEffect := func() { effect() }; if err := guard(); err != nil { denialEffect(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "invoked guard closure dominates effect",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { guarded := func() error { return guard() }; if err := guarded(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
 			},
 		}
 		for _, testCase := range cases {
