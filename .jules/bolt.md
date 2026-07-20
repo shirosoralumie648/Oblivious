@@ -1,0 +1,3 @@
+## 2024-05-18 - Cache Intl Formatters
+**Learning:** Found an anti-pattern where `Intl.NumberFormat` and `Intl.DateTimeFormat` were being instantiated inside functional components or helper functions that run on every render (e.g. `MetricCard`, `BillingPage`, `MarketplaceMyAgentsPage`). Since these instantiations are expensive, they create unnecessary overhead during re-renders.
+**Action:** Always declare `Intl.NumberFormat` and `Intl.DateTimeFormat` as module-level constants and reuse them across calls, as their instantiation is expensive. This prevents unnecessary overhead on every render.
