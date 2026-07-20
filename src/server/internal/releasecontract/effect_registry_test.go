@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -395,6 +398,56 @@ func register(effects releasecontract.EffectRegistrar) error {
 		})
 	}
 
+	t.Run("ranged registration row is immutable", func(t *testing.T) {
+		cases := []struct {
+			name         string
+			descriptorID string
+			file         string
+			old          string
+			injection    string
+		}{
+			{"schedule descriptor id write", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.ID = "worker.schedule.workflow.start"`},
+			{"schedule capability id write", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.CapabilityID = "wrong"`},
+			{"schedule owner write", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.Owner = "wrong.Owner"`},
+			{"schedule boundary write", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.Boundary = releasecontract.BoundaryOutbound`},
+			{"schedule whole row reassignment", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor = descriptors[1]`},
+			{"schedule address escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `mutateDescriptor(&descriptor)`},
+			{"schedule method escape", "worker.schedule.claim", "worker.go", "if err := effects.Register(descriptor); err != nil {", `descriptor.Mutate()`},
+			{"generated row reassignment", "agent.tool.builtin", "executor.go", "if err := options.Effects.Register(descriptor); err != nil {", `descriptor = descriptors[len(descriptors)-1]`},
+			{"generated row method escape", "agent.tool.builtin", "executor.go", "if err := options.Effects.Register(descriptor); err != nil {", `descriptor.Mutate()`},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				spec := runtimeDescriptorSpecs[testCase.descriptorID]
+				fixtureRoot := t.TempDir()
+				copyEffectPackage(t, repoRoot, fixtureRoot, spec.OwnerPackage)
+				baseline, err := descriptorStructurePresent(fixtureRoot, testCase.descriptorID, spec)
+				if err != nil || !baseline {
+					t.Fatalf("baseline ranged descriptor present=%v err=%v", baseline, err)
+				}
+				path := filepath.Join(fixtureRoot, filepath.FromSlash(spec.OwnerPackage), testCase.file)
+				content, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read ranged-registration fixture: %v", err)
+				}
+				if !strings.Contains(string(content), testCase.old) {
+					t.Fatalf("ranged-registration target missing: %q", testCase.old)
+				}
+				mutated := strings.Replace(string(content), testCase.old, testCase.injection+"\n\t\t"+testCase.old, 1) + "\n// preserved ranged registration: " + testCase.old + "\n"
+				if err := os.WriteFile(path, []byte(mutated), 0o644); err != nil {
+					t.Fatalf("write ranged-registration mutation: %v", err)
+				}
+				present, err := descriptorStructurePresent(fixtureRoot, testCase.descriptorID, spec)
+				if err != nil {
+					t.Fatalf("discover ranged-registration mutation: %v", err)
+				}
+				if present {
+					t.Fatalf("mutable ranged registration certified %s", testCase.descriptorID)
+				}
+			})
+		}
+	})
+
 	t.Run("statically unreachable registration and helper calls do not count", func(t *testing.T) {
 		cases := []struct {
 			name         string
@@ -490,11 +543,11 @@ func register(effects releasecontract.EffectRegistrar) error {
 				name: "live exact receivers",
 				source: `package exact
 type readinessGate struct{}
-func (readinessGate) require() {}
+func (readinessGate) require() error { return nil }
 type effectStore struct{}
 func (effectStore) Effect() {}
 type Runner struct { readiness readinessGate; store effectStore }
-func (r *Runner) run() { r.readiness.require(); r.store.Effect() }
+func (r *Runner) run() { if err := r.readiness.require(); err != nil { return }; r.store.Effect() }
 `,
 				want: true,
 			},
@@ -562,6 +615,191 @@ func (r *Runner) run() { if true { r := &Runner{}; r.readiness.require() }; r.st
 					t.Fatalf("exact call proof=%v want=%v", got, testCase.want)
 				}
 			})
+		}
+	})
+
+	t.Run("guard dominance requires checked denial control", func(t *testing.T) {
+		cases := []struct {
+			name           string
+			source         string
+			guardContract  string
+			effectContract string
+			want           bool
+		}{
+			{
+				name: "checked return",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "optional readiness checked return",
+				source: `package dominance
+type readiness struct{}
+func (*readiness) guard() error { return nil }
+func effect() {}
+func run(r *readiness) { if r != nil { if err := r.guard(); err != nil { return } }; effect() }
+`,
+				guardContract: "run:r.guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "checked continue",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run(rows []string) { for range rows { if err := guard(); err != nil { continue }; effect() } }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "checked break",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run(rows []string) { for range rows { if err := guard(); err != nil { break }; effect() } }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "runtime conditional bypass",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run(enabled bool) { if enabled { if err := guard(); err != nil { return } }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "ignored guard result",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { _ = guard(); effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "unchecked guard result",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { err := guard(); _ = err; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "denial falls through",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { _ = err }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "effect reachable on denial",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { if err := guard(); err != nil { effect(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				directory := t.TempDir()
+				if err := os.WriteFile(filepath.Join(directory, "dominance.go"), []byte(testCase.source), 0o644); err != nil {
+					t.Fatalf("write guard-dominance fixture: %v", err)
+				}
+				functions, err := loadSourceFunctions(directory)
+				if err != nil {
+					t.Fatalf("parse guard-dominance fixture: %v", err)
+				}
+				got := guardEffectContractPresent(functions, testCase.guardContract, testCase.effectContract)
+				if got != testCase.want {
+					t.Fatalf("guard dominance proof=%v want=%v", got, testCase.want)
+				}
+			})
+		}
+	})
+
+	t.Run("reachable walker prunes dead closures and branches", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			source string
+			want   []string
+		}{
+			{
+				name: "uninvoked closure",
+				source: `package reachable
+func run() { _ = func() { guard(); register(); effect() }; live() }
+`,
+				want: []string{"live"},
+			},
+			{
+				name: "direct invoked closure",
+				source: `package reachable
+func run() { func() { guard() }() }
+`,
+				want: []string{"guard"},
+			},
+			{
+				name: "if true dead else",
+				source: `package reachable
+func run() { if true { live() } else { guard(); register(); effect() } }
+`,
+				want: []string{"live"},
+			},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				file, err := parser.ParseFile(token.NewFileSet(), "reachable.go", testCase.source, 0)
+				if err != nil {
+					t.Fatalf("parse reachable fixture: %v", err)
+				}
+				function := file.Decls[0].(*ast.FuncDecl)
+				var got []string
+				inspectReachableCalls(function.Body, func(call *ast.CallExpr) {
+					if name := calledName(call.Fun); name != "" {
+						got = append(got, name)
+					}
+				})
+				sort.Strings(got)
+				if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
+					t.Fatalf("reachable calls=%v want=%v", got, testCase.want)
+				}
+			})
+		}
+	})
+
+	t.Run("uninvoked closure registration is not reachable", func(t *testing.T) {
+		root := t.TempDir()
+		packageDirectory := filepath.Join(root, "src", "server", "internal", "deadclosure")
+		if err := os.MkdirAll(packageDirectory, 0o755); err != nil {
+			t.Fatalf("create dead-closure fixture: %v", err)
+		}
+		source := `package deadclosure
+func register(effects Registrar) error {
+	deferred := func() error {
+		return effects.Register(EffectDescriptor{ID: "dead.closure", CapabilityID: "mcp.tool_execution", Boundary: BoundaryOutbound, Owner: "dead.Closure"})
+	}
+	_ = deferred
+	return nil
+}
+`
+		if err := os.WriteFile(filepath.Join(packageDirectory, "dead.go"), []byte(source), 0o644); err != nil {
+			t.Fatalf("write dead-closure fixture: %v", err)
+		}
+		discovered, err := DiscoverEffectSurfaces(root)
+		if err != nil {
+			t.Fatalf("discover dead-closure fixture: %v", err)
+		}
+		if len(discovered) != 0 {
+			t.Fatalf("uninvoked closure registration was discovered: %#v", discovered)
 		}
 	})
 

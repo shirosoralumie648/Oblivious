@@ -510,6 +510,7 @@ type sourceCall struct {
 	object      *ast.Object
 	localTarget string
 	position    token.Pos
+	node        *ast.CallExpr
 }
 
 type sourceRegistration struct {
@@ -627,6 +628,7 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 			}
 		}
 	}
+	functions = registrationAnalysisFunctions(functions)
 
 	relativeDirectory, err := filepath.Rel(repoRoot, directory)
 	if err != nil {
@@ -683,6 +685,250 @@ func discoverPackageRegistrations(repoRoot, directory string, effectValues map[s
 		return registrations[i].Line < registrations[j].Line
 	})
 	return registrations, nil
+}
+
+// registrationAnalysisFunctions exposes a returned function body only when
+// package structure proves that the returned value is invoked. This keeps the
+// generic reachability walker fail-closed for ordinary uninvoked closures while
+// allowing construction-time option functions to contribute registrations.
+func registrationAnalysisFunctions(functions []packageSourceFunction) []packageSourceFunction {
+	analysis := append([]packageSourceFunction(nil), functions...)
+	context := newRegistrationAnalysisContext()
+	for _, function := range functions {
+		for _, literal := range invokedReturnedFunctionLiterals(function, functions, context) {
+			declaration := *function.declaration
+			declaration.Body = literal.Body
+			analysis = append(analysis, packageSourceFunction{declaration: &declaration, file: function.file})
+		}
+	}
+	return analysis
+}
+
+type registrationAnalysisContext struct {
+	parents map[*ast.FuncDecl]map[ast.Node]ast.Node
+	calls   map[*ast.FuncDecl][]*ast.CallExpr
+}
+
+func newRegistrationAnalysisContext() *registrationAnalysisContext {
+	return &registrationAnalysisContext{
+		parents: make(map[*ast.FuncDecl]map[ast.Node]ast.Node),
+		calls:   make(map[*ast.FuncDecl][]*ast.CallExpr),
+	}
+}
+
+func (context *registrationAnalysisContext) parentsFor(function *ast.FuncDecl) map[ast.Node]ast.Node {
+	if parents, ok := context.parents[function]; ok {
+		return parents
+	}
+	parents := astParentMap(function.Body)
+	context.parents[function] = parents
+	return parents
+}
+
+func (context *registrationAnalysisContext) callsFor(function *ast.FuncDecl) []*ast.CallExpr {
+	if calls, ok := context.calls[function]; ok {
+		return calls
+	}
+	var calls []*ast.CallExpr
+	inspectReachableWithParents(function.Body, context.parentsFor(function), func(node ast.Node) {
+		if call, ok := node.(*ast.CallExpr); ok {
+			calls = append(calls, call)
+		}
+	})
+	context.calls[function] = calls
+	return calls
+}
+
+func invokedReturnedFunctionLiterals(producer packageSourceFunction, functions []packageSourceFunction, context *registrationAnalysisContext) []*ast.FuncLit {
+	if producer.declaration == nil || producer.declaration.Body == nil {
+		return nil
+	}
+	var literals []*ast.FuncLit
+	for _, node := range producer.declaration.Body.List {
+		statement, ok := node.(*ast.ReturnStmt)
+		if !ok {
+			continue
+		}
+		for _, result := range statement.Results {
+			literal, ok := unwrapParentheses(result).(*ast.FuncLit)
+			if ok && returnedFunctionValueInvoked(producer, functions, context) {
+				literals = append(literals, literal)
+			}
+		}
+	}
+	return literals
+}
+
+func returnedFunctionValueInvoked(producer packageSourceFunction, functions []packageSourceFunction, context *registrationAnalysisContext) bool {
+	for _, caller := range functions {
+		if caller.declaration == nil || caller.declaration.Body == nil {
+			continue
+		}
+		parents := context.parentsFor(caller.declaration)
+		for _, call := range context.callsFor(caller.declaration) {
+			if !exactPackageFunctionCall(call, producer.declaration) {
+				continue
+			}
+			if returnedCallDirectlyInvoked(call, parents) || returnedOptionFlowsToConsumer(caller.declaration, call, producer.declaration, functions, parents, context) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func returnedCallDirectlyInvoked(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
+	current := ast.Node(call)
+	for {
+		parent := parents[current]
+		if parenthesized, ok := parent.(*ast.ParenExpr); ok {
+			current = parenthesized
+			continue
+		}
+		invocation, ok := parent.(*ast.CallExpr)
+		return ok && invocation.Fun == current
+	}
+}
+
+func returnedOptionFlowsToConsumer(caller *ast.FuncDecl, producerCall *ast.CallExpr, producer *ast.FuncDecl, functions []packageSourceFunction, parents map[ast.Node]ast.Node, context *registrationAnalysisContext) bool {
+	optionType := returnedNamedType(producer)
+	collection := assignedCollectionObject(producerCall, parents)
+	producerStatement := containingStatement(producerCall, parents)
+	if optionType == "" || collection == nil || producerStatement == nil {
+		return false
+	}
+	for _, call := range context.callsFor(caller) {
+		if call.Pos() <= producerCall.Pos() || !callPassesCollectionVariadically(call, collection) || !statementDominatesCall(producerStatement, call, parents) {
+			continue
+		}
+		for _, consumer := range functions {
+			if exactPackageFunctionCall(call, consumer.declaration) && functionInvokesVariadicOption(consumer.declaration, optionType) && optionCollectionStableBetween(caller, collection, producerCall.Pos(), call.Pos(), parents) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func returnedNamedType(function *ast.FuncDecl) string {
+	if function == nil || function.Type == nil || function.Type.Results == nil || len(function.Type.Results.List) != 1 {
+		return ""
+	}
+	identifier, ok := function.Type.Results.List[0].Type.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return identifier.Name
+}
+
+func assignedCollectionObject(call *ast.CallExpr, parents map[ast.Node]ast.Node) *ast.Object {
+	current := ast.Node(call)
+	for current != nil {
+		parent := parents[current]
+		switch value := parent.(type) {
+		case *ast.ParenExpr, *ast.CompositeLit, *ast.KeyValueExpr:
+			current = parent
+		case *ast.AssignStmt:
+			for index, expression := range value.Rhs {
+				if expression == current && index < len(value.Lhs) {
+					return sourceExpressionObject(value.Lhs[index])
+				}
+			}
+			return nil
+		case *ast.ValueSpec:
+			for index, expression := range value.Values {
+				if expression == current && index < len(value.Names) {
+					return value.Names[index].Obj
+				}
+			}
+			return nil
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+func containingStatement(node ast.Node, parents map[ast.Node]ast.Node) ast.Stmt {
+	for current := node; current != nil; current = parents[current] {
+		if statement, ok := current.(ast.Stmt); ok {
+			return statement
+		}
+	}
+	return nil
+}
+
+func callPassesCollectionVariadically(call *ast.CallExpr, collection *ast.Object) bool {
+	if call == nil || collection == nil || !call.Ellipsis.IsValid() || len(call.Args) == 0 {
+		return false
+	}
+	return sourceExpressionObject(call.Args[len(call.Args)-1]) == collection
+}
+
+func functionInvokesVariadicOption(function *ast.FuncDecl, optionType string) bool {
+	parameter := variadicParameterObject(function, optionType)
+	if parameter == nil {
+		return false
+	}
+	invoked := false
+	inspectReachable(function.Body, func(node ast.Node) {
+		loop, ok := node.(*ast.RangeStmt)
+		if !ok || sourceExpressionObject(loop.X) != parameter {
+			return
+		}
+		option := sourceExpressionObject(loop.Value)
+		if option == nil {
+			return
+		}
+		inspectReachableCalls(loop.Body, func(call *ast.CallExpr) {
+			if sourceExpressionObject(call.Fun) == option {
+				invoked = true
+			}
+		})
+	})
+	return invoked
+}
+
+func variadicParameterObject(function *ast.FuncDecl, optionType string) *ast.Object {
+	if function == nil || function.Type == nil || function.Type.Params == nil || optionType == "" {
+		return nil
+	}
+	for _, field := range function.Type.Params.List {
+		ellipsis, ok := field.Type.(*ast.Ellipsis)
+		if !ok {
+			continue
+		}
+		typeName, ok := ellipsis.Elt.(*ast.Ident)
+		if ok && typeName.Name == optionType && len(field.Names) == 1 {
+			return field.Names[0].Obj
+		}
+	}
+	return nil
+}
+
+func optionCollectionStableBetween(function *ast.FuncDecl, collection *ast.Object, after, before token.Pos, parents map[ast.Node]ast.Node) bool {
+	stable := true
+	inspectReachableWithParents(function.Body, parents, func(node ast.Node) {
+		if !stable || node == nil || node.Pos() <= after || node.Pos() >= before {
+			return
+		}
+		if write, ok := identifierWrite(node, collection); ok {
+			call, appendOK := unwrapParentheses(write).(*ast.CallExpr)
+			stable = appendOK && calledName(call.Fun) == "append" && len(call.Args) > 0 && sourceExpressionObject(call.Args[0]) == collection
+			return
+		}
+		call, ok := node.(*ast.CallExpr)
+		if !ok || (calledName(call.Fun) == "append" && len(call.Args) > 0 && sourceExpressionObject(call.Args[0]) == collection) {
+			return
+		}
+		for _, argument := range call.Args {
+			if sourceExpressionObject(argument) == collection {
+				stable = false
+				return
+			}
+		}
+	})
+	return stable
 }
 
 func packageDeclaresString(files []*ast.File) bool {
@@ -778,7 +1024,7 @@ func descriptorLiteralRegistrar(function *ast.FuncDecl, descriptor *ast.Composit
 		}
 		if !astNodeContains(call.Args[0], descriptor) {
 			argument, ok := call.Args[0].(*ast.Ident)
-			if !ok || (!identifierAssignedDescriptor(function, argument, descriptor, call.Pos()) && !registeredRangeContainsDescriptor(function, argument, descriptor, call.Pos())) {
+			if !ok || (!identifierAssignedDescriptor(function, argument, descriptor, call.Pos()) && !registeredRangeContainsStableDescriptor(function, argument, descriptor, call.Pos())) {
 				return
 			}
 		}
@@ -805,7 +1051,7 @@ func identifierAssignedDescriptor(function *ast.FuncDecl, identifier *ast.Ident,
 	return found && value != nil && astNodeContains(value, descriptor)
 }
 
-func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariable *ast.Ident, descriptor *ast.CompositeLit, registerPosition token.Pos) bool {
+func registeredRangeContainsStableDescriptor(function *ast.FuncDecl, registeredVariable *ast.Ident, descriptor *ast.CompositeLit, registerPosition token.Pos) bool {
 	if registeredVariable == nil || registeredVariable.Obj == nil {
 		return false
 	}
@@ -824,15 +1070,23 @@ func registeredRangeContainsDescriptor(function *ast.FuncDecl, registeredVariabl
 		}
 		source := assignedCompositeLiteral(function, rangeStatement.X, rangeStatement.Pos())
 		if source != nil && astNodeContains(source, descriptor) {
-			matched = true
+			matched = rangeRegistrationObjectStable(function, rangeVariable, registerPosition)
 			return
 		}
 		collection, collectionOK := rangeStatement.X.(*ast.Ident)
 		if collectionOK && descriptorAppendedToCollection(function, collection, descriptor, rangeStatement.Pos()) {
-			matched = true
+			matched = rangeRegistrationObjectStable(function, rangeVariable, registerPosition)
 		}
 	})
 	return matched
+}
+
+func rangeRegistrationObjectStable(function *ast.FuncDecl, variable *ast.Ident, registerPosition token.Pos) bool {
+	if function == nil || variable == nil || variable.Obj == nil {
+		return false
+	}
+	return !hasObjectWriteBetween(function, variable.Obj, variable.Pos(), registerPosition) &&
+		!hasObjectEscapeBetween(function, variable.Obj, variable.Pos(), registerPosition)
 }
 
 func descriptorAppendedToCollection(function *ast.FuncDecl, collection *ast.Ident, descriptor *ast.CompositeLit, before token.Pos) bool {
@@ -1924,7 +2178,7 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 			inspectReachableCalls(function.Body, func(call *ast.CallExpr) {
 				indexed.calls = append(indexed.calls, sourceCall{
 					name: calledName(call.Fun), path: expressionReference(call.Fun), object: sourceExpressionObject(call.Fun),
-					localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(),
+					localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(), node: call,
 				})
 			})
 			key := sourceFunctionKey(receiver, function.Name.Name)
@@ -1956,21 +2210,52 @@ func functionRootObjects(function *ast.FuncDecl) map[string]*ast.Object {
 	return objects
 }
 
-// inspectReachable excludes nodes nested in statically false branches so dead
-// registration, resolver, helper, and guard/effect evidence cannot satisfy the
-// structural contract.
+// inspectReachable excludes statically dead branches and uninvoked closures so
+// dead registration, resolver, helper, and guard/effect evidence cannot satisfy
+// the structural contract.
 func inspectReachable(root ast.Node, visit func(ast.Node)) {
 	if root == nil {
 		return
 	}
+	parents := astParentMap(root)
+	inspectReachableWithParents(root, parents, visit)
+}
+
+func inspectReachableWithParents(root ast.Node, parents map[ast.Node]ast.Node, visit func(ast.Node)) {
+	if root == nil {
+		return
+	}
 	ast.Inspect(root, func(node ast.Node) bool {
-		if statement, ok := node.(*ast.IfStmt); ok && isStaticFalse(statement.Cond) {
-			inspectReachable(statement.Else, visit)
+		if node == nil {
+			return true
+		}
+		if block, ok := node.(*ast.BlockStmt); ok {
+			if statement, parentOK := parents[block].(*ast.IfStmt); parentOK && statement.Body == block && isStaticFalse(statement.Cond) {
+				return false
+			}
+		}
+		if statement, ok := parents[node].(*ast.IfStmt); ok && statement.Else == node && isStaticTrue(statement.Cond) {
+			return false
+		}
+		if literal, ok := node.(*ast.FuncLit); ok && !directlyInvokedFunctionLiteral(literal, parents) {
 			return false
 		}
 		visit(node)
 		return true
 	})
+}
+
+func directlyInvokedFunctionLiteral(literal *ast.FuncLit, parents map[ast.Node]ast.Node) bool {
+	current := ast.Node(literal)
+	for {
+		parent := parents[current]
+		if parenthesized, ok := parent.(*ast.ParenExpr); ok {
+			current = parenthesized
+			continue
+		}
+		call, ok := parent.(*ast.CallExpr)
+		return ok && call.Fun == current
+	}
 }
 
 func inspectReachableCalls(root ast.Node, visit func(*ast.CallExpr)) {
@@ -2217,18 +2502,15 @@ func guardEffectContractPresent(functions map[string][]sourceFunction, guardCont
 		return false
 	}
 	for _, root := range functions[guardPath[0]] {
-		guardPosition := firstCallPosition(root, guardCall)
-		if guardPosition == 0 {
+		rootTarget := effectCall
+		if len(effectPath) > 1 {
+			rootTarget = effectPath[1]
+		}
+		if !guardDominatesTarget(root, guardCall, rootTarget) {
 			continue
 		}
 		if len(effectPath) == 1 {
-			if firstCallPositionAfter(root, effectCall, guardPosition) != 0 {
-				return true
-			}
-			continue
-		}
-		if firstCallPositionAfter(root, effectPath[1], guardPosition) == 0 {
-			continue
+			return true
 		}
 		valid := true
 		for index := 1; index < len(effectPath); index++ {
@@ -2260,6 +2542,215 @@ func guardEffectContractPresent(functions map[string][]sourceFunction, guardCont
 	return false
 }
 
+func guardDominatesTarget(function sourceFunction, guardName, targetName string) bool {
+	if function.declaration == nil || function.declaration.Body == nil {
+		return false
+	}
+	parents := astParentMap(function.declaration.Body)
+	var guards, targets []sourceCall
+	for _, call := range function.calls {
+		if sourceCallMatches(function, call, guardName) {
+			guards = append(guards, call)
+		}
+		if sourceCallMatches(function, call, targetName) {
+			targets = append(targets, call)
+		}
+	}
+	if len(guards) == 0 || len(targets) == 0 {
+		return false
+	}
+	var gates []ast.Stmt
+	for _, guard := range guards {
+		check, ok := checkedGuardStatement(guard.node, parents)
+		if !ok {
+			continue
+		}
+		if blockContainsSourceCall(function, check.Body, targetName) {
+			return false
+		}
+		if !blockAlwaysExits(check.Body) {
+			continue
+		}
+		gates = append(gates, check)
+		if optional := optionalGuardBoundary(check, guard, parents); optional != nil {
+			gates = append(gates, optional)
+		}
+	}
+	if len(gates) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		dominated := false
+		for _, gate := range gates {
+			if statementDominatesCall(gate, target.node, parents) {
+				dominated = true
+				break
+			}
+		}
+		if !dominated {
+			return false
+		}
+	}
+	return true
+}
+
+func checkedGuardStatement(call *ast.CallExpr, parents map[ast.Node]ast.Node) (*ast.IfStmt, bool) {
+	if call == nil {
+		return nil, false
+	}
+	current := ast.Node(call)
+	for {
+		parenthesized, ok := parents[current].(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		current = parenthesized
+	}
+	assignment, ok := parents[current].(*ast.AssignStmt)
+	if !ok || len(assignment.Lhs) == 0 || len(assignment.Rhs) != 1 || assignment.Rhs[0] != current {
+		return nil, false
+	}
+	check, ok := parents[assignment].(*ast.IfStmt)
+	if !ok || check.Init != assignment {
+		return nil, false
+	}
+	errorObject := sourceExpressionObject(assignment.Lhs[len(assignment.Lhs)-1])
+	if errorObject == nil || !expressionRequiresNonNilObject(check.Cond, errorObject) {
+		return nil, false
+	}
+	return check, true
+}
+
+func blockContainsSourceCall(function sourceFunction, block *ast.BlockStmt, name string) bool {
+	found := false
+	inspectReachableCalls(block, func(call *ast.CallExpr) {
+		if found {
+			return
+		}
+		candidate := sourceCall{
+			name: calledName(call.Fun), path: expressionReference(call.Fun), object: sourceExpressionObject(call.Fun),
+			localTarget: localCallTarget(call.Fun, function.receiverVar, function.receiver), position: call.Pos(), node: call,
+		}
+		found = sourceCallMatches(function, candidate, name)
+	})
+	return found
+}
+
+func blockAlwaysExits(block *ast.BlockStmt) bool {
+	if block == nil {
+		return false
+	}
+	for _, statement := range block.List {
+		if statementAlwaysExits(statement) {
+			return true
+		}
+	}
+	return false
+}
+
+func statementAlwaysExits(statement ast.Stmt) bool {
+	switch statement := statement.(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BranchStmt:
+		return statement.Tok == token.BREAK || statement.Tok == token.CONTINUE || statement.Tok == token.GOTO
+	case *ast.BlockStmt:
+		return blockAlwaysExits(statement)
+	case *ast.LabeledStmt:
+		return statementAlwaysExits(statement.Stmt)
+	case *ast.IfStmt:
+		if isStaticTrue(statement.Cond) {
+			return blockAlwaysExits(statement.Body)
+		}
+		if isStaticFalse(statement.Cond) {
+			return elseAlwaysExits(statement.Else)
+		}
+		return blockAlwaysExits(statement.Body) && elseAlwaysExits(statement.Else)
+	}
+	return false
+}
+
+func elseAlwaysExits(statement ast.Stmt) bool {
+	if statement == nil {
+		return false
+	}
+	return statementAlwaysExits(statement)
+}
+
+func optionalGuardBoundary(check *ast.IfStmt, guard sourceCall, parents map[ast.Node]ast.Node) *ast.IfStmt {
+	block, ok := parents[check].(*ast.BlockStmt)
+	if !ok {
+		return nil
+	}
+	wrapper, ok := parents[block].(*ast.IfStmt)
+	if !ok || wrapper.Body != block || wrapper.Else != nil {
+		return nil
+	}
+	receiver, _, found := strings.Cut(guard.path, ".")
+	if !found {
+		return nil
+	}
+	if index := strings.LastIndex(guard.path, "."); index > 0 {
+		receiver = guard.path[:index]
+	}
+	if !expressionRequiresNonNilReference(wrapper.Cond, receiver) {
+		return nil
+	}
+	return wrapper
+}
+
+func expressionRequiresNonNilReference(expression ast.Expr, reference string) bool {
+	comparison, ok := unwrapParentheses(expression).(*ast.BinaryExpr)
+	if !ok || comparison.Op != token.NEQ || reference == "" {
+		return false
+	}
+	left := unwrapParentheses(comparison.X)
+	right := unwrapParentheses(comparison.Y)
+	return (expressionReference(left) == reference && isNilExpression(right)) ||
+		(expressionReference(right) == reference && isNilExpression(left))
+}
+
+func statementDominatesCall(gate ast.Stmt, call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
+	if gate == nil || call == nil {
+		return false
+	}
+	container, statements := statementContainer(gate, parents)
+	if container == nil {
+		return false
+	}
+	current := ast.Node(call)
+	for current != nil && parents[current] != container {
+		current = parents[current]
+	}
+	target, ok := current.(ast.Stmt)
+	if !ok {
+		return false
+	}
+	gateIndex, targetIndex := -1, -1
+	for index, statement := range statements {
+		if statement == gate {
+			gateIndex = index
+		}
+		if statement == target {
+			targetIndex = index
+		}
+	}
+	return gateIndex >= 0 && targetIndex > gateIndex
+}
+
+func statementContainer(statement ast.Stmt, parents map[ast.Node]ast.Node) (ast.Node, []ast.Stmt) {
+	switch container := parents[statement].(type) {
+	case *ast.BlockStmt:
+		return container, container.List
+	case *ast.CaseClause:
+		return container, container.Body
+	case *ast.CommClause:
+		return container, container.Body
+	default:
+		return nil, nil
+	}
+}
+
 func parseCallContract(contract string) ([]string, string, bool) {
 	parts := strings.SplitN(contract, ":", 2)
 	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
@@ -2280,15 +2771,18 @@ func firstCallPosition(function sourceFunction, name string) token.Pos {
 
 func firstCallPositionAfter(function sourceFunction, name string, after token.Pos) token.Pos {
 	for _, call := range function.calls {
-		matched := call.name == name
-		if strings.Contains(name, ".") {
-			matched = exactSourceCallMatches(function, call, name) || call.localTarget == name
-		}
-		if matched && call.position > after {
+		if sourceCallMatches(function, call, name) && call.position > after {
 			return call.position
 		}
 	}
 	return 0
+}
+
+func sourceCallMatches(function sourceFunction, call sourceCall, name string) bool {
+	if strings.Contains(name, ".") {
+		return exactSourceCallMatches(function, call, name) || call.localTarget == name
+	}
+	return call.name == name
 }
 
 func exactSourceCallMatches(function sourceFunction, call sourceCall, contract string) bool {
