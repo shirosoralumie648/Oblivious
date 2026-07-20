@@ -2224,7 +2224,7 @@ func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
 	if function.declaration != nil && function.declaration.Body != nil && block != function.declaration.Body {
 		scopes = append(scopes, sourceLexicalScope{block: function.declaration.Body})
 	}
-	appendReachableSourceCalls(function, root, scopes, nil, nil, make(map[*ast.FuncLit]bool), &calls)
+	appendReachableSourceCalls(function, root, scopes, nil, nil, false, make(map[*ast.FuncLit]bool), &calls)
 	return calls
 }
 
@@ -2233,8 +2233,20 @@ type sourceLexicalScope struct {
 	before token.Pos
 }
 
-func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes, discarded []sourceLexicalScope, returnedSite *ast.CallExpr, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
-	inspectReachableCalls(root, func(call *ast.CallExpr) {
+type sourceDiscardedProvenance struct {
+	scopes []sourceLexicalScope
+}
+
+func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, returnedSite *ast.CallExpr, completingFrame bool, visiting map[*ast.FuncLit]bool, calls *[]sourceCall) {
+	parents := astParentMap(root)
+	inspectReachableWithParents(root, parents, func(node ast.Node) {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return
+		}
+		if _, deferred := parents[call].(*ast.DeferStmt); deferred && !completingFrame && !callWithinImmediatelyInvokedLiteral(call, parents) {
+			return
+		}
 		site := call
 		if returnedSite != nil && len(scopes) > 0 && blockDirectlyReturnsCall(scopes[0].block, call) {
 			site = returnedSite
@@ -2247,16 +2259,17 @@ func appendReachableSourceCalls(function sourceFunction, root ast.Node, scopes, 
 			return
 		}
 		nextScopes := invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
-		nextDiscarded := make([]sourceLexicalScope, len(discarded), len(discarded)+scopeIndex)
+		nextDiscarded := make([]sourceDiscardedProvenance, len(discarded), len(discarded)+scopeIndex)
 		copy(nextDiscarded, discarded)
-		for _, scope := range scopes[:scopeIndex] {
-			if scope.before == 0 {
-				scope.before = call.Pos()
+		for index := range scopes[:scopeIndex] {
+			ancestry := append([]sourceLexicalScope(nil), scopes[index:]...)
+			if ancestry[0].before == 0 {
+				ancestry[0].before = call.Pos()
 			}
-			nextDiscarded = append(nextDiscarded, scope)
+			nextDiscarded = append(nextDiscarded, sourceDiscardedProvenance{scopes: ancestry})
 		}
 		visiting[literal] = true
-		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, visiting, calls)
+		appendReachableSourceCalls(function, literal.Body, nextScopes, nextDiscarded, site, true, visiting, calls)
 		delete(visiting, literal)
 	})
 }
@@ -2280,7 +2293,7 @@ func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) s
 	}
 }
 
-func invokedLocalFunctionLiteral(scopes, discarded []sourceLexicalScope, call *ast.CallExpr) (*ast.FuncLit, int, bool) {
+func invokedLocalFunctionLiteral(scopes []sourceLexicalScope, discarded []sourceDiscardedProvenance, call *ast.CallExpr) (*ast.FuncLit, int, bool) {
 	if call == nil {
 		return nil, -1, false
 	}
@@ -2291,34 +2304,82 @@ func invokedLocalFunctionLiteral(scopes, discarded []sourceLexicalScope, call *a
 	if !capturedObjectStableBeforeCall(discarded, identifier.Obj) {
 		return nil, -1, true
 	}
-	for index, scope := range scopes {
+	return resolveLocalFunctionLiteral(scopes, identifier.Obj, 0, call.Pos(), make(map[*ast.Object]bool))
+}
+
+func resolveLocalFunctionLiteral(scopes []sourceLexicalScope, object *ast.Object, startIndex int, firstBefore token.Pos, visiting map[*ast.Object]bool) (*ast.FuncLit, int, bool) {
+	if object == nil || startIndex < 0 || startIndex >= len(scopes) {
+		return nil, -1, false
+	}
+	if visiting[object] {
+		return nil, -1, true
+	}
+	visiting[object] = true
+	defer delete(visiting, object)
+	for index := startIndex; index < len(scopes); index++ {
+		scope := scopes[index]
 		before := scope.before
-		if before == 0 {
-			before = call.Pos()
+		if index == startIndex && firstBefore != 0 {
+			before = firstBefore
 		}
-		state := identifierStateAfterBlock(scope.block, identifier.Obj, before, sourceIdentifierState{})
+		if before == 0 && scope.block != nil {
+			before = scope.block.End()
+		}
+		state := identifierStateAfterBlock(scope.block, object, before, sourceIdentifierState{})
 		if state.ambiguous {
-			return nil, -1, false
+			if sourceObjectIsLocalToScopes(scopes[index:], object) {
+				return nil, -1, true
+			}
+			continue
 		}
 		if !state.found {
 			continue
 		}
-		literal, _ := unwrapParentheses(state.value).(*ast.FuncLit)
-		return literal, index, false
+		switch value := unwrapParentheses(state.value).(type) {
+		case *ast.FuncLit:
+			return value, index, false
+		case *ast.Ident:
+			if value.Obj == nil {
+				return nil, -1, false
+			}
+			literal, literalScope, ambiguous := resolveLocalFunctionLiteral(scopes, value.Obj, index, state.position, visiting)
+			if literal == nil && !ambiguous && value.Obj.Kind != ast.Fun {
+				return nil, -1, true
+			}
+			return literal, literalScope, ambiguous
+		default:
+			return nil, -1, true
+		}
 	}
-	return nil, -1, false
+	return nil, -1, sourceObjectIsLocalToScopes(scopes[startIndex:], object)
 }
 
-func capturedObjectStableBeforeCall(scopes []sourceLexicalScope, object *ast.Object) bool {
+func sourceObjectIsLocalToScopes(scopes []sourceLexicalScope, object *ast.Object) bool {
+	if object == nil {
+		return false
+	}
+	declaration, ok := object.Decl.(ast.Node)
+	if !ok || declaration == nil {
+		return false
+	}
 	for _, scope := range scopes {
-		if scope.before == 0 || !objectProvenanceStableBefore([]sourceLexicalScope{scope}, object, make(map[*ast.FuncLit]bool)) {
+		if scope.block != nil && astNodeContains(scope.block, declaration) {
+			return true
+		}
+	}
+	return false
+}
+
+func capturedObjectStableBeforeCall(frames []sourceDiscardedProvenance, object *ast.Object) bool {
+	for _, frame := range frames {
+		if len(frame.scopes) == 0 || frame.scopes[0].before == 0 || !objectProvenanceStableBefore(frame.scopes, object, make(map[*ast.FuncLit]bool), false) {
 			return false
 		}
 	}
 	return true
 }
 
-func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Object, visiting map[*ast.FuncLit]bool) bool {
+func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Object, visiting map[*ast.FuncLit]bool, completingFrame bool) bool {
 	if len(scopes) == 0 || scopes[0].block == nil || object == nil {
 		return false
 	}
@@ -2327,7 +2388,8 @@ func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Objec
 		before = scopes[0].block.End()
 	}
 	stable := true
-	inspectReachable(scopes[0].block, func(node ast.Node) {
+	parents := astParentMap(scopes[0].block)
+	inspectReachableWithParents(scopes[0].block, parents, func(node ast.Node) {
 		if !stable || node == nil || node.Pos() >= before {
 			return
 		}
@@ -2339,12 +2401,18 @@ func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Objec
 		if !ok {
 			return
 		}
+		if _, deferred := parents[call].(*ast.DeferStmt); deferred && !completingFrame && !callWithinImmediatelyInvokedLiteral(call, parents) {
+			return
+		}
 		literal, scopeIndex, ambiguous := invokedLocalFunctionLiteral(scopes, nil, call)
 		if ambiguous {
 			stable = false
 			return
 		}
 		if literal == nil {
+			if opaqueCallArgumentEscapesObject(scopes, call, object) {
+				stable = false
+			}
 			return
 		}
 		if visiting[literal] {
@@ -2352,10 +2420,56 @@ func objectProvenanceStableBefore(scopes []sourceLexicalScope, object *ast.Objec
 			return
 		}
 		visiting[literal] = true
-		stable = objectProvenanceStableBefore(invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos()), object, visiting)
+		stable = objectProvenanceStableBefore(invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos()), object, visiting, true)
 		delete(visiting, literal)
 	})
 	return stable
+}
+
+func opaqueCallArgumentEscapesObject(scopes []sourceLexicalScope, call *ast.CallExpr, object *ast.Object) bool {
+	if call == nil || object == nil {
+		return false
+	}
+	for _, argument := range call.Args {
+		literal, scopeIndex, ambiguous := callbackArgumentFunctionLiteral(scopes, argument, call.Pos())
+		if ambiguous {
+			return true
+		}
+		if literal == nil {
+			continue
+		}
+		callbackScopes := invokedLiteralLexicalScopes(literal, scopes, scopeIndex, call.Pos())
+		if scopeIndex == 0 && len(callbackScopes) > 1 {
+			callbackScopes[1].before = call.Pos()
+		}
+		if !objectProvenanceStableBefore(callbackScopes, object, make(map[*ast.FuncLit]bool), true) {
+			return true
+		}
+	}
+	return false
+}
+
+func callbackArgumentFunctionLiteral(scopes []sourceLexicalScope, expression ast.Expr, before token.Pos) (*ast.FuncLit, int, bool) {
+	switch value := unwrapParentheses(expression).(type) {
+	case *ast.FuncLit:
+		return value, 0, false
+	case *ast.Ident:
+		if value.Obj == nil {
+			return nil, -1, false
+		}
+		return resolveLocalFunctionLiteral(scopes, value.Obj, 0, before, make(map[*ast.Object]bool))
+	default:
+		return nil, -1, false
+	}
+}
+
+func callWithinImmediatelyInvokedLiteral(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
+	for current := parents[call]; current != nil; current = parents[current] {
+		if literal, ok := current.(*ast.FuncLit); ok {
+			return directlyInvokedFunctionLiteral(literal, parents)
+		}
+	}
+	return false
 }
 
 func astNodeEscapesObject(node ast.Node, object *ast.Object) bool {

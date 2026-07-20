@@ -838,6 +838,118 @@ func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := f
 				guardContract: "run:guard", effectContract: "run:effect", want: false,
 			},
 			{
+				name: "outer lexical helper rebinding captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; rewrite := func() { effectFn = func() { effect() } }; middle := func() { effectFn() }; denial := func() { rewrite(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "callable alias rebinding captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; rewrite := func() { effectFn = func() { effect() } }; middle := func() { effectFn() }; denial := func() { alias := rewrite; alias(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "conditional callable binding before captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func condition() bool { return false }
+func effect() {}
+func run() { effectFn := func() {}; rewrite := func() { effectFn = func() { effect() } }; middle := func() { effectFn() }; denial := func() { alias := rewrite; if condition() { alias = func() {} }; alias(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "reassigned unproven local callable before captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run(unknown func()) { effectFn := func() {}; rewrite := func() { effectFn = func() { effect() } }; middle := func() { effectFn() }; denial := func() { alias := rewrite; alias = unknown; alias(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "same frame deferred writer runs after captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { rewrite := func() { effectFn = func() { effect() } }; defer rewrite(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "invoked helper deferred writer runs before return",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { rewrite := func() { effectFn = func() { effect() } }; helper := func() { defer rewrite() }; helper(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "goroutine writer before captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { rewrite := func() { effectFn = func() { effect() } }; go rewrite(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "immediate literal writer before captured helper is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { func() { effectFn = func() { effect() } }(); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback capturing writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { invoke(func() { effectFn = func() { effect() } }); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque callback alias capturing writer is ambiguous",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { writer := func() { effectFn = func() { effect() } }; invoke(writer); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: false,
+			},
+			{
+				name: "opaque read only callback preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func invoke(callback func()) { callback() }
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { invoke(func() { _ = effectFn }); middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
+				name: "unpassed writer callback preserves captured helper",
+				source: `package dominance
+func guard() error { return nil }
+func effect() {}
+func run() { effectFn := func() {}; middle := func() { effectFn() }; denial := func() { writer := func() { effectFn = func() { effect() } }; _ = writer; middle() }; if err := guard(); err != nil { denial(); return }; effect() }
+`,
+				guardContract: "run:guard", effectContract: "run:effect", want: true,
+			},
+			{
 				name: "range declaration shadow preserves captured helper",
 				source: `package dominance
 func guard() error { return nil }
