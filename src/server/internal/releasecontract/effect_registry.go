@@ -1449,6 +1449,8 @@ func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, b
 			return
 		}
 		switch expression := node.(type) {
+		case *ast.FuncLit:
+			found = functionLiteralCapturesObject(expression, object)
 		case *ast.UnaryExpr:
 			found = expression.Op == token.AND && sourceExpressionObject(unwrapParentheses(expression.X)) == object
 		case *ast.CallExpr:
@@ -1459,6 +1461,25 @@ func hasObjectEscapeBetween(function *ast.FuncDecl, object *ast.Object, after, b
 		}
 	})
 	return found
+}
+
+func functionLiteralCapturesObject(literal *ast.FuncLit, object *ast.Object) bool {
+	if literal == nil || literal.Body == nil || object == nil {
+		return false
+	}
+	captured := false
+	ast.Inspect(literal.Body, func(node ast.Node) bool {
+		if captured {
+			return false
+		}
+		identifier, ok := node.(*ast.Ident)
+		if ok && identifier.Obj != nil && identifier.Obj == object {
+			captured = true
+			return false
+		}
+		return true
+	})
+	return captured
 }
 
 func isSafeObjectSelectorRead(function *ast.FuncDecl, object *ast.Object, selector *ast.SelectorExpr, parents map[ast.Node]ast.Node) bool {
@@ -2175,17 +2196,62 @@ func loadSourceFunctions(directory string) (map[string][]sourceFunction, error) 
 			}
 			receiver, receiverVar := functionReceiver(function)
 			indexed := sourceFunction{declaration: function, receiver: receiver, receiverVar: receiverVar, rootObjects: functionRootObjects(function)}
-			inspectReachableCalls(function.Body, func(call *ast.CallExpr) {
-				indexed.calls = append(indexed.calls, sourceCall{
-					name: calledName(call.Fun), path: expressionReference(call.Fun), object: sourceExpressionObject(call.Fun),
-					localTarget: localCallTarget(call.Fun, receiverVar, receiver), position: call.Pos(), node: call,
-				})
-			})
+			indexed.calls = reachableSourceCalls(indexed, function.Body)
 			key := sourceFunctionKey(receiver, function.Name.Name)
 			functions[key] = append(functions[key], indexed)
 		}
 	}
 	return functions, nil
+}
+
+func reachableSourceCalls(function sourceFunction, root ast.Node) []sourceCall {
+	var calls []sourceCall
+	inspectReachableCalls(root, func(call *ast.CallExpr) {
+		calls = append(calls, sourceCallFromCall(function, call, call))
+		literal := invokedLocalFunctionLiteral(function.declaration, call)
+		if literal == nil {
+			return
+		}
+		inspectReachableCalls(literal.Body, func(inner *ast.CallExpr) {
+			site := inner
+			if functionLiteralDirectlyReturnsCall(literal, inner) {
+				site = call
+			}
+			calls = append(calls, sourceCallFromCall(function, inner, site))
+		})
+	})
+	return calls
+}
+
+func sourceCallFromCall(function sourceFunction, semantic, site *ast.CallExpr) sourceCall {
+	return sourceCall{
+		name: calledName(semantic.Fun), path: expressionReference(semantic.Fun), object: sourceExpressionObject(semantic.Fun),
+		localTarget: localCallTarget(semantic.Fun, function.receiverVar, function.receiver), position: site.Pos(), node: site,
+	}
+}
+
+func invokedLocalFunctionLiteral(function *ast.FuncDecl, call *ast.CallExpr) *ast.FuncLit {
+	if function == nil || call == nil {
+		return nil
+	}
+	identifier, ok := unwrapParentheses(call.Fun).(*ast.Ident)
+	if !ok || identifier.Obj == nil {
+		return nil
+	}
+	value, _, found := latestIdentifierValue(function, identifier, call.Pos())
+	if !found {
+		return nil
+	}
+	literal, _ := unwrapParentheses(value).(*ast.FuncLit)
+	return literal
+}
+
+func functionLiteralDirectlyReturnsCall(literal *ast.FuncLit, call *ast.CallExpr) bool {
+	if literal == nil || literal.Body == nil || len(literal.Body.List) != 1 || call == nil {
+		return false
+	}
+	result, ok := literal.Body.List[0].(*ast.ReturnStmt)
+	return ok && len(result.Results) == 1 && unwrapParentheses(result.Results[0]) == call
 }
 
 func functionRootObjects(function *ast.FuncDecl) map[string]*ast.Object {
@@ -2237,10 +2303,10 @@ func inspectReachableWithParents(root ast.Node, parents map[ast.Node]ast.Node, v
 		if statement, ok := parents[node].(*ast.IfStmt); ok && statement.Else == node && isStaticTrue(statement.Cond) {
 			return false
 		}
+		visit(node)
 		if literal, ok := node.(*ast.FuncLit); ok && !directlyInvokedFunctionLiteral(literal, parents) {
 			return false
 		}
-		visit(node)
 		return true
 	})
 }
@@ -2622,18 +2688,12 @@ func checkedGuardStatement(call *ast.CallExpr, parents map[ast.Node]ast.Node) (*
 }
 
 func blockContainsSourceCall(function sourceFunction, block *ast.BlockStmt, name string) bool {
-	found := false
-	inspectReachableCalls(block, func(call *ast.CallExpr) {
-		if found {
-			return
+	for _, candidate := range reachableSourceCalls(function, block) {
+		if sourceCallMatches(function, candidate, name) {
+			return true
 		}
-		candidate := sourceCall{
-			name: calledName(call.Fun), path: expressionReference(call.Fun), object: sourceExpressionObject(call.Fun),
-			localTarget: localCallTarget(call.Fun, function.receiverVar, function.receiver), position: call.Pos(), node: call,
-		}
-		found = sourceCallMatches(function, candidate, name)
-	})
-	return found
+	}
+	return false
 }
 
 func blockAlwaysExits(block *ast.BlockStmt) bool {
@@ -2653,7 +2713,7 @@ func statementAlwaysExits(statement ast.Stmt) bool {
 	case *ast.ReturnStmt:
 		return true
 	case *ast.BranchStmt:
-		return statement.Tok == token.BREAK || statement.Tok == token.CONTINUE || statement.Tok == token.GOTO
+		return statement.Tok == token.BREAK || statement.Tok == token.CONTINUE
 	case *ast.BlockStmt:
 		return blockAlwaysExits(statement)
 	case *ast.LabeledStmt:
