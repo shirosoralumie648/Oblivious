@@ -1,27 +1,13 @@
-.PHONY: proto-gen
+ROOT_DIR := $(abspath ../..)
+PROTOBUF_MANIFEST ?= $(ROOT_DIR)/config/release/protobuf-toolchain.v1.json
+PROTOBUF_TOOL_BIN := $(ROOT_DIR)/.tmp/protobuf-tools/bin
 
-proto-gen:
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/agentv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/agentv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/agent.proto
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/billingv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/billingv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/billing.proto
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/ragv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/ragv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/rag.proto
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/relayv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/relayv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/relay.proto
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/taskv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/taskv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/task.proto
-	protoc -I../../api/proto \
-	       --go_out=internal/grpc/workflowv1 --go_opt=paths=source_relative \
-	       --go-grpc_out=internal/grpc/workflowv1 --go-grpc_opt=paths=source_relative \
-	       ../../api/proto/workflow.proto
+.PHONY: proto-gen proto-verify
+
+# Generation is verification-only: all outputs are written to a fresh temporary tree.
+proto-gen proto-verify:
+	bash "$(ROOT_DIR)/scripts/bootstrap-protobuf-tools.sh" --manifest "$(PROTOBUF_MANIFEST)"
+	python3 "$(ROOT_DIR)/scripts/verify_protobuf_contract.py" \
+		--manifest "$(PROTOBUF_MANIFEST)" \
+		--tool-bin "$(PROTOBUF_TOOL_BIN)" \
+		--regenerate
