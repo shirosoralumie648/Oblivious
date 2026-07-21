@@ -60,6 +60,9 @@ func registerFoundationDetails(registry *DetailsRegistry) {
 	if err := RegisterProtobufDetails(registry); err != nil {
 		panic("register protobuf details: " + err.Error())
 	}
+	if err := RegisterMigrationDetails(registry); err != nil {
+		panic("register migration details: " + err.Error())
+	}
 }
 
 func NewBuildIdentityReport(
@@ -179,6 +182,9 @@ func validateBuildIdentityDetailsAgainst(details BuildIdentityDetails, expected 
 func validateDetailsAgainstRelease(report SurfaceReportV1) error {
 	if report.SurfaceIdentity.Surface == ProtobufSurfaceID {
 		return validateProtobufReport(report)
+	}
+	if report.SurfaceIdentity.Surface == MigrationStaticSurfaceID || report.SurfaceIdentity.Surface == MigrationLedgerSurfaceID {
+		return validateMigrationReport(report)
 	}
 	if report.SurfaceIdentity.Surface != BuildIdentitySurfaceID {
 		return nil
