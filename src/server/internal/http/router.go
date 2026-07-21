@@ -63,31 +63,32 @@ func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 }
 
 type RouterOptions struct {
-	Readiness                   releasecontract.ReadinessManager
-	Guard                       releasecontract.Guard
-	Effects                     releasecontract.EffectRegistrar
-	Authorities                 releasecontract.RuntimeAuthorities
-	CheckoutCreator             stripebilling.CheckoutCreator
-	CheckoutCreators            map[string]stripebilling.CheckoutCreator
-	PaymentProviderRegistry     *payment.Registry
-	RelayPricingStore           *relay.PricingStore
-	RelayPool                   *relay.ChannelPool
-	GatewayRelayHandler         stdhttp.Handler
-	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
-	RelayConfigApplier          admin.RelayConfigApplier
-	RequestLogEvidenceStore     admin.RequestLogEvidenceStore
-	MarketplacePayoutProvider   marketplace.MarketplacePayoutProvider
-	AdminService                *admin.Service
-	WorkflowService             *workflow.Service
-	ScheduleService             *schedule.Service
-	AlertStateStore             observability.AlertStateStore
-	AlertRoutingRuleStore       observability.AlertRoutingRuleStore
-	AlertProviderConfigStore    observability.AlertProviderConfigStore
-	AuthStore                   auth.Store
-	AdminQuotaSettingsService   adminQuotaSettingsService
-	AgentService                *agent.Service
-	MCPClient                   *mcp.Client
-	ChannelService              *publishingchannel.Service
+	Readiness                    releasecontract.ReadinessManager
+	Guard                        releasecontract.Guard
+	Effects                      releasecontract.EffectRegistrar
+	Authorities                  releasecontract.RuntimeAuthorities
+	CheckoutCreator              stripebilling.CheckoutCreator
+	CheckoutCreators             map[string]stripebilling.CheckoutCreator
+	PaymentProviderRegistry      *payment.Registry
+	RelayPricingStore            *relay.PricingStore
+	RelayPool                    *relay.ChannelPool
+	GatewayRelayHandler          stdhttp.Handler
+	ChannelRuntimeStatsProvider  admin.ChannelRuntimeStatsProvider
+	RelayConfigApplier           admin.RelayConfigApplier
+	RequestLogEvidenceStore      admin.RequestLogEvidenceStore
+	MarketplacePayoutProvider    marketplace.MarketplacePayoutProvider
+	AdminService                 *admin.Service
+	WorkflowService              *workflow.Service
+	ScheduleService              *schedule.Service
+	AlertStateStore              observability.AlertStateStore
+	AlertRoutingRuleStore        observability.AlertRoutingRuleStore
+	AlertProviderConfigStore     observability.AlertProviderConfigStore
+	AuthStore                    auth.Store
+	AdminQuotaSettingsService    adminQuotaSettingsService
+	AgentService                 *agent.Service
+	MCPClient                    *mcp.Client
+	ChannelService               *publishingchannel.Service
+	RouteSurfaceRegistrarFactory func(*stdhttp.ServeMux, RouteSurfacePolicies) (*RouteSurfaceRegistrar, error)
 }
 
 func (o RouterOptions) ValidateReadinessAuthorities() error {
@@ -172,6 +173,36 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	authService := auth.NewService(authStore)
 	authMiddleware := newAuthMiddleware(cfg, authService)
+	routeSurfacePolicies := RouteSurfacePolicies{
+		Auth: map[RouteSurfaceAuth]RouteSurfaceMiddleware{
+			RouteSurfaceAuthSession: authMiddleware.requireSession,
+			RouteSurfaceAuthAdmin:   authMiddleware.requireAdmin,
+		},
+		CSRF: authMiddleware.securityGuard,
+		AllowedCapabilities: map[string]struct{}{
+			"gateway.request_admission":  {},
+			"release.contract_reporting": {},
+		},
+	}
+	if options.Guard != nil {
+		routeSurfacePolicies.Guard = func(_ string, capabilityID string, next stdhttp.Handler) stdhttp.Handler {
+			return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				if err := options.Guard.Require(r.Context(), capabilityID, releasecontract.BoundaryHTTP); err != nil {
+					writeError(w, stdhttp.StatusServiceUnavailable, "readiness_denied", "capability unavailable")
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+	routeSurfaceFactory := options.RouteSurfaceRegistrarFactory
+	if routeSurfaceFactory == nil {
+		routeSurfaceFactory = NewRouteSurfaceRegistrar
+	}
+	routeSurfaceRegistrar, err := routeSurfaceFactory(mux, routeSurfacePolicies)
+	if err != nil {
+		return nil, err
+	}
 	readinessViews := NewReadinessHandlers(ReadinessHandlerOptions{Readiness: options.Readiness, Authorities: options.Authorities})
 	if strict {
 		mux.HandleFunc("/livez", readinessViews.Livez)
@@ -179,8 +210,24 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	} else {
 		mux.HandleFunc("/livez", readinessViews.Livez)
 	}
-	mux.Handle("/api/v1/admin/readiness", authMiddleware.requireAdmin(stdhttp.HandlerFunc(readinessViews.Admin)))
-	mux.Handle("/api/v1/app/readiness/capabilities", authMiddleware.requireSession(stdhttp.HandlerFunc(readinessViews.App)))
+	if err := routeSurfaceRegistrar.Register(routeSurfaceRegistrationFromOperation(
+		routerOwnedAdminReadinessOperation,
+		RouteSurfaceAuthAdmin,
+		nil,
+		"",
+		stdhttp.HandlerFunc(readinessViews.Admin),
+	)); err != nil {
+		return nil, err
+	}
+	if err := routeSurfaceRegistrar.Register(routeSurfaceRegistrationFromOperation(
+		routerOwnedAppReadinessOperation,
+		RouteSurfaceAuthSession,
+		nil,
+		"",
+		stdhttp.HandlerFunc(readinessViews.App),
+	)); err != nil {
+		return nil, err
+	}
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
@@ -853,18 +900,21 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})))
 
 	// WebSocket route
-	mux.HandleFunc("/api/v1/ws", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodGet {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		session, ok := authMiddleware.currentSession(r)
-		if !ok {
-			writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
-			return
-		}
-		ws.ServeWSWithOriginPolicy(ws.DefaultHub(), w, r, session.User.ID, ws.NewOriginPolicy(cfg.CORSAllowedOrigins))
-	})
+	if err := routeSurfaceRegistrar.Register(routeSurfaceRegistrationFromOperation(
+		routerOwnedWebSocketOperation,
+		RouteSurfaceAuthSession,
+		nil,
+		"",
+		stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			session, ok := sessionFromContext(r)
+			if !ok {
+				writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+				return
+			}
+			ws.ServeWSWithOriginPolicy(ws.DefaultHub(), w, r, session.User.ID, ws.NewOriginPolicy(cfg.CORSAllowedOrigins))
+		}))); err != nil {
+		return nil, err
+	}
 
 	// Admin routes (require admin role)
 	mux.Handle("/api/v1/admin/stats", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
