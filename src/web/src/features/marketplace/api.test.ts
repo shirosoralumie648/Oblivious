@@ -6,24 +6,38 @@ import { createMarketplaceApi, isAutomatedReviewRejection } from './api';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
   const client: HttpClient = {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-    request: vi.fn(),
-    ...overrides,
+    get: overrides.get
+      ? ((path, init) => init === undefined ? overrides.get!(path) : overrides.get!(path, init)) as HttpClient['get']
+      : vi.fn(),
+    post: overrides.post
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.post!(path) : overrides.post!(path, body)
+          : overrides.post!(path, body, init)) as HttpClient['post']
+      : vi.fn(),
+    put: overrides.put
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.put!(path) : overrides.put!(path, body)
+          : overrides.put!(path, body, init)) as HttpClient['put']
+      : vi.fn(),
+    delete: overrides.delete
+      ? ((path, init) => init === undefined ? overrides.delete!(path) : overrides.delete!(path, init)) as HttpClient['delete']
+      : vi.fn(),
+    request: overrides.request
+      ? ((path, init) => init === undefined ? overrides.request!(path) : overrides.request!(path, init)) as HttpClient['request']
+      : vi.fn(),
   };
   return client;
 }
 
 describe('createMarketplaceApi', () => {
   it('normalizes marketplace collection envelopes', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ agents: [{ id: 'agent_1', name: 'Researcher' }], total: 1 })
+      .mockResolvedValueOnce({ categories: [{ id: 'cat_1', slug: 'research' }], total: 1 })
+      .mockResolvedValueOnce({ agent: { id: 'agent_1' }, versions: [{ version: '1.0.0' }] });
     const client = createClient({
-      get: vi
-        .fn()
-        .mockResolvedValueOnce({ agents: [{ id: 'agent_1', name: 'Researcher' }], total: 1 })
-        .mockResolvedValueOnce({ categories: [{ id: 'cat_1', slug: 'research' }], total: 1 })
-        .mockResolvedValueOnce({ agent: { id: 'agent_1' }, versions: [{ version: '1.0.0' }] }),
+      get,
     });
 
     const api = createMarketplaceApi(client);
@@ -32,9 +46,9 @@ describe('createMarketplaceApi', () => {
     await expect(api.getCategories()).resolves.toEqual([{ id: 'cat_1', slug: 'research' }]);
     await expect(api.getAgent('agent_1')).resolves.toEqual({ id: 'agent_1' });
 
-    expect(client.get).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/featured');
-    expect(client.get).toHaveBeenNthCalledWith(2, '/api/v1/marketplace/categories');
-    expect(client.get).toHaveBeenNthCalledWith(3, '/api/v1/marketplace/agents/agent_1');
+    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/featured');
+    expect(get).toHaveBeenNthCalledWith(2, '/api/v1/marketplace/categories');
+    expect(get).toHaveBeenNthCalledWith(3, '/api/v1/marketplace/agents/agent_1');
   });
 
   it('preserves configured payment providers from agent detail envelopes', async () => {
@@ -55,12 +69,13 @@ describe('createMarketplaceApi', () => {
   });
 
   it('loads curated marketplace sections from the backend route', async () => {
+    const get = vi.fn().mockResolvedValue({
+      popular: [{ id: 'agent_popular', name: 'Popular Agent' }],
+      topRated: [{ id: 'agent_rated', name: 'Top Rated Agent' }],
+      recent: [{ id: 'agent_recent', name: 'Recent Agent' }],
+    });
     const client = createClient({
-      get: vi.fn().mockResolvedValue({
-        popular: [{ id: 'agent_popular', name: 'Popular Agent' }],
-        topRated: [{ id: 'agent_rated', name: 'Top Rated Agent' }],
-        recent: [{ id: 'agent_recent', name: 'Recent Agent' }],
-      }),
+      get,
     });
 
     const api = createMarketplaceApi(client);
@@ -70,7 +85,7 @@ describe('createMarketplaceApi', () => {
       topRated: [{ id: 'agent_rated', name: 'Top Rated Agent' }],
       recent: [{ id: 'agent_recent', name: 'Recent Agent' }],
     });
-    expect(client.get).toHaveBeenCalledWith('/api/v1/marketplace/curated');
+    expect(get).toHaveBeenCalledWith('/api/v1/marketplace/curated');
   });
 
   it('preserves explainable recommendation metadata from search results', async () => {

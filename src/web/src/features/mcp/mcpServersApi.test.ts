@@ -5,12 +5,25 @@ import { createMcpServersApi } from './mcpServersApi';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
   const client: HttpClient = {
-    delete: vi.fn(),
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    request: vi.fn(),
-    ...overrides
+    delete: overrides.delete
+      ? ((path, init) => init === undefined ? overrides.delete!(path) : overrides.delete!(path, init)) as HttpClient['delete']
+      : vi.fn(),
+    get: overrides.get
+      ? ((path, init) => init === undefined ? overrides.get!(path) : overrides.get!(path, init)) as HttpClient['get']
+      : vi.fn(),
+    post: overrides.post
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.post!(path) : overrides.post!(path, body)
+          : overrides.post!(path, body, init)) as HttpClient['post']
+      : vi.fn(),
+    put: overrides.put
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.put!(path) : overrides.put!(path, body)
+          : overrides.put!(path, body, init)) as HttpClient['put']
+      : vi.fn(),
+    request: overrides.request
+      ? ((path, init) => init === undefined ? overrides.request!(path) : overrides.request!(path, init)) as HttpClient['request']
+      : vi.fn(),
   };
   return client;
 }
@@ -34,7 +47,12 @@ describe('createMcpServersApi', () => {
     await expect(api.listServers()).resolves.toEqual([
       expect.objectContaining({ id: 'mcp_1', name: 'Research tools' })
     ]);
-    await expect(api.addServer({ authToken: 'secret', name: 'Internal MCP', url: 'https://mcp.internal/sse' })).resolves.toEqual(
+    await expect(api.addServer({
+      authToken: 'secret',
+      capabilityId: 'caller.mcp.authority',
+      name: 'Internal MCP',
+      url: 'https://mcp.internal/sse'
+    } as Parameters<typeof api.addServer>[0] & { capabilityId: string })).resolves.toEqual(
       expect.objectContaining({ id: 'mcp_2' })
     );
     await expect(api.connectServer('mcp_1')).resolves.toEqual(expect.objectContaining({ status: 'connected' }));
@@ -43,7 +61,11 @@ describe('createMcpServersApi', () => {
     await expect(api.listServerTools('mcp_1')).resolves.toEqual([
       expect.objectContaining({ name: 'search_docs' })
     ]);
-    await expect(api.executeTool('mcp_1', { args: { query: 'fusion' }, toolName: 'search_docs' })).resolves.toEqual({
+    await expect(api.executeTool('mcp_1', {
+      args: { query: 'fusion' },
+      capabilityId: 'caller.mcp.execution',
+      toolName: 'search_docs'
+    } as Parameters<typeof api.executeTool>[1] & { capabilityId: string })).resolves.toEqual({
       content: '{"ok":true}',
       isError: false
     });

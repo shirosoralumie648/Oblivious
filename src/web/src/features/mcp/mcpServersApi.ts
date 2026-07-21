@@ -1,4 +1,22 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  addMcpServerOperationContract,
+  connectMcpServerOperationContract,
+  deleteMcpServerOperationContract,
+  disconnectMcpServerOperationContract,
+  executeMcpServerToolOperationContract,
+  getMcpServerStatusOperationContract,
+  listLocalMcpServersOperationContract,
+  listMcpServersOperationContract,
+  listMcpServerToolsOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type McpServerStatus = 'connected' | 'disconnected' | 'error' | string;
 
@@ -61,19 +79,57 @@ export type McpServersApi = {
   listServers: () => Promise<McpServer[]>;
 };
 
+function jsonTransport<T>(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+function addServerPayload(payload: AddMcpServerRequest): AddMcpServerRequest {
+  return {
+    name: payload.name,
+    url: payload.url,
+    ...(payload.authToken === undefined ? {} : { authToken: payload.authToken })
+  };
+}
+
+function executeToolPayload(payload: ExecuteMcpToolRequest): ExecuteMcpToolRequest {
+  return {
+    toolName: payload.toolName,
+    ...(payload.args === undefined ? {} : { args: payload.args })
+  };
+}
+
+const addServerTransport = jsonTransport<McpServer>(addMcpServerOperationContract, 201);
+const connectServerTransport = jsonTransport<McpServer>(connectMcpServerOperationContract);
+const deleteServerTransport = jsonTransport<McpActionStatus>(deleteMcpServerOperationContract);
+const disconnectServerTransport = jsonTransport<McpActionStatus>(disconnectMcpServerOperationContract);
+const executeToolTransport = jsonTransport<McpToolResult>(executeMcpServerToolOperationContract);
+const getServerStatusTransport = jsonTransport<McpActionStatus>(getMcpServerStatusOperationContract);
+const listLocalServersTransport = jsonTransport<LocalMcpServer[]>(listLocalMcpServersOperationContract);
+const listServerToolsTransport = jsonTransport<McpToolDefinition[]>(listMcpServerToolsOperationContract);
+const listServersTransport = jsonTransport<McpServer[]>(listMcpServersOperationContract);
+
 export function createMcpServersApi(client: HttpClient): McpServersApi {
   const collectionPath = '/api/v1/app/mcp-servers';
   const serverPath = (serverId: string) => `${collectionPath}/${serverId}`;
 
   return {
-    addServer: (payload) => client.post<McpServer>(collectionPath, payload),
-    connectServer: (serverId) => client.post<McpServer>(`${serverPath(serverId)}/connect`),
-    deleteServer: (serverId) => client.delete<McpActionStatus>(serverPath(serverId)),
-    disconnectServer: (serverId) => client.post<McpActionStatus>(`${serverPath(serverId)}/disconnect`),
-    executeTool: (serverId, payload) => client.post<McpToolResult>(`${serverPath(serverId)}/execute`, payload),
-    getServerStatus: (serverId) => client.get<McpActionStatus>(`${serverPath(serverId)}/status`),
-    listLocalServers: () => client.get<LocalMcpServer[]>('/api/v1/app/mcp-local-servers'),
-    listServerTools: (serverId) => client.get<McpToolDefinition[]>(`${serverPath(serverId)}/tools`),
-    listServers: () => client.get<McpServer[]>(collectionPath)
+    addServer: (payload) => client.post<McpServer>(collectionPath, addServerPayload(payload), undefined, addServerTransport),
+    connectServer: (serverId) => client.post<McpServer>(`${serverPath(serverId)}/connect`, undefined, undefined, connectServerTransport),
+    deleteServer: (serverId) => client.delete<McpActionStatus>(serverPath(serverId), undefined, deleteServerTransport),
+    disconnectServer: (serverId) => client.post<McpActionStatus>(`${serverPath(serverId)}/disconnect`, undefined, undefined, disconnectServerTransport),
+    executeTool: (serverId, payload) => client.post<McpToolResult>(`${serverPath(serverId)}/execute`, executeToolPayload(payload), undefined, executeToolTransport),
+    getServerStatus: (serverId) => client.get<McpActionStatus>(`${serverPath(serverId)}/status`, undefined, getServerStatusTransport),
+    listLocalServers: () => client.get<LocalMcpServer[]>('/api/v1/app/mcp-local-servers', undefined, listLocalServersTransport),
+    listServerTools: (serverId) => client.get<McpToolDefinition[]>(`${serverPath(serverId)}/tools`, undefined, listServerToolsTransport),
+    listServers: () => client.get<McpServer[]>(collectionPath, undefined, listServersTransport)
   };
 }
