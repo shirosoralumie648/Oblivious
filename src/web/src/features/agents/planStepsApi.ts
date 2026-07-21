@@ -1,4 +1,29 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  adjustAgentRunPlanOperationContract,
+  approveAgentPlanStepOperationContract,
+  approveAgentToolRunOperationContract,
+  continueAgentRunPlanOperationContract,
+  continueAgentRunWithBudgetOperationContract,
+  createAgentPlanStepOperationContract,
+  deleteAgentPlanStepOperationContract,
+  executeAgentPlanStepOperationContract,
+  getAgentRunOperationContract,
+  moveAgentPlanStepOperationContract,
+  rejectAgentToolRunOperationContract,
+  retryAgentPlanStepOperationContract,
+  retryAgentToolRunOperationContract,
+  skipAgentPlanStepOperationContract,
+  updateAgentPlanStepOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type AgentPlanStepStatus = 'pending' | 'approved' | 'running' | 'completed' | 'failed' | 'skipped' | string;
 
@@ -129,6 +154,35 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
   };
 }
 
+function runDetailTransport(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<AgentRunDetailPayload> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<AgentRunDetailPayload>(operation, status)
+  };
+}
+
+const adjustPlanTransport = runDetailTransport(adjustAgentRunPlanOperationContract);
+const approvePlanStepTransport = runDetailTransport(approveAgentPlanStepOperationContract);
+const approveToolRunTransport = runDetailTransport(approveAgentToolRunOperationContract);
+const continuePlanTransport = runDetailTransport(continueAgentRunPlanOperationContract);
+const continueRunWithBudgetTransport = runDetailTransport(continueAgentRunWithBudgetOperationContract);
+const createPlanStepTransport = runDetailTransport(createAgentPlanStepOperationContract, 201);
+const deletePlanStepTransport = runDetailTransport(deleteAgentPlanStepOperationContract);
+const executePlanStepTransport = runDetailTransport(executeAgentPlanStepOperationContract);
+const getRunDetailTransport = runDetailTransport(getAgentRunOperationContract);
+const movePlanStepTransport = runDetailTransport(moveAgentPlanStepOperationContract);
+const rejectToolRunTransport = runDetailTransport(rejectAgentToolRunOperationContract);
+const retryPlanStepTransport = runDetailTransport(retryAgentPlanStepOperationContract);
+const retryToolRunTransport = runDetailTransport(retryAgentToolRunOperationContract);
+const skipPlanStepTransport = runDetailTransport(skipAgentPlanStepOperationContract);
+const updatePlanStepTransport = runDetailTransport(updateAgentPlanStepOperationContract);
+
 export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
   continueRunWithBudget: (runId: string, tokenBudget: number) => Promise<AgentRunDetail>;
@@ -151,27 +205,36 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
   const runPath = (runId: string) => `/api/v1/agent/runs/${encodeURIComponent(runId)}`;
 
   return {
-    getRunDetail: async (runId) => runDetailFromPayload(await client.get<AgentRunDetailPayload>(runPath(runId))),
+    getRunDetail: async (runId) => runDetailFromPayload(
+      await client.get<AgentRunDetailPayload>(runPath(runId), undefined, getRunDetailTransport)
+    ),
     continueRunWithBudget: async (runId, tokenBudget) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/continue-budget`, {
           tokenBudget
-        })
+        }, undefined, continueRunWithBudgetTransport)
       ),
     continuePlan: async (runId) =>
-      runDetailFromPayload(await client.post<AgentRunDetailPayload>(`${runPath(runId)}/continue-plan`, {})),
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(
+          `${runPath(runId)}/continue-plan`,
+          undefined,
+          undefined,
+          continuePlanTransport
+        )
+      ),
     adjustPlan: async (runId, reason) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/adjust-plan`, {
           reason
-        })
+        }, undefined, adjustPlanTransport)
       ),
     approvePlanStep: async (runId, planStepId, reason) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/approve-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
-        })
+        }, undefined, approvePlanStepTransport)
       ),
     createPlanStep: async (runId, payload) =>
       runDetailFromPayload(
@@ -182,7 +245,7 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
           ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
           ...(payload.input !== undefined ? { input: payload.input } : {}),
           ...(payload.dependsOn !== undefined ? { dependsOn: payload.dependsOn } : {})
-        })
+        }, undefined, createPlanStepTransport)
       ),
     updatePlanStep: async (runId, planStepId, payload) =>
       runDetailFromPayload(
@@ -197,59 +260,59 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
           }),
           headers: { 'Content-Type': 'application/json' },
           method: 'PATCH'
-        })
+        }, updatePlanStepTransport)
       ),
     movePlanStep: async (runId, planStepId, direction) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/move-plan-step`, {
           direction,
           planStepId
-        })
+        }, undefined, movePlanStepTransport)
       ),
     deletePlanStep: async (runId, planStepId) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/delete-plan-step`, {
           planStepId
-        })
+        }, undefined, deletePlanStepTransport)
       ),
     executePlanStep: async (runId, planStepId) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/execute-plan-step`, {
           planStepId
-        })
+        }, undefined, executePlanStepTransport)
       ),
     skipPlanStep: async (runId, planStepId, reason) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/skip-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
-        })
+        }, undefined, skipPlanStepTransport)
       ),
     retryPlanStep: async (runId, planStepId) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/retry-plan-step`, {
           planStepId
-        })
+        }, undefined, retryPlanStepTransport)
       ),
     approveToolRun: async (runId, toolRunId, reason) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/approve-tool`, {
           toolRunId,
           ...(reason ? { reason } : {})
-        })
+        }, undefined, approveToolRunTransport)
       ),
     rejectToolRun: async (runId, toolRunId, reason) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/reject-tool`, {
           toolRunId,
           ...(reason ? { reason } : {})
-        })
+        }, undefined, rejectToolRunTransport)
       ),
     retryToolRun: async (runId, toolRunId) =>
       runDetailFromPayload(
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/retry-tool`, {
           toolRunId
-        })
+        }, undefined, retryToolRunTransport)
       )
   };
 }

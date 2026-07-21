@@ -1,4 +1,21 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  createAgentMemoryOperationContract,
+  deleteAgentMemoryOperationContract,
+  exportAgentMemoriesOperationContract,
+  importAgentMemoriesOperationContract,
+  listAgentMemoriesOperationContract,
+  updateAgentMemoryOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  noneResponseDecoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type AgentMemory = {
   id: string;
@@ -86,12 +103,40 @@ export type AgentMemoriesApi = {
   updateMemory: (memoryId: string, payload: UpdateAgentMemoryRequest) => Promise<AgentMemory>;
 };
 
+function jsonTransport<T>(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+const createMemoryTransport = jsonTransport<AgentMemory>(createAgentMemoryOperationContract, 201);
+const deleteMemoryTransport: OperationTransportContract<void> = {
+  operation: deleteAgentMemoryOperationContract,
+  requestEncoder: noneRequestEncoder(deleteAgentMemoryOperationContract),
+  responseDecoder: noneResponseDecoder(deleteAgentMemoryOperationContract, 204)
+};
+const exportMemoriesTransport = jsonTransport<AgentMemoriesPayload>(exportAgentMemoriesOperationContract);
+const importMemoriesTransport = jsonTransport<AgentMemory[]>(importAgentMemoriesOperationContract, 201);
+const searchMemoriesTransport = jsonTransport<AgentMemoriesPayload>(listAgentMemoriesOperationContract);
+const updateMemoryTransport = jsonTransport<AgentMemory>(updateAgentMemoryOperationContract);
+
 export function createAgentMemoriesApi(client: HttpClient): AgentMemoriesApi {
   const path = '/api/v1/agent/memories';
 
   return {
-    createMemory: (payload) => client.post<AgentMemory>(path, payload),
-    deleteMemory: (memoryId) => client.delete<void>(`${path}/${encodeURIComponent(memoryId)}`),
+    createMemory: (payload) => client.post<AgentMemory>(path, payload, undefined, createMemoryTransport),
+    deleteMemory: (memoryId) => client.delete<void>(
+      `${path}/${encodeURIComponent(memoryId)}`,
+      undefined,
+      deleteMemoryTransport
+    ),
     exportMemories: async (params) =>
       toMemoriesResponse(
         await client.get<AgentMemoriesPayload>(
@@ -102,10 +147,17 @@ export function createAgentMemoriesApi(client: HttpClient): AgentMemoriesApi {
             query: params.query,
             topK: params.topK,
             type: params.type
-          })}`
+          })}`,
+          undefined,
+          exportMemoriesTransport
         )
       ),
-    importMemories: (payload) => client.post<AgentMemory[]>(`${path}/import`, { memories: payload }),
+    importMemories: (payload) => client.post<AgentMemory[]>(
+      `${path}/import`,
+      { memories: payload },
+      undefined,
+      importMemoriesTransport
+    ),
     searchMemories: async (params) =>
       toMemoriesResponse(
         await client.get<AgentMemoriesPayload>(
@@ -116,13 +168,15 @@ export function createAgentMemoriesApi(client: HttpClient): AgentMemoriesApi {
             query: params.query,
             topK: params.topK,
             type: params.type
-          })}`
+          })}`,
+          undefined,
+          searchMemoriesTransport
         )
       ),
     updateMemory: (memoryId, payload) =>
       client.request<AgentMemory>(`${path}/${encodeURIComponent(memoryId)}`, {
         body: JSON.stringify(payload),
         method: 'PATCH'
-      })
+      }, updateMemoryTransport)
   };
 }
