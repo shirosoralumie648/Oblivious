@@ -1,4 +1,37 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  appealMarketplaceAgentOperationContract,
+  createMarketplaceTemplateOperationContract,
+  deleteMarketplaceAgentOperationContract,
+  getMarketplaceAgentOperationContract,
+  getMarketplaceCuratedSectionsOperationContract,
+  getMarketplaceFeaturedAgentsOperationContract,
+  getMarketplacePublisherStatsOperationContract,
+  getMarketplaceSettlementPreferencesOperationContract,
+  getMarketplaceTemplateOperationContract,
+  installMarketplaceAgentOperationContract,
+  installMarketplaceTemplateOperationContract,
+  listMarketplaceAgentReviewsOperationContract,
+  listMarketplaceAgentVersionsOperationContract,
+  listMarketplaceCategoriesOperationContract,
+  listMarketplaceInstallsOperationContract,
+  listMarketplaceTemplatesOperationContract,
+  listMyMarketplaceAgentsOperationContract,
+  publishMarketplaceAgentOperationContract,
+  reportMarketplaceAgentAbuseOperationContract,
+  searchMarketplaceAgentsOperationContract,
+  submitMarketplaceAgentReviewOperationContract,
+  uninstallMarketplaceAgentOperationContract,
+  updateMarketplaceAgentOperationContract,
+  updateMarketplaceSettlementPreferencesOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type MarketplaceAgent = {
   id: string;
@@ -379,22 +412,60 @@ export function isMarketplaceCheckoutResponse(result: MarketplaceInstallResult):
   return getMarketplaceCheckoutUrl(result) !== null;
 }
 
+function jsonTransport<T>(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+const getFeaturedTransport = jsonTransport<AgentListPayload>(getMarketplaceFeaturedAgentsOperationContract);
+const getCuratedSectionsTransport = jsonTransport<CuratedMarketplaceSections>(getMarketplaceCuratedSectionsOperationContract);
+const getCategoriesTransport = jsonTransport<CategoryListPayload>(listMarketplaceCategoriesOperationContract);
+const getAgentTransport = jsonTransport<MarketplaceAgent | AgentDetailPayload>(getMarketplaceAgentOperationContract);
+const publishAgentTransport = jsonTransport<MarketplaceAgent>(publishMarketplaceAgentOperationContract, 201);
+const updateAgentTransport = jsonTransport<MarketplaceAgent>(updateMarketplaceAgentOperationContract);
+const deleteAgentTransport = jsonTransport<{ status: string }>(deleteMarketplaceAgentOperationContract);
+const searchAgentsTransport = jsonTransport<AgentListPayload>(searchMarketplaceAgentsOperationContract);
+const installAgentTransport = jsonTransport<MarketplaceInstallResult>(installMarketplaceAgentOperationContract, 201);
+const uninstallAgentTransport = jsonTransport<{ status: string }>(uninstallMarketplaceAgentOperationContract);
+const getInstalledAgentsTransport = jsonTransport<InstallListPayload>(listMarketplaceInstallsOperationContract);
+const getMyAgentsTransport = jsonTransport<AgentListPayload>(listMyMarketplaceAgentsOperationContract);
+const getPublisherStatsTransport = jsonTransport<PublisherStats>(getMarketplacePublisherStatsOperationContract);
+const getSettlementPreferencesTransport = jsonTransport<MarketplaceSettlementPreferences>(getMarketplaceSettlementPreferencesOperationContract);
+const updateSettlementPreferencesTransport = jsonTransport<MarketplaceSettlementPreferences>(updateMarketplaceSettlementPreferencesOperationContract);
+const getReviewsTransport = jsonTransport<ReviewListPayload>(listMarketplaceAgentReviewsOperationContract);
+const submitReviewTransport = jsonTransport<AgentReview>(submitMarketplaceAgentReviewOperationContract, 201);
+const appealAgentTransport = jsonTransport<MarketplaceActionStatus>(appealMarketplaceAgentOperationContract);
+const reportAbuseTransport = jsonTransport<MarketplaceAbuseReport>(reportMarketplaceAgentAbuseOperationContract, 201);
+const getVersionsTransport = jsonTransport<VersionListPayload>(listMarketplaceAgentVersionsOperationContract);
+const listTemplatesTransport = jsonTransport<TemplateListPayload>(listMarketplaceTemplatesOperationContract);
+const getTemplateTransport = jsonTransport<MarketplaceTemplate | TemplateDetailPayload>(getMarketplaceTemplateOperationContract);
+const createTemplateTransport = jsonTransport<MarketplaceTemplate>(createMarketplaceTemplateOperationContract, 201);
+const installTemplateTransport = jsonTransport<TemplateInstall>(installMarketplaceTemplateOperationContract, 201);
+
 export function createMarketplaceApi(client: HttpClient): MarketplaceApi {
   const apiPrefix = '/api/v1/marketplace';
 
   return {
     getFeatured: async () => {
-      const payload = await client.get<AgentListPayload>(`${apiPrefix}/featured`);
+      const payload = await client.get<AgentListPayload>(`${apiPrefix}/featured`, undefined, getFeaturedTransport);
       return payload.agents ?? payload.data ?? [];
     },
-    getCuratedSections: () => client.get<CuratedMarketplaceSections>(`${apiPrefix}/curated`),
+    getCuratedSections: () => client.get<CuratedMarketplaceSections>(`${apiPrefix}/curated`, undefined, getCuratedSectionsTransport),
     getCategories: async () => {
-      const payload = await client.get<CategoryListPayload>(`${apiPrefix}/categories`);
+      const payload = await client.get<CategoryListPayload>(`${apiPrefix}/categories`, undefined, getCategoriesTransport);
       return payload.categories ?? payload.data ?? [];
     },
 
     getAgent: async (id) => {
-      const payload = await client.get<MarketplaceAgent | AgentDetailPayload>(`${apiPrefix}/agents/${id}`);
+      const payload = await client.get<MarketplaceAgent | AgentDetailPayload>(`${apiPrefix}/agents/${id}`, undefined, getAgentTransport);
       if ('agent' in payload && payload.agent) {
         return {
           ...payload.agent,
@@ -403,61 +474,66 @@ export function createMarketplaceApi(client: HttpClient): MarketplaceApi {
       }
       return payload as MarketplaceAgent;
     },
-    publishAgent: (input) => client.post<MarketplaceAgent>(`${apiPrefix}/agents`, publishPayload(input)),
-    updateAgent: (id, input) => client.put<MarketplaceAgent>(`${apiPrefix}/agents/${id}`, publishPayload(input)),
+    publishAgent: (input) => client.post<MarketplaceAgent>(`${apiPrefix}/agents`, publishPayload(input), undefined, publishAgentTransport),
+    updateAgent: (id, input) => client.put<MarketplaceAgent>(`${apiPrefix}/agents/${id}`, publishPayload(input), undefined, updateAgentTransport),
     deleteAgent: async (id) => {
-      await client.delete<{ status: string }>(`${apiPrefix}/agents/${id}`);
+      await client.delete<{ status: string }>(`${apiPrefix}/agents/${id}`, undefined, deleteAgentTransport);
     },
 
     searchAgents: async (params) => {
-      const payload = await client.get<AgentListPayload>(`${apiPrefix}/search${buildQuery(searchParams(params))}`);
+      const payload = await client.get<AgentListPayload>(`${apiPrefix}/search${buildQuery(searchParams(params))}`, undefined, searchAgentsTransport);
       return { agents: payload.agents ?? payload.data ?? [], total: payload.total ?? payload.agents?.length ?? payload.data?.length ?? 0 };
     },
 
     installAgent: (agentId, versionId, paymentProvider) =>
-      client.post<MarketplaceInstallResult>(`${apiPrefix}/agents/${agentId}/install${buildQuery({ versionID: versionId, provider: paymentProvider })}`),
+      client.post<MarketplaceInstallResult>(
+        `${apiPrefix}/agents/${agentId}/install${buildQuery({ versionID: versionId, provider: paymentProvider })}`,
+        undefined,
+        undefined,
+        installAgentTransport
+      ),
     uninstallAgent: async (agentId) => {
-      await client.delete<{ status: string }>(`${apiPrefix}/installs/${agentId}`);
+      await client.delete<{ status: string }>(`${apiPrefix}/installs/${agentId}`, undefined, uninstallAgentTransport);
     },
     getInstalledAgents: async () => {
-      const payload = await client.get<InstallListPayload>(`${apiPrefix}/installs`);
+      const payload = await client.get<InstallListPayload>(`${apiPrefix}/installs`, undefined, getInstalledAgentsTransport);
       return payload.installs ?? payload.data ?? [];
     },
 
     getMyAgents: async (limit, offset) => {
-      const payload = await client.get<AgentListPayload>(`${apiPrefix}/my-agents${buildQuery({ limit, offset })}`);
+      const payload = await client.get<AgentListPayload>(`${apiPrefix}/my-agents${buildQuery({ limit, offset })}`, undefined, getMyAgentsTransport);
       return payload.agents ?? payload.data ?? [];
     },
-    getPublisherStats: () => client.get<PublisherStats>(`${apiPrefix}/publisher/stats`),
-    getSettlementPreferences: () => client.get<MarketplaceSettlementPreferences>(`${apiPrefix}/publisher/settlement-preferences`),
+    getPublisherStats: () => client.get<PublisherStats>(`${apiPrefix}/publisher/stats`, undefined, getPublisherStatsTransport),
+    getSettlementPreferences: () => client.get<MarketplaceSettlementPreferences>(`${apiPrefix}/publisher/settlement-preferences`, undefined, getSettlementPreferencesTransport),
     updateSettlementPreferences: (cycle) =>
-      client.put<MarketplaceSettlementPreferences>(`${apiPrefix}/publisher/settlement-preferences`, { cycle }),
+      client.put<MarketplaceSettlementPreferences>(`${apiPrefix}/publisher/settlement-preferences`, { cycle }, undefined, updateSettlementPreferencesTransport),
 
     getReviews: async (agentId, limit, offset) => {
-      const payload = await client.get<ReviewListPayload>(`${apiPrefix}/agents/${agentId}/reviews${buildQuery({ limit, offset })}`);
+      const payload = await client.get<ReviewListPayload>(`${apiPrefix}/agents/${agentId}/reviews${buildQuery({ limit, offset })}`, undefined, getReviewsTransport);
       return payload.reviews ?? payload.data ?? [];
     },
     submitReview: (agentId, input) => client.post<AgentReview>(`${apiPrefix}/agents/${agentId}/reviews`, {
       rating: input.rating,
       body: input.body ?? input.text ?? '',
-    }),
-    appealAgent: (agentId, input) => client.post<MarketplaceActionStatus>(`${apiPrefix}/agents/${agentId}/appeal`, input),
-    reportAbuse: (agentId, input) => client.post<MarketplaceAbuseReport>(`${apiPrefix}/agents/${agentId}/abuse-reports`, input),
+    }, undefined, submitReviewTransport),
+    appealAgent: (agentId, input) => client.post<MarketplaceActionStatus>(`${apiPrefix}/agents/${agentId}/appeal`, input, undefined, appealAgentTransport),
+    reportAbuse: (agentId, input) => client.post<MarketplaceAbuseReport>(`${apiPrefix}/agents/${agentId}/abuse-reports`, input, undefined, reportAbuseTransport),
 
     getVersions: async (agentId) => {
-      const payload = await client.get<VersionListPayload>(`${apiPrefix}/agents/${agentId}/versions`);
+      const payload = await client.get<VersionListPayload>(`${apiPrefix}/agents/${agentId}/versions`, undefined, getVersionsTransport);
       return payload.versions ?? payload.data ?? [];
     },
 
     listTemplates: async (params = {}) => {
-      const payload = await client.get<TemplateListPayload>(`${apiPrefix}/templates${buildQuery(templateSearchParams(params))}`);
+      const payload = await client.get<TemplateListPayload>(`${apiPrefix}/templates${buildQuery(templateSearchParams(params))}`, undefined, listTemplatesTransport);
       return { templates: payload.templates ?? payload.data ?? [], total: payload.total ?? payload.templates?.length ?? payload.data?.length ?? 0 };
     },
     getTemplate: async (id) => {
-      const payload = await client.get<MarketplaceTemplate | TemplateDetailPayload>(`${apiPrefix}/templates/${id}`);
+      const payload = await client.get<MarketplaceTemplate | TemplateDetailPayload>(`${apiPrefix}/templates/${id}`, undefined, getTemplateTransport);
       return 'template' in payload && payload.template ? payload.template : payload as MarketplaceTemplate;
     },
-    createTemplate: (input) => client.post<MarketplaceTemplate>(`${apiPrefix}/templates`, input),
-    installTemplate: (templateId) => client.post<TemplateInstall>(`${apiPrefix}/templates/${templateId}/install`),
+    createTemplate: (input) => client.post<MarketplaceTemplate>(`${apiPrefix}/templates`, input, undefined, createTemplateTransport),
+    installTemplate: (templateId) => client.post<TemplateInstall>(`${apiPrefix}/templates/${templateId}/install`, undefined, undefined, installTemplateTransport),
   };
 }
