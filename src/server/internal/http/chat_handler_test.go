@@ -20,7 +20,9 @@ import (
 type chatFakeStore struct {
 	config                chat.ConversationConfig
 	conversation          chat.Conversation
+	createMessageCalls    int
 	deletedConversationID string
+	getConfigCalls        int
 	lastConversationID    string
 	lastMessageID         string
 	lastOrganizationID    string
@@ -29,6 +31,7 @@ type chatFakeStore struct {
 	messages              []chat.Message
 	lastWorkspaceID       string
 	lastKnowledgeBaseIDs  []string
+	listMessagesCalls     int
 	personaUpdateErr      error
 	personaDeleteErr      error
 	updateConfigCalls     int
@@ -46,11 +49,13 @@ func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID stri
 }
 
 func (f *chatFakeStore) CreateMessage(ctx context.Context, conversationID string, args ...string) (chat.Message, error) {
+	f.createMessageCalls++
 	f.lastConversationID = conversationID
-	return chat.Message{}, nil
+	return chat.Message{ID: "message_1"}, nil
 }
 
 func (f *chatFakeStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (chat.ConversationConfig, error) {
+	f.getConfigCalls++
 	f.lastConversationID = conversationID
 	f.lastWorkspaceID = workspaceID
 	return f.config, nil
@@ -82,6 +87,7 @@ func (f *chatFakeStore) ListConversations(ctx context.Context, workspaceID strin
 }
 
 func (f *chatFakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]chat.Message, error) {
+	f.listMessagesCalls++
 	f.lastConversationID = conversationID
 	f.lastWorkspaceID = workspaceID
 	return append([]chat.Message(nil), f.messages...), nil
@@ -339,6 +345,177 @@ type noopReplyGenerator struct{}
 
 func (noopReplyGenerator) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
 	return "", nil
+}
+
+type chatReplyGeneratorSpy struct {
+	calls int
+}
+
+func (s *chatReplyGeneratorSpy) GenerateReply(context.Context, []chat.Message, chat.ConversationConfig) (string, error) {
+	s.calls++
+	return "assistant reply", nil
+}
+
+type chatUsageRecorderSpy struct {
+	calls int
+}
+
+func (s *chatUsageRecorderSpy) RecordChatUsage(context.Context, chat.UsageRecord) error {
+	s.calls++
+	return nil
+}
+
+func TestChatMutationStrictDecoderContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+	}{
+		{name: "single object", body: `{"content":"hello"}`},
+		{name: "single object with json whitespace", body: "{\"content\":\"hello\"} \t\r\n"},
+		{name: "second object", body: `{"content":"hello"}{"content":"smuggled"}`, wantErr: true},
+		{name: "trailing scalar", body: `{"content":"hello"}42`, wantErr: true},
+		{name: "trailing array", body: `{"content":"hello"}[]`, wantErr: true},
+		{name: "trailing null", body: `{"content":"hello"}null`, wantErr: true},
+		{name: "malformed trailing token", body: `{"content":"hello"}]`, wantErr: true},
+		{name: "first document scalar", body: `42`, wantErr: true},
+		{name: "first document array", body: `[]`, wantErr: true},
+		{name: "unknown field", body: `{"content":"hello","unexpected":true}`, wantErr: true},
+		{name: "malformed first object", body: `{"content":`, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/messages", strings.NewReader(test.body))
+			var payload sendMessageRequest
+			err := decodeStrictChatMutation(request, &payload)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("decodeStrictChatMutation() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+
+	const wantEnvelope = "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"invalid_request\",\"message\":\"invalid json body\"}}\n"
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "unknown field", body: `{"content":"hello","unexpected":true}`},
+		{name: "malformed first object", body: `{"content":`},
+	} {
+		t.Run("handler contract "+test.name, func(t *testing.T) {
+			handler := newChatHandler(chat.NewService(&chatFakeStore{}, noopReplyGenerator{}, "demo-reply", nil))
+			request := chatMutationRequest(test.body)
+			recorder := httptest.NewRecorder()
+
+			handler.sendMessage(recorder, request, "conversation_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest || recorder.Body.String() != wantEnvelope {
+				t.Fatalf("unexpected invalid-request contract: status=%d body=%q", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestChatMutationStrictDecoderZeroCallContract(t *testing.T) {
+	const (
+		validBody      = `{"content":"hello","overrides":{"modelId":"gpt-4o-mini"}}`
+		secretFragment = "sk-live-trailing-secret"
+		wantEnvelope   = "{\"ok\":false,\"data\":null,\"error\":{\"code\":\"invalid_request\",\"message\":\"invalid json body\"}}\n"
+	)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "second object", body: validBody + `{"apiKey":"` + secretFragment + `"}`},
+		{name: "trailing scalar", body: validBody + `42`},
+		{name: "trailing array", body: validBody + `[]`},
+		{name: "trailing null", body: validBody + `null`},
+		{name: "malformed trailing token", body: validBody + `]`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, store, guard, reply, usage := newChatMutationCounterHarness(t)
+			recorder := httptest.NewRecorder()
+
+			handler.sendMessage(recorder, chatMutationRequest(test.body), "conversation_1")
+
+			assertChatMutationCounters(t, store, guard, reply, usage, 0, 0, 0, 0, 0)
+			if recorder.Code != stdhttp.StatusBadRequest || recorder.Body.String() != wantEnvelope {
+				t.Fatalf("unexpected invalid-request contract: status=%d body=%q", recorder.Code, recorder.Body.String())
+			}
+			if strings.Contains(recorder.Body.String(), secretFragment) {
+				t.Fatalf("response reflected trailing secret: %q", recorder.Body.String())
+			}
+		})
+	}
+
+	t.Run("valid control reaches live counters", func(t *testing.T) {
+		handler, store, guard, reply, usage := newChatMutationCounterHarness(t)
+		recorder := httptest.NewRecorder()
+
+		handler.sendMessage(recorder, chatMutationRequest(validBody+" \t\r\n"), "conversation_1")
+
+		if recorder.Code != stdhttp.StatusOK {
+			t.Fatalf("expected valid control status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+		}
+		assertChatMutationCounters(t, store, guard, reply, usage, 1, 2, 2, 1, 1)
+	})
+}
+
+func chatMutationRequest(body string) *stdhttp.Request {
+	return httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/conversation_1/messages",
+		strings.NewReader(body),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+		WorkspaceID:    "workspace_1",
+	}))
+}
+
+func newChatMutationCounterHarness(t *testing.T) (chatHandler, *chatFakeStore, *httpModelGuardSpy, *chatReplyGeneratorSpy, *chatUsageRecorderSpy) {
+	t.Helper()
+	contract, profile := loadHTTPModelReadinessAuthority(t)
+	guard := &httpModelGuardSpy{}
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	store := &chatFakeStore{config: chat.ConversationConfig{ModelID: "gpt-4o-mini"}}
+	reply := &chatReplyGeneratorSpy{}
+	usage := &chatUsageRecorderSpy{}
+	handler, err := newReadinessChatHandler(chat.NewService(store, reply, "gpt-4o-mini", usage), authorities)
+	if err != nil {
+		t.Fatalf("construct readiness handler: %v", err)
+	}
+	handler.notifyConversation = nil
+	return handler, store, guard, reply, usage
+}
+
+func assertChatMutationCounters(
+	t *testing.T,
+	store *chatFakeStore,
+	guard *httpModelGuardSpy,
+	reply *chatReplyGeneratorSpy,
+	usage *chatUsageRecorderSpy,
+	wantGuard, wantCreateMessage, wantListMessages, wantReply, wantUsage int,
+) {
+	t.Helper()
+	if len(guard.calls) != wantGuard ||
+		store.createMessageCalls != wantCreateMessage ||
+		store.listMessagesCalls != wantListMessages ||
+		store.getConfigCalls != wantGuard ||
+		reply.calls != wantReply ||
+		usage.calls != wantUsage {
+		t.Fatalf(
+			"unexpected business counters: guard=%d createMessage=%d listMessages=%d getConfig=%d relay=%d usage=%d",
+			len(guard.calls), store.createMessageCalls, store.listMessagesCalls, store.getConfigCalls, reply.calls, usage.calls,
+		)
+	}
 }
 
 type streamingReplyGenerator struct {
