@@ -1,4 +1,18 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  deleteNotificationOperationContract,
+  getNotificationUnreadCountOperationContract,
+  listNotificationsOperationContract,
+  markAllNotificationsReadOperationContract,
+  markNotificationReadOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type NotificationSeverity = 'debug' | 'info' | 'warning' | 'critical' | 'error' | 'success';
 
@@ -47,14 +61,30 @@ function buildListPath(params: ListNotificationsParams = {}) {
   return query ? `/api/v1/app/notifications?${query}` : '/api/v1/app/notifications';
 }
 
+function jsonTransport<T>(operation: OperationContractMetadataV1): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, 200)
+  };
+}
+
+const deleteNotificationTransport = jsonTransport<{ status: string }>(deleteNotificationOperationContract);
+const getUnreadCountTransport = jsonTransport<{ count: number }>(getNotificationUnreadCountOperationContract);
+const listNotificationsTransport = jsonTransport<AppNotification[]>(listNotificationsOperationContract);
+const markAllReadTransport = jsonTransport<{ status: string }>(markAllNotificationsReadOperationContract);
+const markReadTransport = jsonTransport<{ status: string }>(markNotificationReadOperationContract);
+
 export function createNotificationsApi(client: HttpClient): NotificationsApi {
   return {
     deleteNotification: (notificationId) =>
-      client.delete<{ status: string }>(`/api/v1/app/notifications/${notificationId}`),
-    getUnreadCount: () => client.get<{ count: number }>('/api/v1/app/notifications/unread-count'),
-    listNotifications: (params) => client.get<AppNotification[]>(buildListPath(params)),
-    markAllRead: () => client.post<{ status: string }>('/api/v1/app/notifications/mark-all-read'),
+      client.delete<{ status: string }>(`/api/v1/app/notifications/${notificationId}`, undefined, deleteNotificationTransport),
+    getUnreadCount: () => client.get<{ count: number }>('/api/v1/app/notifications/unread-count', undefined, getUnreadCountTransport),
+    listNotifications: (params) => client.get<AppNotification[]>(buildListPath(params), undefined, listNotificationsTransport),
+    markAllRead: () => client.post<{ status: string }>('/api/v1/app/notifications/mark-all-read', undefined, undefined, markAllReadTransport),
     markRead: (notificationId) =>
-      client.request<{ status: string }>(`/api/v1/app/notifications/${notificationId}`, { method: 'PATCH' })
+      client.request<{ status: string }>(`/api/v1/app/notifications/${notificationId}`, { method: 'PATCH' }, markReadTransport)
   };
 }
