@@ -458,7 +458,7 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
       await fulfillJSON(route, {
         id: 'share_message_action',
         url: 'https://share.example.test/message_action',
-      });
+      }, 201);
       return;
     }
 
@@ -496,7 +496,7 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
 
       currentConversations = [conversation, forkConversation];
       setMessages(forkConversation.id, forkInitialMessages);
-      await fulfillJSON(route, forkConversation, 201);
+      await fulfillJSON(route, forkConversation);
       return;
     }
 
