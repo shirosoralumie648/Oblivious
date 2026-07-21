@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -242,6 +243,204 @@ func TestMigrationStaticAndLedgerSurfaceContracts(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestMigrationReplaySurfaceContract(t *testing.T) {
+	repoRoot, profile, identity := migrationReportAuthority(t)
+	identityProvider := migrationIdentityProvider{identity: identity}
+	profileResolver := migrationProfileResolver{profile: profile}
+	inventory, err := migrations.BuildStaticInventory(context.Background(), repoRoot, "config/release/migration-disposition.v1.json")
+	if err != nil {
+		t.Fatalf("build migration inventory: %v", err)
+	}
+	before := MigrationLedgerSnapshot{Identities: []migrations.MigrationIdentity{}, IdentityDigest: migrationEmptyIdentityDigest}
+	after := MigrationLedgerSnapshot{Identities: append([]migrations.MigrationIdentity(nil), inventory.Identities...), IdentityDigest: inventory.IdentityDigest}
+	details, err := DeriveReplayObservation(inventory.Identities, before, after, after)
+	if err != nil {
+		t.Fatalf("derive replay observation: %v", err)
+	}
+	details.ReplayMode = migrationReplayDocker
+	details.CleanupResult = migrationCleanupSucceeded
+	passing := Outcome{Result: ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}}
+
+	t.Run("derives exact apply counts and constructs a distinct trusted report", func(t *testing.T) {
+		if details.InitialLedgerRows != 0 || details.FirstApply != (MigrationApplyCounts{Applied: len(inventory.Identities), Skipped: 0}) ||
+			details.SecondApply != (MigrationApplyCounts{Applied: 0, Skipped: len(inventory.Identities)}) ||
+			details.FinalLedgerRows != len(inventory.Identities) || details.StaticDigest != inventory.IdentityDigest || details.LedgerDigest != inventory.IdentityDigest {
+			t.Fatalf("replay details = %#v", details)
+		}
+		report, err := NewMigrationReplayReport(
+			context.Background(), identityProvider, profileResolver, repoRoot,
+			"config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", details, passing,
+		)
+		if err != nil {
+			t.Fatalf("construct replay report: %v", err)
+		}
+		if report.SurfaceIdentity.Surface != MigrationReplaySurfaceID || report.SurfaceIdentity.Surface == MigrationStaticSurfaceID || report.SurfaceIdentity.Surface == MigrationLedgerSurfaceID ||
+			report.Evidence.Environment != "local-docker" || report.Evidence.Mode != migrationReplayMode || report.ReleaseIdentity.ReleaseCommit != identity.ReleaseCommit {
+			t.Fatalf("unexpected replay envelope: %#v", report)
+		}
+		if err := Validate(report, NewDetailsRegistry()); err != nil {
+			t.Fatalf("validate replay report: %v", err)
+		}
+		encoded, err := Marshal(report, NewDetailsRegistry())
+		if err != nil {
+			t.Fatalf("marshal replay report: %v", err)
+		}
+		for _, prohibited := range []string{"postgres://", "databaseUrl", "connection", "SELECT ", "migrations applied", "target-environment", "same-commit-release"} {
+			if strings.Contains(string(encoded), prohibited) {
+				t.Fatalf("replay report contains prohibited input or claim %q", prohibited)
+			}
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(report.Evidence.Details, &decoded); err != nil {
+			t.Fatalf("decode replay details: %v", err)
+		}
+		if len(decoded) != 9 {
+			t.Fatalf("replay details field count = %d, want 9: %#v", len(decoded), decoded)
+		}
+	})
+
+	t.Run("closed registry rejects static ledger arbitrary and identity-bearing details", func(t *testing.T) {
+		registry := NewDetailsRegistry()
+		raw, err := registry.MarshalDetails(MigrationReplaySurfaceID, details)
+		if err != nil {
+			t.Fatalf("marshal replay details: %v", err)
+		}
+		for surface, candidate := range map[string]json.RawMessage{
+			MigrationStaticSurfaceID: raw,
+			MigrationLedgerSurfaceID: raw,
+			MigrationReplaySurfaceID: append(append([]byte(nil), raw[:len(raw)-1]...), []byte(`,"releaseIdentity":{"releaseCommit":"forged"}}`)...),
+		} {
+			if err := registry.ValidateDetails(surface, candidate); !IsCode(err, ErrorSurfaceSchemaInvalid) {
+				t.Fatalf("surface %q accepted substituted details: %v", surface, err)
+			}
+		}
+		if _, err := registry.MarshalDetails(MigrationReplaySurfaceID, map[string]any{"initialLedgerRows": 0}); !IsCode(err, ErrorSurfaceSchemaInvalid) {
+			t.Fatalf("replay accepted arbitrary details: %v", err)
+		}
+	})
+
+	t.Run("reused partial non-noop digest and identity splices fail derivation", func(t *testing.T) {
+		mutations := []struct {
+			name string
+			edit func(*MigrationLedgerSnapshot, *MigrationLedgerSnapshot, *MigrationLedgerSnapshot)
+		}{
+			{"reused database", func(value, _, _ *MigrationLedgerSnapshot) { *value = after }},
+			{"partial first apply", func(_, value, _ *MigrationLedgerSnapshot) {
+				value.Identities = value.Identities[:len(value.Identities)-1]
+				value.IdentityDigest, _ = migrations.IdentityDigest(value.Identities)
+			}},
+			{"non noop second apply", func(_, _, value *MigrationLedgerSnapshot) {
+				value.Identities = value.Identities[:len(value.Identities)-1]
+				value.IdentityDigest, _ = migrations.IdentityDigest(value.Identities)
+			}},
+			{"snapshot digest", func(_, value, _ *MigrationLedgerSnapshot) { value.IdentityDigest = "sha256:" + strings.Repeat("0", 64) }},
+			{"identity checksum splice", func(_, value, _ *MigrationLedgerSnapshot) { value.Identities[0].Checksum = strings.Repeat("f", 64) }},
+			{"identity order", func(_, value, _ *MigrationLedgerSnapshot) {
+				value.Identities[0], value.Identities[1] = value.Identities[1], value.Identities[0]
+			}},
+		}
+		for _, mutation := range mutations {
+			t.Run(mutation.name, func(t *testing.T) {
+				candidateBefore := cloneMigrationSnapshot(before)
+				candidateFirst := cloneMigrationSnapshot(after)
+				candidateSecond := cloneMigrationSnapshot(after)
+				mutation.edit(&candidateBefore, &candidateFirst, &candidateSecond)
+				if _, err := DeriveReplayObservation(inventory.Identities, candidateBefore, candidateFirst, candidateSecond); err == nil {
+					t.Fatalf("replay mutation %q was accepted", mutation.name)
+				}
+			})
+		}
+	})
+
+	t.Run("count mode cleanup digest outcome identity profile and decoded splices fail", func(t *testing.T) {
+		mutations := []struct {
+			name string
+			edit func(*MigrationReplayDetails)
+		}{
+			{"initial rows", func(value *MigrationReplayDetails) { value.InitialLedgerRows = 1 }},
+			{"first applied", func(value *MigrationReplayDetails) { value.FirstApply.Applied-- }},
+			{"first skipped", func(value *MigrationReplayDetails) { value.FirstApply.Skipped = 1 }},
+			{"second applied", func(value *MigrationReplayDetails) { value.SecondApply.Applied = 1 }},
+			{"second skipped", func(value *MigrationReplayDetails) { value.SecondApply.Skipped-- }},
+			{"final rows", func(value *MigrationReplayDetails) { value.FinalLedgerRows-- }},
+			{"static digest", func(value *MigrationReplayDetails) { value.StaticDigest = "sha256:" + strings.Repeat("0", 64) }},
+			{"mode", func(value *MigrationReplayDetails) { value.ReplayMode = "shared" }},
+			{"cleanup", func(value *MigrationReplayDetails) { value.CleanupResult = migrationCleanupFailed }},
+		}
+		for _, mutation := range mutations {
+			t.Run(mutation.name, func(t *testing.T) {
+				candidate := details
+				mutation.edit(&candidate)
+				if _, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", candidate, passing); err == nil {
+					t.Fatalf("replay detail mutation %q was accepted", mutation.name)
+				}
+			})
+		}
+
+		withSkip := passing
+		withSkip.SkippedChecks = []string{"database"}
+		if _, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", details, withSkip); err == nil {
+			t.Fatal("replay accepted skipped checks")
+		}
+		forged := identity
+		forged.EvidenceClass = "target-environment"
+		if _, err := NewMigrationReplayReport(context.Background(), migrationIdentityProvider{identity: forged}, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", details, passing); err == nil {
+			t.Fatal("replay accepted E3 identity")
+		}
+		wrongProfile := profile
+		wrongProfile.ID = "microservices"
+		if _, err := NewMigrationReplayReport(context.Background(), identityProvider, migrationProfileResolver{profile: wrongProfile}, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", details, passing); err == nil {
+			t.Fatal("replay accepted profile substitution")
+		}
+
+		report, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", details, passing)
+		if err != nil {
+			t.Fatalf("construct splice fixture: %v", err)
+		}
+		for _, mutation := range []struct {
+			name string
+			edit func(*SurfaceReportV1)
+		}{
+			{"surface", func(value *SurfaceReportV1) { value.SurfaceIdentity.Surface = MigrationLedgerSurfaceID }},
+			{"consumer", func(value *SurfaceReportV1) { value.SurfaceIdentity.Consumer = migrationLedgerConsumer }},
+			{"mode", func(value *SurfaceReportV1) { value.Evidence.Mode = migrationLedgerMode }},
+		} {
+			candidate := report
+			mutation.edit(&candidate)
+			if err := Validate(candidate, NewDetailsRegistry()); err == nil {
+				t.Fatalf("replay decoded envelope splice %q was accepted", mutation.name)
+			}
+		}
+	})
+
+	t.Run("unavailable observation writes only an exact explicit failure report shape", func(t *testing.T) {
+		unknown := MigrationApplyCounts{Applied: -1, Skipped: -1}
+		failureDetails := MigrationReplayDetails{
+			DatabaseKind: migrationDatabaseKind, ReplayMode: migrationReplayExternal, InitialLedgerRows: -1,
+			FirstApply: unknown, SecondApply: unknown, FinalLedgerRows: -1,
+			StaticDigest: inventory.IdentityDigest, LedgerDigest: inventory.IdentityDigest, CleanupResult: migrationCleanupFailed,
+		}
+		failure := Outcome{Result: ResultFail, ErrorCodes: []string{MigrationReplayUnavailableCode}, SkippedChecks: []string{}}
+		report, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", failureDetails, failure)
+		if err != nil {
+			t.Fatalf("construct unavailable report: %v", err)
+		}
+		if report.Outcome.Result != ResultFail || !reflect.DeepEqual(report.Outcome.ErrorCodes, []string{MigrationReplayUnavailableCode}) || report.Evidence.Environment != "external-isolated-database" {
+			t.Fatalf("unexpected unavailable report: %#v", report)
+		}
+		if err := Validate(report, NewDetailsRegistry()); err != nil {
+			t.Fatalf("validate unavailable report: %v", err)
+		}
+		if _, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", failureDetails, passing); err == nil {
+			t.Fatal("unavailable details were accepted as pass")
+		}
+	})
+}
+
+func cloneMigrationSnapshot(source MigrationLedgerSnapshot) MigrationLedgerSnapshot {
+	return MigrationLedgerSnapshot{Identities: append([]migrations.MigrationIdentity(nil), source.Identities...), IdentityDigest: source.IdentityDigest}
 }
 
 type migrationIdentityProvider struct {

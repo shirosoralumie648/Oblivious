@@ -189,7 +189,7 @@ func validateDetailsAgainstRelease(report SurfaceReportV1) error {
 	if report.SurfaceIdentity.Surface == ProtobufSurfaceID {
 		return validateProtobufReport(report)
 	}
-	if report.SurfaceIdentity.Surface == MigrationStaticSurfaceID || report.SurfaceIdentity.Surface == MigrationLedgerSurfaceID {
+	if report.SurfaceIdentity.Surface == MigrationStaticSurfaceID || report.SurfaceIdentity.Surface == MigrationLedgerSurfaceID || report.SurfaceIdentity.Surface == MigrationReplaySurfaceID {
 		return validateMigrationReport(report)
 	}
 	if report.SurfaceIdentity.Surface != BuildIdentitySurfaceID {

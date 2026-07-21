@@ -17,17 +17,32 @@ import (
 const (
 	MigrationStaticSurfaceID = "migration-static"
 	MigrationLedgerSurfaceID = "migration-ledger"
+	MigrationReplaySurfaceID = "migration-replay"
+
+	MigrationReplayUnavailableCode = "migration_replay_unavailable"
 
 	migrationDatabaseKind      = "postgresql-pgvector"
 	migrationStaticSource      = "src/server/migrations"
 	migrationStaticConsumer    = "monolith-migration-static-inventory"
 	migrationLedgerSource      = "schema_migrations(version,checksum)"
 	migrationLedgerConsumer    = "monolith-runtime-ledger"
+	migrationReplaySource      = "src/server/migrations+schema_migrations(version,checksum)"
+	migrationReplayConsumer    = "monolith-migration-replay"
 	migrationSurfaceVersion    = "v1"
 	migrationStaticEnvironment = "repository"
 	migrationLedgerEnvironment = "repository-local-database"
 	migrationStaticMode        = "static"
 	migrationLedgerMode        = "ledger"
+	migrationReplayMode        = "replay"
+	migrationReplayExternal    = "external-isolated"
+	migrationReplayDocker      = "docker-ephemeral"
+	migrationCleanupSucceeded  = "succeeded"
+	migrationCleanupFailed     = "failed"
+	migrationUnavailableCount  = -1
+
+	// SHA-256 of the canonical JSON empty identity sequence (`[]`). Non-empty
+	// snapshots continue to use migrations.IdentityDigest directly.
+	migrationEmptyIdentityDigest = "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 )
 
 type MigrationStaticDetails struct {
@@ -46,11 +61,36 @@ type MigrationLedgerDetails struct {
 	MatchesStatic  bool   `json:"matchesStatic"`
 }
 
+type MigrationApplyCounts struct {
+	Applied int `json:"applied"`
+	Skipped int `json:"skipped"`
+}
+
+type MigrationReplayDetails struct {
+	DatabaseKind      string               `json:"databaseKind"`
+	ReplayMode        string               `json:"replayMode"`
+	InitialLedgerRows int                  `json:"initialLedgerRows"`
+	FirstApply        MigrationApplyCounts `json:"firstApply"`
+	SecondApply       MigrationApplyCounts `json:"secondApply"`
+	FinalLedgerRows   int                  `json:"finalLedgerRows"`
+	StaticDigest      string               `json:"staticDigest"`
+	LedgerDigest      string               `json:"ledgerDigest"`
+	CleanupResult     string               `json:"cleanupResult"`
+}
+
+type MigrationLedgerSnapshot struct {
+	Identities     []migrations.MigrationIdentity `json:"identities"`
+	IdentityDigest string                         `json:"identityDigest"`
+}
+
 func RegisterMigrationDetails(registry *DetailsRegistry) error {
 	if err := RegisterDetails(registry, MigrationStaticSurfaceID, validateMigrationStaticDetails); err != nil {
 		return err
 	}
-	return RegisterDetails(registry, MigrationLedgerSurfaceID, validateMigrationLedgerDetails)
+	if err := RegisterDetails(registry, MigrationLedgerSurfaceID, validateMigrationLedgerDetails); err != nil {
+		return err
+	}
+	return RegisterDetails(registry, MigrationReplaySurfaceID, validateMigrationReplayDetails)
 }
 
 func NewMigrationStaticReport(
@@ -61,6 +101,9 @@ func NewMigrationStaticReport(
 	inventory migrations.StaticInventory,
 	outcome Outcome,
 ) (SurfaceReportV1, error) {
+	if err := validatePassingMigrationOutcome(outcome); err != nil {
+		return SurfaceReportV1{}, err
+	}
 	if err := validateStaticInventory(inventory); err != nil {
 		return SurfaceReportV1{}, reportError("evidence.details", err)
 	}
@@ -87,6 +130,9 @@ func NewMigrationLedgerReport(
 	ledger []migrations.MigrationIdentity,
 	outcome Outcome,
 ) (SurfaceReportV1, error) {
+	if err := validatePassingMigrationOutcome(outcome); err != nil {
+		return SurfaceReportV1{}, err
+	}
 	if err := validateStaticInventory(static); err != nil {
 		return SurfaceReportV1{}, reportError("evidence.details.static", err)
 	}
@@ -106,6 +152,77 @@ func NewMigrationLedgerReport(
 		MigrationLedgerSurfaceID, migrationLedgerSource, migrationLedgerConsumer,
 		ledgerDigest, static.IdentityDigest,
 		migrationLedgerEnvironment, migrationLedgerMode, details, outcome,
+	)
+}
+
+// DeriveReplayObservation derives apply/skip counts only from exact ledger
+// identity transitions. Human migration output is deliberately not an input.
+func DeriveReplayObservation(
+	static []migrations.MigrationIdentity,
+	before, afterFirst, afterSecond MigrationLedgerSnapshot,
+) (MigrationReplayDetails, error) {
+	staticDigest, err := migrations.IdentityDigest(static)
+	if err != nil {
+		return MigrationReplayDetails{}, reportError("evidence.details.static", err)
+	}
+	for _, candidate := range []struct {
+		name     string
+		snapshot MigrationLedgerSnapshot
+	}{{"before", before}, {"afterFirst", afterFirst}, {"afterSecond", afterSecond}} {
+		name, snapshot := candidate.name, candidate.snapshot
+		if err := validateMigrationLedgerSnapshot(snapshot); err != nil {
+			return MigrationReplayDetails{}, reportError("evidence.details."+name, err)
+		}
+	}
+	if len(before.Identities) != 0 {
+		return MigrationReplayDetails{}, reportError("evidence.details.initialLedgerRows", nil)
+	}
+	if !reflect.DeepEqual(afterFirst.Identities, static) || afterFirst.IdentityDigest != staticDigest {
+		return MigrationReplayDetails{}, reportError("evidence.details.firstApply", nil)
+	}
+	if !reflect.DeepEqual(afterSecond.Identities, static) || afterSecond.IdentityDigest != staticDigest {
+		return MigrationReplayDetails{}, reportError("evidence.details.secondApply", nil)
+	}
+
+	firstApply, err := deriveMigrationApplyCounts(static, before.Identities, afterFirst.Identities)
+	if err != nil {
+		return MigrationReplayDetails{}, reportError("evidence.details.firstApply", err)
+	}
+	secondApply, err := deriveMigrationApplyCounts(static, afterFirst.Identities, afterSecond.Identities)
+	if err != nil {
+		return MigrationReplayDetails{}, reportError("evidence.details.secondApply", err)
+	}
+	return MigrationReplayDetails{
+		DatabaseKind: migrationDatabaseKind, InitialLedgerRows: len(before.Identities),
+		FirstApply: firstApply, SecondApply: secondApply,
+		FinalLedgerRows: len(afterSecond.Identities), StaticDigest: staticDigest,
+		LedgerDigest: afterSecond.IdentityDigest,
+	}, nil
+}
+
+func NewMigrationReplayReport(
+	ctx context.Context,
+	identities buildinfo.IdentityProvider,
+	profiles releasecontract.ProfileResolver,
+	repoRoot, contractPath, schemaPath, profileID string,
+	details MigrationReplayDetails,
+	outcome Outcome,
+) (SurfaceReportV1, error) {
+	if err := validateMigrationReplayDetails(details); err != nil {
+		return SurfaceReportV1{}, reportError("evidence.details", err)
+	}
+	if err := validateMigrationReplayOutcome(details, outcome); err != nil {
+		return SurfaceReportV1{}, err
+	}
+	environment := "external-isolated-database"
+	if details.ReplayMode == migrationReplayDocker {
+		environment = "local-docker"
+	}
+	return newMigrationReport(
+		ctx, identities, profiles, repoRoot, contractPath, schemaPath, profileID,
+		MigrationReplaySurfaceID, migrationReplaySource, migrationReplayConsumer,
+		details.StaticDigest, details.LedgerDigest,
+		environment, migrationReplayMode, details, outcome,
 	)
 }
 
@@ -136,10 +253,6 @@ func newMigrationReport(
 	if profile.ID != profileID || profile.Commitment != releasecontract.CommitmentCommitted {
 		return SurfaceReportV1{}, reportError("releaseIdentity.deploymentProfile", nil)
 	}
-	if outcome.Result != ResultPass || len(outcome.ErrorCodes) != 0 || len(outcome.SkippedChecks) != 0 {
-		return SurfaceReportV1{}, reportError("outcome", nil)
-	}
-
 	registry := NewDetailsRegistry()
 	rawDetails, err := registry.MarshalDetails(surfaceID, details)
 	if err != nil {
@@ -187,6 +300,96 @@ func validateMigrationLedgerDetails(details MigrationLedgerDetails) error {
 		return fmt.Errorf("migration ledger comparison is invalid")
 	}
 	return nil
+}
+
+func validateMigrationReplayDetails(details MigrationReplayDetails) error {
+	if details.DatabaseKind != migrationDatabaseKind || !validMigrationReplayMode(details.ReplayMode) ||
+		!validDigest(details.StaticDigest) || !validDigest(details.LedgerDigest) ||
+		(details.CleanupResult != migrationCleanupSucceeded && details.CleanupResult != migrationCleanupFailed) {
+		return fmt.Errorf("migration replay identity is invalid")
+	}
+	if migrationReplayPassingDetails(details) || migrationReplayUnavailableDetails(details) {
+		return nil
+	}
+	return fmt.Errorf("migration replay counts are invalid")
+}
+
+func validatePassingMigrationOutcome(outcome Outcome) error {
+	if outcome.Result != ResultPass || len(outcome.ErrorCodes) != 0 || len(outcome.SkippedChecks) != 0 {
+		return reportError("outcome", nil)
+	}
+	return nil
+}
+
+func validateMigrationReplayOutcome(details MigrationReplayDetails, outcome Outcome) error {
+	if len(outcome.SkippedChecks) != 0 {
+		return reportError("outcome.skippedChecks", nil)
+	}
+	if migrationReplayPassingDetails(details) {
+		return validatePassingMigrationOutcome(outcome)
+	}
+	if outcome.Result != ResultFail || !reflect.DeepEqual(outcome.ErrorCodes, []string{MigrationReplayUnavailableCode}) {
+		return reportError("outcome", nil)
+	}
+	return nil
+}
+
+func migrationReplayPassingDetails(details MigrationReplayDetails) bool {
+	return details.InitialLedgerRows == 0 && details.FirstApply.Applied > 0 && details.FirstApply.Skipped == 0 &&
+		details.SecondApply.Applied == 0 && details.SecondApply.Skipped == details.FirstApply.Applied &&
+		details.FinalLedgerRows == details.FirstApply.Applied && details.StaticDigest == details.LedgerDigest &&
+		details.CleanupResult == migrationCleanupSucceeded
+}
+
+func migrationReplayUnavailableDetails(details MigrationReplayDetails) bool {
+	return details.InitialLedgerRows == migrationUnavailableCount &&
+		details.FirstApply == (MigrationApplyCounts{Applied: migrationUnavailableCount, Skipped: migrationUnavailableCount}) &&
+		details.SecondApply == (MigrationApplyCounts{Applied: migrationUnavailableCount, Skipped: migrationUnavailableCount}) &&
+		details.FinalLedgerRows == migrationUnavailableCount && details.StaticDigest == details.LedgerDigest
+}
+
+func validMigrationReplayMode(mode string) bool {
+	return mode == migrationReplayExternal || mode == migrationReplayDocker
+}
+
+func validateMigrationLedgerSnapshot(snapshot MigrationLedgerSnapshot) error {
+	if snapshot.Identities == nil {
+		return fmt.Errorf("migration ledger identities are missing")
+	}
+	expectedDigest := migrationEmptyIdentityDigest
+	if len(snapshot.Identities) != 0 {
+		var err error
+		expectedDigest, err = migrations.IdentityDigest(snapshot.Identities)
+		if err != nil {
+			return err
+		}
+	}
+	if snapshot.IdentityDigest != expectedDigest {
+		return fmt.Errorf("migration ledger snapshot digest mismatch")
+	}
+	return nil
+}
+
+func deriveMigrationApplyCounts(static, before, after []migrations.MigrationIdentity) (MigrationApplyCounts, error) {
+	if !reflect.DeepEqual(after, static) {
+		return MigrationApplyCounts{}, fmt.Errorf("migration ledger is incomplete")
+	}
+	beforeSet := make(map[migrations.MigrationIdentity]struct{}, len(before))
+	for _, identity := range before {
+		beforeSet[identity] = struct{}{}
+	}
+	counts := MigrationApplyCounts{}
+	for _, identity := range static {
+		if _, exists := beforeSet[identity]; exists {
+			counts.Skipped++
+		} else {
+			counts.Applied++
+		}
+	}
+	if counts.Applied+counts.Skipped != len(static) {
+		return MigrationApplyCounts{}, fmt.Errorf("migration apply counts are incomplete")
+	}
+	return counts, nil
 }
 
 func validateStaticInventory(inventory migrations.StaticInventory) error {
@@ -262,6 +465,23 @@ func validateMigrationReport(report SurfaceReportV1) error {
 			report.SurfaceIdentity.SourceDigest != details.IdentityDigest || report.SurfaceIdentity.ConsumerDigest != details.IdentityDigest ||
 			report.Evidence.Environment != migrationLedgerEnvironment || report.Evidence.Mode != migrationLedgerMode {
 			return reportError("surfaceIdentity", nil)
+		}
+	case MigrationReplaySurfaceID:
+		var details MigrationReplayDetails
+		if err := json.Unmarshal(report.Evidence.Details, &details); err != nil {
+			return reportError("evidence.details", err)
+		}
+		expectedEnvironment := "external-isolated-database"
+		if details.ReplayMode == migrationReplayDocker {
+			expectedEnvironment = "local-docker"
+		}
+		if report.SurfaceIdentity.CanonicalSource != migrationReplaySource || report.SurfaceIdentity.Consumer != migrationReplayConsumer ||
+			report.SurfaceIdentity.SourceDigest != details.StaticDigest || report.SurfaceIdentity.ConsumerDigest != details.LedgerDigest ||
+			report.Evidence.Environment != expectedEnvironment || report.Evidence.Mode != migrationReplayMode {
+			return reportError("surfaceIdentity", nil)
+		}
+		if err := validateMigrationReplayOutcome(details, report.Outcome); err != nil {
+			return err
 		}
 	default:
 		return reportError("surfaceIdentity.surface", nil)
