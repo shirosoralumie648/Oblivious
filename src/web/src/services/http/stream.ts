@@ -1,12 +1,23 @@
+import type { OperationContractMetadataV1 } from '@/generated/operation-contracts.generated';
+
+import {
+  createHttpClient,
+  validateOperationTransportContract,
+  type OperationTransportContract
+} from './client';
+
 export async function streamText(
   path: string,
   onChunk: (chunk: string) => void,
+  operation: OperationContractMetadataV1,
+  contract: OperationTransportContract<Response>,
   fetchFn: typeof fetch = fetch,
-  init?: RequestInit
+  init: RequestInit = {}
 ): Promise<void> {
-  const response = await fetchFn(path, init);
+  validateOperationTransportContract(path, init.method ?? 'GET', operation, contract);
+  const response = await createHttpClient({ fetchFn }).request<Response>(path, init, contract);
 
-  if (!response.ok || !response.body) {
+  if (!response.body) {
     throw new Error('Unable to open stream');
   }
 

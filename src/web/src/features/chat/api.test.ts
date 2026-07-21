@@ -17,6 +17,12 @@ function createClient(overrides: Partial<HttpClient> = {}) {
   return client;
 }
 
+function expectTransportContract(operationId: string) {
+  return expect.objectContaining({
+    operation: expect.objectContaining({ operationId })
+  });
+}
+
 describe('createChatApi', () => {
   it('normalizes backend conversation share payload fields', async () => {
     const post = vi.fn().mockResolvedValue({
@@ -32,7 +38,12 @@ describe('createChatApi', () => {
       url: '/api/v1/app/conversation-shares/share_conversation_1'
     });
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/share');
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1/share',
+      undefined,
+      undefined,
+      expectTransportContract('createConversationShare')
+    );
   });
 
   it('sends a conversation share range and expiration when provided', async () => {
@@ -48,11 +59,16 @@ describe('createChatApi', () => {
       startMessageId: 'message_1'
     });
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/share', {
-      endMessageId: 'message_3',
-      expiresAt: '2026-06-05T12:00:00Z',
-      startMessageId: 'message_1'
-    });
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1/share',
+      {
+        endMessageId: 'message_3',
+        expiresAt: '2026-06-05T12:00:00Z',
+        startMessageId: 'message_1'
+      },
+      undefined,
+      expectTransportContract('createConversationShare')
+    );
   });
 
   it('normalizes backend message share payload fields', async () => {
@@ -69,7 +85,12 @@ describe('createChatApi', () => {
       url: '/api/v1/app/message-shares/share_message_1'
     });
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/messages/message_1/share');
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1/messages/message_1/share',
+      undefined,
+      undefined,
+      expectTransportContract('createMessageShare')
+    );
   });
 
   it('normalizes forked conversation parent identifiers from backend payloads', async () => {
@@ -87,10 +108,15 @@ describe('createChatApi', () => {
       title: 'Forked launch review'
     });
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/fork', {
-      branchFromMessageId: 'message_3',
-      title: 'Forked launch review'
-    });
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1/fork',
+      {
+        branchFromMessageId: 'message_3',
+        title: 'Forked launch review'
+      },
+      undefined,
+      expectTransportContract('forkConversation')
+    );
   });
 
   it('reads, updates, and deletes app-scoped conversations by id', async () => {
@@ -109,9 +135,22 @@ describe('createChatApi', () => {
     });
     await expect(api.deleteConversation('conversation_1')).resolves.toBeUndefined();
 
-    expect(get).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1');
-    expect(put).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1', { title: 'Renamed launch review' });
-    expect(deleteRequest).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1');
+    expect(get).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1',
+      undefined,
+      expectTransportContract('getConversation')
+    );
+    expect(put).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1',
+      { title: 'Renamed launch review' },
+      undefined,
+      expectTransportContract('updateConversation')
+    );
+    expect(deleteRequest).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1',
+      undefined,
+      expectTransportContract('deleteConversation')
+    );
   });
 
   it('sends a message share expiration when provided', async () => {
@@ -125,9 +164,12 @@ describe('createChatApi', () => {
       expiresAt: '2026-06-05T12:00:00Z'
     });
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/messages/message_1/share', {
-      expiresAt: '2026-06-05T12:00:00Z'
-    });
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/conversations/conversation_1/messages/message_1/share',
+      { expiresAt: '2026-06-05T12:00:00Z' },
+      undefined,
+      expectTransportContract('createMessageShare')
+    );
   });
 
   it('downloads markdown through real shared client Response', async () => {
@@ -214,7 +256,11 @@ describe('createChatApi', () => {
       }
     ]);
 
-    expect(get).toHaveBeenCalledWith('/api/v1/app/personas');
+    expect(get).toHaveBeenCalledWith(
+      '/api/v1/app/personas',
+      undefined,
+      expectTransportContract('listPersonas')
+    );
   });
 
   it('creates, updates, and deletes chat personas through app persona endpoints', async () => {
@@ -258,21 +304,35 @@ describe('createChatApi', () => {
     });
     await expect(api.deletePersona('persona_1')).resolves.toBeUndefined();
 
-    expect(post).toHaveBeenCalledWith('/api/v1/app/personas', {
-      constraints: 'Call out rollout risk.',
-      name: 'Launch reviewer',
-      openingMessage: 'Ready to review.',
-      role: 'Reviewer',
-      style: 'Direct',
-      suggestedQuestions: ['What is risky?'],
-      tone: 'Precise'
-    });
-    expect(put).toHaveBeenCalledWith('/api/v1/app/personas/persona_1', {
-      constraints: 'Focus on release blockers.',
-      name: 'Launch reviewer updated',
-      suggestedQuestions: ['What changed?']
-    });
-    expect(deleteRequest).toHaveBeenCalledWith('/api/v1/app/personas/persona_1');
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/app/personas',
+      {
+        constraints: 'Call out rollout risk.',
+        name: 'Launch reviewer',
+        openingMessage: 'Ready to review.',
+        role: 'Reviewer',
+        style: 'Direct',
+        suggestedQuestions: ['What is risky?'],
+        tone: 'Precise'
+      },
+      undefined,
+      expectTransportContract('createPersona')
+    );
+    expect(put).toHaveBeenCalledWith(
+      '/api/v1/app/personas/persona_1',
+      {
+        constraints: 'Focus on release blockers.',
+        name: 'Launch reviewer updated',
+        suggestedQuestions: ['What changed?']
+      },
+      undefined,
+      expectTransportContract('updatePersona')
+    );
+    expect(deleteRequest).toHaveBeenCalledWith(
+      '/api/v1/app/personas/persona_1',
+      undefined,
+      expectTransportContract('deletePersona')
+    );
   });
 
   it('normalizes legacy newline persona questions into arrays', async () => {

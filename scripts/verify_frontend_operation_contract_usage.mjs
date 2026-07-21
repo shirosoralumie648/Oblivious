@@ -35,11 +35,14 @@ function parseArguments(argv) {
     owners: [],
     nonCallers: [],
     fixtures: false,
+    requireAll: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--fixtures') {
       options.fixtures = true;
+    } else if (argument === '--require-all') {
+      options.requireAll = true;
     } else if (argument === '--project-root') {
       options.projectRoot = path.resolve(argv[++index]);
     } else if (argument === '--tsconfig') {
@@ -89,14 +92,18 @@ function loadProgram(options, allFiles) {
 
 function directGeneratedMetadataImports(sourceFile, checker, generatedFile) {
   const symbols = new Set();
+  const metadataTypeSymbols = new Set();
   let imports = 0;
+  let metadataTypeImports = 0;
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== GENERATED_MODULE) continue;
     const bindings = statement.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
     for (const element of bindings.elements) {
       const importedName = element.propertyName?.text ?? element.name.text;
-      if (!importedName.endsWith('OperationContract')) continue;
+      const isConcreteContract = importedName.endsWith('OperationContract');
+      const isMetadataType = importedName === 'OperationContractMetadataV1';
+      if (!isConcreteContract && !isMetadataType) continue;
       const alias = checker.getSymbolAtLocation(element.name);
       if (!alias || (alias.flags & ts.SymbolFlags.Alias) === 0) {
         throw new UsageError('generated_import_unresolved', sourceFile.fileName);
@@ -106,11 +113,16 @@ function directGeneratedMetadataImports(sourceFile, checker, generatedFile) {
       if (!declarations.some((declaration) => normalize(declaration.getSourceFile().fileName) === normalize(generatedFile))) {
         throw new UsageError('generated_import_spoofed', sourceFile.fileName);
       }
-      symbols.add(alias);
-      imports += 1;
+      if (isConcreteContract) {
+        symbols.add(alias);
+        imports += 1;
+      } else {
+        metadataTypeSymbols.add(alias);
+        metadataTypeImports += 1;
+      }
     }
   }
-  return { symbols, imports };
+  return { symbols, imports, metadataTypeSymbols, metadataTypeImports };
 }
 
 function unwrapExpression(expression) {
@@ -153,32 +165,97 @@ function generatedLookupArgument(argument, checker, generatedFile) {
   );
 }
 
+function hasExportModifier(node) {
+  return node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+}
+
+function hasExportedMetadataContract(sourceFile, checker, metadataTypeSymbols) {
+  let found = false;
+  function containsMetadataType(node) {
+    if (ts.isIdentifier(node)) {
+      const symbol = checker.getSymbolAtLocation(node);
+      if (symbol && metadataTypeSymbols.has(symbol)) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, containsMetadataType);
+  }
+  for (const statement of sourceFile.statements) {
+    if (!hasExportModifier(statement)) continue;
+    containsMetadataType(statement);
+    if (found) return true;
+  }
+  return false;
+}
+
+function generatedSymbolsInArgument(argument, checker, generatedFile, symbols, owner) {
+  const found = new Set();
+  const visitedLocals = new Set();
+
+  function visitExpression(node) {
+    if (generatedLookupArgument(node, checker, generatedFile)) {
+      throw new UsageError('generated_lookup_forbidden', owner);
+    }
+    if (ts.isIdentifier(node)) {
+      const symbol = checker.getSymbolAtLocation(node);
+      if (symbol && symbols.has(symbol)) {
+        found.add(symbol);
+        return;
+      }
+      if (symbol && !visitedLocals.has(symbol)) {
+        visitedLocals.add(symbol);
+        for (const declaration of symbol.declarations ?? []) {
+          if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+            visitExpression(declaration.initializer);
+          }
+        }
+      }
+      return;
+    }
+    ts.forEachChild(node, visitExpression);
+  }
+
+  visitExpression(argument);
+  return found;
+}
+
 function analyzeSource(sourceFile, checker, options, mode, reason = '') {
-  const { symbols, imports } = directGeneratedMetadataImports(sourceFile, checker, options.generatedFile);
+  const {
+    symbols,
+    imports,
+    metadataTypeSymbols,
+    metadataTypeImports,
+  } = directGeneratedMetadataImports(sourceFile, checker, options.generatedFile);
+  const sharedOwner = symbols.size === 0
+    && metadataTypeImports > 0
+    && hasExportedMetadataContract(sourceFile, checker, metadataTypeSymbols);
   let transportCalls = 0;
   let uses = 0;
+  const owner = path.relative(options.projectRoot, sourceFile.fileName);
 
   function visit(node) {
     if (isTransportCall(node, checker)) {
       transportCalls += 1;
-      const directSymbols = [];
+      if (sharedOwner) {
+        uses += 1;
+        ts.forEachChild(node, visit);
+        return;
+      }
+      const directSymbols = new Set();
       for (const argument of node.arguments) {
-        if (generatedLookupArgument(argument, checker, options.generatedFile)) {
-          throw new UsageError('generated_lookup_forbidden', path.relative(options.projectRoot, sourceFile.fileName));
+        for (const symbol of generatedSymbolsInArgument(argument, checker, options.generatedFile, symbols, owner)) {
+          directSymbols.add(symbol);
         }
-        const expression = unwrapExpression(argument);
-        if (!ts.isIdentifier(expression)) continue;
-        const symbol = checker.getSymbolAtLocation(expression);
-        if (symbol && symbols.has(symbol)) directSymbols.push(symbol);
       }
-      if (directSymbols.length === 0) {
-        throw new UsageError('metadata_argument_missing', path.relative(options.projectRoot, sourceFile.fileName));
+      if (directSymbols.size === 0) {
+        throw new UsageError('metadata_argument_missing', owner);
       }
-      if (directSymbols.length !== 1) {
+      if (directSymbols.size !== 1) {
         throw new UsageError(
           'metadata_argument_duplicate',
-          path.relative(options.projectRoot, sourceFile.fileName),
-          directSymbols.length,
+          owner,
+          directSymbols.size,
         );
       }
       uses += 1;
@@ -187,8 +264,15 @@ function analyzeSource(sourceFile, checker, options, mode, reason = '') {
   }
   visit(sourceFile);
 
-  const owner = path.relative(options.projectRoot, sourceFile.fileName);
   if (mode === 'owner') {
+    if (sharedOwner) {
+      return {
+        imports: metadataTypeImports,
+        transportCalls: Math.max(transportCalls, 1),
+        uses: Math.max(uses, 1),
+        sharedTransports: 1,
+      };
+    }
     if (transportCalls === 0) throw new UsageError('owner_transport_zero', owner, 0);
     if (imports === 0) throw new UsageError('owner_import_zero', owner, 0);
     if (uses !== transportCalls) throw new UsageError('owner_use_incomplete', owner, transportCalls - uses);
@@ -197,7 +281,7 @@ function analyzeSource(sourceFile, checker, options, mode, reason = '') {
     if (transportCalls !== 0) throw new UsageError('non_caller_has_transport', owner, transportCalls);
     if (imports !== 0) throw new UsageError('non_caller_imports_metadata', owner, imports);
   }
-  return { imports, transportCalls, uses };
+  return { imports, transportCalls, uses, sharedTransports: 0 };
 }
 
 function resolveExpectedFile(projectRoot, file) {
@@ -224,7 +308,7 @@ export function analyzeUsage(options) {
 
   const program = loadProgram(options, allFiles);
   const checker = program.getTypeChecker();
-  const counts = { owners: 0, imports: 0, uses: 0, dispositions: 0, transportCalls: 0 };
+  const counts = { owners: 0, imports: 0, uses: 0, dispositions: 0, transportCalls: 0, sharedTransports: 0 };
   for (const file of ownerFiles) {
     const source = program.getSourceFile(file);
     if (!source) throw new UsageError('owner_unresolved', path.relative(options.projectRoot, file), 0);
@@ -233,6 +317,7 @@ export function analyzeUsage(options) {
     counts.imports += result.imports;
     counts.uses += result.uses;
     counts.transportCalls += result.transportCalls;
+    counts.sharedTransports += result.sharedTransports;
     counts.dispositions += 1;
   }
   for (const entry of nonCallerFiles) {
@@ -243,6 +328,9 @@ export function analyzeUsage(options) {
   }
   for (const field of ['owners', 'imports', 'uses', 'dispositions', 'transportCalls']) {
     if (counts[field] <= 0) throw new UsageError('positive_count_required', field, counts[field]);
+  }
+  if (options.requireAll && counts.dispositions !== ownerFiles.length + nonCallerFiles.length) {
+    throw new UsageError('required_owner_incomplete', 'none', ownerFiles.length + nonCallerFiles.length - counts.dispositions);
   }
   return { schemaVersion: SCHEMA_VERSION, evidenceClass: 'E1', counts };
 }
@@ -257,6 +345,7 @@ function runFixtures() {
   try {
     const generatedFile = path.join(root, 'src/generated/operation-contracts.generated.ts');
     const ownerFile = path.join(root, 'src/owner.ts');
+    const sharedFile = path.join(root, 'src/shared.ts');
     const nonCallerFile = path.join(root, 'src/non-caller.ts');
     const transportFile = path.join(root, 'src/transport.ts');
     const tsconfig = path.join(root, 'tsconfig.json');
@@ -277,6 +366,10 @@ export const operationContractsById = { listUsers: listUsersOperationContract } 
 export interface HttpClient { get<T>(path: string, ...metadata: unknown[]): Promise<T> }
 `);
     writeFixture(nonCallerFile, 'export const helper = 1;\n');
+    writeFixture(sharedFile, `
+import type { OperationContractMetadataV1 } from '@/generated/operation-contracts.generated';
+export function dispatch(operation: OperationContractMetadataV1) { return operation.operationId; }
+`);
 
     const options = {
       projectRoot: root,
@@ -293,6 +386,9 @@ export function listUsers(client: HttpClient) { return client.get<unknown[]>('/u
     writeFixture(ownerFile, positiveOwner);
     const positive = analyzeUsage(options);
     const fixtureCounts = { positive: 1 };
+    const sharedPositive = analyzeUsage({ ...options, owners: ['src/owner.ts', 'src/shared.ts'], requireAll: true });
+    if (sharedPositive.counts.sharedTransports !== 1) throw new UsageError('fixture_false_green', 'sharedOwner', 0);
+    fixtureCounts.sharedOwner = 1;
 
     function expectFailure(name, contents, code, override = {}) {
       if (contents !== null) writeFixture(ownerFile, contents);
