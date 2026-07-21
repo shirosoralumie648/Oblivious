@@ -208,6 +208,173 @@ func TestReleaseMigrationStaticAndLedgerCommandsContract(t *testing.T) {
 	})
 }
 
+func TestReleaseMigrationReplayCommandContract(t *testing.T) {
+	inventory := testMigrationInventory(t)
+	valid := migrationReplayObservation{
+		SchemaVersion: migrationReplayObservationSchema,
+		ReplayMode:    "docker-ephemeral",
+		CleanupResult: "succeeded",
+		Result:        "pass",
+		Before: surfacereport.MigrationLedgerSnapshot{
+			Identities:     []migrations.MigrationIdentity{},
+			IdentityDigest: "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+		},
+		AfterFirst:  surfacereport.MigrationLedgerSnapshot{Identities: append([]migrations.MigrationIdentity(nil), inventory.Identities...), IdentityDigest: inventory.IdentityDigest},
+		AfterSecond: surfacereport.MigrationLedgerSnapshot{Identities: append([]migrations.MigrationIdentity(nil), inventory.Identities...), IdentityDigest: inventory.IdentityDigest},
+	}
+
+	t.Run("pass observation writes one replay report without database or migration output input", func(t *testing.T) {
+		observationPath := writeMigrationReplayObservation(t, valid)
+		output := filepath.Join(t.TempDir(), "nested", "migration-replay.json")
+		deps := migrationCommandTestDependencies(t)
+		writer := &recordingMigrationReportWriter{delegate: surfacereport.NewAtomicWriter()}
+		deps.reportWriter = writer
+		deps.lookupEnv = nil
+		deps.openDatabase = nil
+		deps.pingDatabase = nil
+
+		stdout, stderr, exitCode := runMigrationCommand(t, "replay-report", output, observationPath, deps)
+		if exitCode != 0 {
+			t.Fatalf("replay exit=%d stderr=%s", exitCode, stderr)
+		}
+		if writer.calls != 1 || writer.report.SurfaceIdentity.Surface != surfacereport.MigrationReplaySurfaceID || writer.report.Outcome.Result != surfacereport.ResultPass {
+			t.Fatalf("replay writer calls/report = %d/%#v", writer.calls, writer.report)
+		}
+		content := assertMigrationReportFile(t, output, surfacereport.MigrationReplaySurfaceID)
+		var details surfacereport.MigrationReplayDetails
+		if err := json.Unmarshal(writer.report.Evidence.Details, &details); err != nil {
+			t.Fatalf("decode replay details: %v", err)
+		}
+		if details.FirstApply.Applied != len(inventory.Identities) || details.FirstApply.Skipped != 0 ||
+			details.SecondApply.Applied != 0 || details.SecondApply.Skipped != len(inventory.Identities) ||
+			details.InitialLedgerRows != 0 || details.FinalLedgerRows != len(inventory.Identities) {
+			t.Fatalf("unexpected derived replay details: %#v", details)
+		}
+		for _, prohibited := range []string{"postgres://", "do-not-print", "migrations applied", "SELECT ", observationPath, output} {
+			if strings.Contains(stdout+stderr+string(content), prohibited) {
+				t.Fatalf("replay output exposed prohibited value %q", prohibited)
+			}
+		}
+	})
+
+	t.Run("failure observation writes a trusted report and preserves nonzero producer status", func(t *testing.T) {
+		failure := migrationReplayObservation{
+			SchemaVersion: migrationReplayObservationSchema,
+			ReplayMode:    "external-isolated",
+			CleanupResult: "failed",
+			Result:        surfacereport.MigrationReplayUnavailableCode,
+		}
+		observationPath := writeMigrationReplayObservation(t, failure)
+		output := filepath.Join(t.TempDir(), "migration-replay.json")
+		deps := migrationCommandTestDependencies(t)
+		writer := &recordingMigrationReportWriter{delegate: surfacereport.NewAtomicWriter()}
+		deps.reportWriter = writer
+
+		stdout, stderr, exitCode := runMigrationCommand(t, "replay-report", output, observationPath, deps)
+		if exitCode == 0 || writer.calls != 1 || !assertFileExists(output) {
+			t.Fatalf("failure report exit/calls/exists = %d/%d/%t stdout=%s stderr=%s", exitCode, writer.calls, assertFileExists(output), stdout, stderr)
+		}
+		if writer.report.Outcome.Result != surfacereport.ResultFail || len(writer.report.Outcome.ErrorCodes) != 1 || writer.report.Outcome.ErrorCodes[0] != surfacereport.MigrationReplayUnavailableCode || len(writer.report.Outcome.SkippedChecks) != 0 {
+			t.Fatalf("unexpected failure outcome: %#v", writer.report.Outcome)
+		}
+		assertMigrationReportFile(t, output, surfacereport.MigrationReplaySurfaceID)
+		assertNoMigrationSecret(t, stdout, stderr, writer.report)
+	})
+
+	t.Run("failure report writer error remains nonzero", func(t *testing.T) {
+		failure := migrationReplayObservation{SchemaVersion: migrationReplayObservationSchema, ReplayMode: "docker-ephemeral", CleanupResult: "succeeded", Result: surfacereport.MigrationReplayUnavailableCode}
+		deps := migrationCommandTestDependencies(t)
+		writer := &recordingMigrationReportWriter{err: &surfacereport.ReportError{Code: surfacereport.ErrorReportOutputUnwritable, Field: "destination"}}
+		deps.reportWriter = writer
+		stdout, stderr, exitCode := runMigrationCommand(t, "replay-report", filepath.Join(t.TempDir(), "failure.json"), writeMigrationReplayObservation(t, failure), deps)
+		if exitCode == 0 || writer.calls != 1 {
+			t.Fatalf("failure writer exit/calls = %d/%d stdout=%s stderr=%s", exitCode, writer.calls, stdout, stderr)
+		}
+	})
+
+	t.Run("reused partial non-noop and snapshot digest observations fail before output", func(t *testing.T) {
+		mutations := []struct {
+			name string
+			edit func(*migrationReplayObservation)
+		}{
+			{"reused database", func(value *migrationReplayObservation) { value.Before = value.AfterFirst }},
+			{"partial first apply", func(value *migrationReplayObservation) {
+				value.AfterFirst.Identities = value.AfterFirst.Identities[:1]
+				value.AfterFirst.IdentityDigest, _ = migrations.IdentityDigest(value.AfterFirst.Identities)
+			}},
+			{"non noop second apply", func(value *migrationReplayObservation) {
+				value.AfterSecond.Identities = value.AfterSecond.Identities[:1]
+				value.AfterSecond.IdentityDigest, _ = migrations.IdentityDigest(value.AfterSecond.Identities)
+			}},
+			{"snapshot digest", func(value *migrationReplayObservation) {
+				value.AfterSecond.IdentityDigest = "sha256:" + strings.Repeat("0", 64)
+			}},
+			{"unknown mode", func(value *migrationReplayObservation) { value.ReplayMode = "shared" }},
+			{"missing cleanup", func(value *migrationReplayObservation) { value.CleanupResult = "" }},
+		}
+		for _, mutation := range mutations {
+			t.Run(mutation.name, func(t *testing.T) {
+				candidate := cloneMigrationReplayObservation(valid)
+				mutation.edit(&candidate)
+				output := filepath.Join(t.TempDir(), "replay.json")
+				stdout, stderr, exitCode := runMigrationCommand(t, "replay-report", output, writeMigrationReplayObservation(t, candidate), migrationCommandTestDependencies(t))
+				if exitCode == 0 || assertFileExists(output) {
+					t.Fatalf("mutation %q passed or wrote output: exit=%d stdout=%s stderr=%s", mutation.name, exitCode, stdout, stderr)
+				}
+			})
+		}
+	})
+
+	t.Run("authority DSN skip raw error and human output inputs are rejected", func(t *testing.T) {
+		observationPath := writeMigrationReplayObservation(t, valid)
+		output := filepath.Join(t.TempDir(), "replay.json")
+		common := migrationCommandArgs("replay-report", output, observationPath)
+		for _, test := range []struct {
+			name string
+			args []string
+		}{
+			{"missing observation", removeMigrationFlag(common, "--observation")},
+			{"literal DSN", append(common, "--database-url", "postgres://secret")},
+			{"release identity", append(common, "--release-commit", strings.Repeat("f", 40))},
+			{"skip", append(common, "--skip", "database")},
+			{"evidence class", append(common, "--evidence-class", "target")},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+				if exitCode := runWithDependencies(context.Background(), test.args, &stdout, &stderr, migrationCommandTestDependencies(t)); exitCode == 0 {
+					t.Fatalf("invalid invocation passed: %v", test.args)
+				}
+				if strings.Contains(stdout.String()+stderr.String(), "postgres://secret") {
+					t.Fatalf("literal DSN leaked: %s%s", stdout.String(), stderr.String())
+				}
+			})
+		}
+
+		for _, field := range []string{"databaseUrl", "rawError", "humanMigrationOutput", "releaseIdentity", "evidenceClass", "skippedChecks"} {
+			t.Run(field, func(t *testing.T) {
+				encoded, err := json.Marshal(valid)
+				if err != nil {
+					t.Fatalf("marshal observation: %v", err)
+				}
+				var candidate map[string]any
+				if err := json.Unmarshal(encoded, &candidate); err != nil {
+					t.Fatalf("decode observation map: %v", err)
+				}
+				candidate[field] = "do-not-print"
+				path := filepath.Join(t.TempDir(), "observation.json")
+				content, _ := json.Marshal(candidate)
+				if err := os.WriteFile(path, content, 0o600); err != nil {
+					t.Fatalf("write invalid observation: %v", err)
+				}
+				stdout, stderr, exitCode := runMigrationCommand(t, "replay-report", filepath.Join(t.TempDir(), "report.json"), path, migrationCommandTestDependencies(t))
+				if exitCode == 0 || strings.Contains(stdout+stderr, "do-not-print") {
+					t.Fatalf("unknown input %q passed or leaked: stdout=%s stderr=%s", field, stdout, stderr)
+				}
+			})
+		}
+	})
+}
+
 func migrationCommandTestDependencies(t *testing.T) dependencies {
 	t.Helper()
 	return dependencies{
@@ -246,8 +413,31 @@ func migrationCommandArgs(subcommand, output, envName string) []string {
 	}
 	if subcommand == "ledger" {
 		args = append(args, "--database-url-env", envName)
+	} else if subcommand == "replay-report" {
+		args = append(args, "--observation", envName)
 	}
 	return args
+}
+
+func writeMigrationReplayObservation(t *testing.T, observation migrationReplayObservation) string {
+	t.Helper()
+	content, err := json.Marshal(observation)
+	if err != nil {
+		t.Fatalf("marshal replay observation: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "migration-replay-observation.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write replay observation: %v", err)
+	}
+	return path
+}
+
+func cloneMigrationReplayObservation(source migrationReplayObservation) migrationReplayObservation {
+	cloned := source
+	cloned.Before.Identities = append([]migrations.MigrationIdentity(nil), source.Before.Identities...)
+	cloned.AfterFirst.Identities = append([]migrations.MigrationIdentity(nil), source.AfterFirst.Identities...)
+	cloned.AfterSecond.Identities = append([]migrations.MigrationIdentity(nil), source.AfterSecond.Identities...)
+	return cloned
 }
 
 func removeMigrationFlag(args []string, name string) []string {

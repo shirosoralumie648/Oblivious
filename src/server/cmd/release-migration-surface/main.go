@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -21,6 +22,11 @@ import (
 
 const migrationDispositionPath = "config/release/migration-disposition.v1.json"
 
+const (
+	migrationReplayObservationSchema = "migration-replay-observation/v1"
+	maxMigrationReplayInputBytes     = 4 << 20
+)
+
 var databaseEnvironmentNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 type dependencies struct {
@@ -40,6 +46,17 @@ type commandOptions struct {
 	profileID    string
 	outputPath   string
 	databaseEnv  string
+	observation  string
+}
+
+type migrationReplayObservation struct {
+	SchemaVersion string                                `json:"schemaVersion"`
+	ReplayMode    string                                `json:"replayMode"`
+	CleanupResult string                                `json:"cleanupResult"`
+	Result        string                                `json:"result"`
+	Before        surfacereport.MigrationLedgerSnapshot `json:"before"`
+	AfterFirst    surfacereport.MigrationLedgerSnapshot `json:"afterFirst"`
+	AfterSecond   surfacereport.MigrationLedgerSnapshot `json:"afterSecond"`
 }
 
 func main() {
@@ -71,7 +88,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 			writeCLIError(stderr, "invalid_arguments", "dependencies")
 			return 2
 		}
-		options, ok := parseOptions("static", args[1:], false, stderr)
+		options, ok := parseOptions("static", args[1:], false, false, stderr)
 		if !ok {
 			return 2
 		}
@@ -81,11 +98,21 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 			writeCLIError(stderr, "invalid_arguments", "dependencies")
 			return 2
 		}
-		options, ok := parseOptions("ledger", args[1:], true, stderr)
+		options, ok := parseOptions("ledger", args[1:], true, false, stderr)
 		if !ok {
 			return 2
 		}
 		return runLedger(ctx, options, stdout, stderr, deps)
+	case "replay-report":
+		if !validStaticDependencies(deps) {
+			writeCLIError(stderr, "invalid_arguments", "dependencies")
+			return 2
+		}
+		options, ok := parseOptions("replay-report", args[1:], false, true, stderr)
+		if !ok {
+			return 2
+		}
+		return runReplayReport(ctx, options, stdout, stderr, deps)
 	default:
 		writeCLIError(stderr, "invalid_arguments", "subcommand")
 		return 2
@@ -100,7 +127,7 @@ func validLedgerDependencies(deps dependencies) bool {
 	return validStaticDependencies(deps) && deps.lookupEnv != nil && deps.openDatabase != nil && deps.pingDatabase != nil
 }
 
-func parseOptions(name string, args []string, requireDatabaseEnv bool, stderr io.Writer) (commandOptions, bool) {
+func parseOptions(name string, args []string, requireDatabaseEnv bool, requireObservation bool, stderr io.Writer) (commandOptions, bool) {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var options commandOptions
@@ -112,15 +139,108 @@ func parseOptions(name string, args []string, requireDatabaseEnv bool, stderr io
 	if requireDatabaseEnv {
 		flags.StringVar(&options.databaseEnv, "database-url-env", "", "name of the environment variable containing the PostgreSQL URL")
 	}
+	if requireObservation {
+		flags.StringVar(&options.observation, "observation", "", "bounded typed migration replay observation")
+	}
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 ||
 		strings.TrimSpace(options.repoRoot) == "" || strings.TrimSpace(options.contractPath) == "" ||
 		strings.TrimSpace(options.schemaPath) == "" || strings.TrimSpace(options.profileID) == "" ||
 		strings.TrimSpace(options.outputPath) == "" ||
-		(requireDatabaseEnv && !databaseEnvironmentNamePattern.MatchString(options.databaseEnv)) {
+		(requireDatabaseEnv && !databaseEnvironmentNamePattern.MatchString(options.databaseEnv)) ||
+		(requireObservation && strings.TrimSpace(options.observation) == "") {
 		writeCLIError(stderr, "invalid_arguments", name)
 		return commandOptions{}, false
 	}
 	return options, true
+}
+
+func runReplayReport(ctx context.Context, options commandOptions, stdout, stderr io.Writer, deps dependencies) int {
+	inventory, err := deps.buildInventory(ctx, options.repoRoot, migrationDispositionPath)
+	if err != nil {
+		return writeDomainError(stderr, err)
+	}
+	var observation migrationReplayObservation
+	if err := decodeMigrationReplayObservation(options.observation, &observation); err != nil {
+		return writeDomainError(stderr, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "observation", Err: err})
+	}
+	if observation.SchemaVersion != migrationReplayObservationSchema {
+		return writeDomainError(stderr, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "observation.schemaVersion"})
+	}
+
+	var details surfacereport.MigrationReplayDetails
+	var outcome surfacereport.Outcome
+	switch observation.Result {
+	case "pass":
+		details, err = surfacereport.DeriveReplayObservation(inventory.Identities, observation.Before, observation.AfterFirst, observation.AfterSecond)
+		if err != nil {
+			return writeDomainError(stderr, err)
+		}
+		details.ReplayMode = observation.ReplayMode
+		details.CleanupResult = observation.CleanupResult
+		outcome = passingOutcome()
+	case surfacereport.MigrationReplayUnavailableCode:
+		if observation.Before.Identities != nil || observation.AfterFirst.Identities != nil || observation.AfterSecond.Identities != nil ||
+			observation.Before.IdentityDigest != "" || observation.AfterFirst.IdentityDigest != "" || observation.AfterSecond.IdentityDigest != "" {
+			return writeDomainError(stderr, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "observation.failureSnapshots"})
+		}
+		details = unavailableReplayDetails(inventory.IdentityDigest, observation.ReplayMode, observation.CleanupResult)
+		outcome = surfacereport.Outcome{
+			Result: surfacereport.ResultFail, ErrorCodes: []string{surfacereport.MigrationReplayUnavailableCode}, SkippedChecks: []string{},
+		}
+	default:
+		return writeDomainError(stderr, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "observation.result"})
+	}
+
+	report, err := surfacereport.NewMigrationReplayReport(
+		ctx, deps.identityProvider, deps.profileResolver,
+		options.repoRoot, options.contractPath, options.schemaPath, options.profileID,
+		details, outcome,
+	)
+	if err != nil {
+		return writeDomainError(stderr, err)
+	}
+	writeExit := writeReport(ctx, stdout, stderr, deps.reportWriter, options.outputPath, report)
+	if writeExit != 0 {
+		return writeExit
+	}
+	if outcome.Result == surfacereport.ResultFail {
+		return 1
+	}
+	return 0
+}
+
+func unavailableReplayDetails(staticDigest, replayMode, cleanupResult string) surfacereport.MigrationReplayDetails {
+	unknown := surfacereport.MigrationApplyCounts{Applied: -1, Skipped: -1}
+	return surfacereport.MigrationReplayDetails{
+		DatabaseKind: "postgresql-pgvector", ReplayMode: replayMode, InitialLedgerRows: -1,
+		FirstApply: unknown, SecondApply: unknown, FinalLedgerRows: -1,
+		StaticDigest: staticDigest, LedgerDigest: staticDigest, CleanupResult: cleanupResult,
+	}
+}
+
+func decodeMigrationReplayObservation(path string, destination *migrationReplayObservation) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxMigrationReplayInputBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(content) == 0 || len(content) > maxMigrationReplayInputBytes {
+		return errors.New("migration replay observation size is invalid")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("migration replay observation has trailing JSON")
+	}
+	return nil
 }
 
 func runStatic(ctx context.Context, options commandOptions, stdout, stderr io.Writer, deps dependencies) int {
