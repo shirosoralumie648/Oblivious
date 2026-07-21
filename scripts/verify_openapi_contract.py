@@ -18,6 +18,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from openapi_surface_fingerprint import (
+    ProjectionError,
+    generated_outputs,
+    project_openapi,
+    projection_differences,
+    validate_manifest,
+)
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover - exercised only in broken envs.
@@ -311,9 +319,15 @@ def envelope_data_schema(schema: Any) -> Any:
 
 
 def require_api_json_responses_use_envelope(spec: dict[str, Any]) -> None:
+    raw_control_plane_operations = {
+        ("get", "/api/v1/admin/readiness"),
+        ("get", "/api/v1/app/readiness/capabilities"),
+    }
     missing: list[str] = []
     for path, method, op, _operations in api_operations(spec):
         if path.startswith("/api/v1/relay/") or path.startswith("/api/v1/gateway/proxy/"):
+            continue
+        if (method, path) in raw_control_plane_operations:
             continue
         for status, response in op.get("responses", {}).items():
             if not response_refs_envelope(spec, response):
@@ -490,90 +504,43 @@ def require_api_operation_metadata_contract(spec: dict[str, Any]) -> None:
     fail("[openapi-contract] /api operation metadata contract failed:", messages)
 
 
-def security_kind(op: dict[str, Any], spec: dict[str, Any]) -> str:
-    security = op.get("security", spec.get("security"))
-    if security == []:
-        return "public"
-    if isinstance(security, list) and any(isinstance(entry, dict) and "bearerAuth" in entry for entry in security):
-        return "bearer"
-    if isinstance(security, list) and any(
-        isinstance(entry, dict) and "cookieAuth" in entry and "csrfHeader" in entry for entry in security
-    ):
-        return "cookie+csrf"
-    if isinstance(security, list) and any(isinstance(entry, dict) and "cookieAuth" in entry for entry in security):
-        return "cookie"
-    return "unknown"
-
-
-def require_route_surface_manifest_contract(spec: dict[str, Any], manifest: dict[str, Any]) -> None:
-    openapi_routes: dict[tuple[str, str], dict[str, Any]] = {}
-    for path, raw_item in spec.get("paths", {}).items():
-        if not isinstance(path, str) or not path.startswith("/api/") or not isinstance(raw_item, dict):
-            continue
-        item = resolve_ref(spec, raw_item["$ref"]) if raw_item.get("$ref") else raw_item
-        for method in ["get", "post", "put", "patch", "delete"]:
-            op = item.get(method) if isinstance(item, dict) else None
-            if not isinstance(op, dict):
+def require_route_surface_manifest_contract(
+    spec: dict[str, Any],
+    manifest: dict[str, Any],
+    contract: dict[str, Any],
+    schema: dict[str, Any],
+    artifact_paths: dict[str, Path],
+) -> None:
+    messages: list[str] = []
+    try:
+        validate_manifest(manifest, schema)
+        projected = project_openapi(spec, contract)
+        for difference in projection_differences(projected, manifest):
+            messages.append(
+                f"{difference['kind']} operationId={difference['operationId']} field={difference['field']}"
+            )
+        expected_outputs = generated_outputs(projected, contract)
+        for label, path in artifact_paths.items():
+            try:
+                actual = path.read_bytes()
+            except OSError:
+                messages.append(f"missing artifact={label}")
                 continue
-            kind = security_kind(op, spec)
-            openapi_routes[(method.upper(), path)] = {
-                "security": kind,
-                "csrf": kind == "cookie+csrf",
-                "operationId": op.get("operationId"),
-                "tags": op.get("tags", []),
-            }
-    manifest_routes: dict[tuple[Any, Any], dict[str, Any]] = {}
-    duplicate_manifest: list[str] = []
-    malformed_manifest: list[str] = []
-    for route in manifest.get("routes", []):
-        if not isinstance(route, dict):
-            malformed_manifest.append(f"{inspect_value(None)} {inspect_value(None)} has an unsupported method")
-            continue
-        method = route.get("method")
-        path = route.get("path")
-        sample_path = route.get("samplePath")
-        key = (method, path)
-        if not isinstance(method, str) or method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-            malformed_manifest.append(f"{inspect_value(method)} {inspect_value(path)} has an unsupported method")
-        if not isinstance(path, str) or not path.startswith("/api/"):
-            malformed_manifest.append(f"{method} {inspect_value(path)} path must start with /api/")
-        if not isinstance(sample_path, str) or not sample_path.startswith("/api/") or "{" in sample_path or "}" in sample_path:
-            malformed_manifest.append(f"{method} {path} must provide a concrete /api/ samplePath")
-        if route.get("security") not in {"public", "cookie", "cookie+csrf", "bearer"}:
-            malformed_manifest.append(f"{method} {path} has unsupported security {inspect_value(route.get('security'))}")
-        if route.get("csrf") != (route.get("security") == "cookie+csrf"):
-            malformed_manifest.append(f"{method} {path} csrf must match cookie+csrf security")
-        if key in manifest_routes:
-            duplicate_manifest.append(f"{method} {path}")
-        manifest_routes[key] = route
-    openapi_keys = list(openapi_routes)
-    manifest_keys = list(manifest_routes)
-    missing_manifest = [key for key in openapi_keys if key not in manifest_routes]
-    stale_manifest = [key for key in manifest_keys if key not in openapi_routes]
-    mismatch: list[str] = []
-    for key in [key for key in openapi_keys if key in manifest_routes]:
-        openapi_route = openapi_routes[key]
-        manifest_route = manifest_routes[key]
-        method, path = key
-        if manifest_route.get("security") != openapi_route["security"]:
-            mismatch.append(
-                f"{method} {path} security manifest={inspect_value(manifest_route.get('security'))} "
-                f"openapi={inspect_value(openapi_route['security'])}"
-            )
-        if manifest_route.get("csrf") != openapi_route["csrf"]:
-            mismatch.append(
-                f"{method} {path} csrf manifest={inspect_value(manifest_route.get('csrf'))} "
-                f"openapi={inspect_value(openapi_route['csrf'])}"
-            )
-        if not str(manifest_route.get("operationId") or "").strip() or manifest_route.get("operationId") != openapi_route["operationId"]:
-            mismatch.append(f"{method} {path} operationId must match OpenAPI")
-        if not isinstance(manifest_route.get("tags"), list) or not manifest_route.get("tags") or manifest_route.get("tags") != openapi_route["tags"]:
-            mismatch.append(f"{method} {path} tags must match OpenAPI")
-    messages = [f"manifest missing {method} {path}" for method, path in missing_manifest]
-    messages += [f"manifest has stale {method} {path}" for method, path in stale_manifest]
-    messages += [f"manifest duplicates {entry}" for entry in duplicate_manifest]
-    messages += malformed_manifest + mismatch
-    fail("[openapi-contract] route-surface manifest parity failed:", messages)
+            if actual != expected_outputs[label]:
+                messages.append(f"stale artifact={label}")
+    except ProjectionError as exc:
+        messages.append(
+            f"{exc.code} operationId={exc.operation_id} field={exc.field} count={exc.count}"
+        )
+    fail("[openapi-contract] route-surface fingerprint parity failed:", messages)
+
+
+def manifest_route_samples(manifest: dict[str, Any]) -> dict[tuple[Any, Any], dict[str, Any]]:
+    return {
+        (route.get("method"), route.get("normalizedPath")): route
+        for route in manifest.get("routeSamples", [])
+        if isinstance(route, dict)
+    }
 
 
 RELEASE_EVIDENCE_PATHS = [
@@ -612,11 +579,7 @@ def require_release_evidence_contract(spec: dict[str, Any], manifest: dict[str, 
     if dig(proof_schema, "properties", "notReadyReason", "type") != "string":
         missing.append("ReleaseEvidenceProof.notReadyReason must be documented as a string")
 
-    manifest_routes = {
-        (route.get("method"), route.get("path")): route
-        for route in manifest.get("routes", [])
-        if isinstance(route, dict)
-    }
+    manifest_routes = manifest_route_samples(manifest)
     for path in RELEASE_EVIDENCE_PATHS:
         op = operation(paths, path, "get", missing)
         if not has_tags(op, "Admin", "ReleaseEvidence"):
@@ -653,11 +616,7 @@ def require_release_evidence_contract(spec: dict[str, Any], manifest: dict[str, 
 
 def require_windowed_admin_proof_contract(spec: dict[str, Any], manifest: dict[str, Any]) -> None:
     paths = spec.get("paths", {})
-    manifest_routes = {
-        (route.get("method"), route.get("path")): route
-        for route in manifest.get("routes", [])
-        if isinstance(route, dict)
-    }
+    manifest_routes = manifest_route_samples(manifest)
     missing: list[str] = []
 
     for path in WINDOWED_ADMIN_PROOF_PATHS:
@@ -3163,6 +3122,19 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify OpenAPI release contract without Ruby")
     parser.add_argument("--openapi-file", default=str(repo_root / "docs" / "api" / "openapi.yaml"))
     parser.add_argument("--route-surface-manifest-file", default=str(repo_root / "docs" / "api" / "route-surface-manifest.json"))
+    parser.add_argument("--release-contract-file", default=str(repo_root / "config" / "release" / "contract.v1.json"))
+    parser.add_argument(
+        "--route-surface-schema-file",
+        default=str(repo_root / "docs" / "api" / "route-surface-manifest.schema.json"),
+    )
+    parser.add_argument(
+        "--operation-contracts-file",
+        default=str(repo_root / "src" / "web" / "src" / "generated" / "operation-contracts.generated.ts"),
+    )
+    parser.add_argument(
+        "--release-projection-file",
+        default=str(repo_root / "src" / "web" / "src" / "generated" / "release-projection.generated.ts"),
+    )
     return parser.parse_args()
 
 
@@ -3188,6 +3160,8 @@ def main() -> int:
     args = parse_args()
     spec = load_yaml(Path(args.openapi_file))
     manifest = load_json(Path(args.route_surface_manifest_file))
+    contract = load_json(Path(args.release_contract_file))
+    route_surface_schema = load_json(Path(args.route_surface_schema_file))
     paths = spec.get("paths", {})
     schemas = dig(spec, "components", "schemas") or {}
 
@@ -3209,7 +3183,17 @@ def main() -> int:
     require_api_security_surface_contract(spec)
     require_api_path_parameter_contract(spec)
     require_api_operation_metadata_contract(spec)
-    require_route_surface_manifest_contract(spec, manifest)
+    require_route_surface_manifest_contract(
+        spec,
+        manifest,
+        contract,
+        route_surface_schema,
+        {
+            "manifest": Path(args.route_surface_manifest_file),
+            "typescript": Path(args.operation_contracts_file),
+            "releaseProjection": Path(args.release_projection_file),
+        },
+    )
     require_release_evidence_contract(spec, manifest)
     require_windowed_admin_proof_contract(spec, manifest)
     require_session_csrf_contract(spec)
