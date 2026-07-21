@@ -156,7 +156,11 @@
         "method": { "type": "string", "enum": ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"] },
         "normalizedPath": { "type": "string", "pattern": "^/" },
         "samplePath": { "type": "string", "pattern": "^/" },
-        "sampleQuery": { "type": "string" },
+        "sampleQuery": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
         "tags": {
           "type": "array",
           "minItems": 1,
