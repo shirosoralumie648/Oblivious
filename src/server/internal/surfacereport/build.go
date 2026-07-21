@@ -63,6 +63,9 @@ func registerFoundationDetails(registry *DetailsRegistry) {
 	if err := RegisterMigrationDetails(registry); err != nil {
 		panic("register migration details: " + err.Error())
 	}
+	if err := RegisterHTTPRuntimeDetails(registry); err != nil {
+		panic("register http runtime details: " + err.Error())
+	}
 }
 
 func NewBuildIdentityReport(
@@ -180,6 +183,9 @@ func validateBuildIdentityDetailsAgainst(details BuildIdentityDetails, expected 
 }
 
 func validateDetailsAgainstRelease(report SurfaceReportV1) error {
+	if report.SurfaceIdentity.Surface == HTTPRuntimeSurfaceID {
+		return validateHTTPRuntimeReport(report)
+	}
 	if report.SurfaceIdentity.Surface == ProtobufSurfaceID {
 		return validateProtobufReport(report)
 	}
