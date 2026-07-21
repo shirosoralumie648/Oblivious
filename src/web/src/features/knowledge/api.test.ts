@@ -5,12 +5,25 @@ import { createKnowledgeApi } from './api';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
   const client: HttpClient = {
-    delete: vi.fn(),
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    request: vi.fn(),
-    ...overrides
+    delete: overrides.delete
+      ? ((path, init) => init === undefined ? overrides.delete!(path) : overrides.delete!(path, init)) as HttpClient['delete']
+      : vi.fn(),
+    get: overrides.get
+      ? ((path, init) => init === undefined ? overrides.get!(path) : overrides.get!(path, init)) as HttpClient['get']
+      : vi.fn(),
+    post: overrides.post
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.post!(path) : overrides.post!(path, body)
+          : overrides.post!(path, body, init)) as HttpClient['post']
+      : vi.fn(),
+    put: overrides.put
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.put!(path) : overrides.put!(path, body)
+          : overrides.put!(path, body, init)) as HttpClient['put']
+      : vi.fn(),
+    request: overrides.request
+      ? ((path, init) => init === undefined ? overrides.request!(path) : overrides.request!(path, init)) as HttpClient['request']
+      : vi.fn()
   };
   return client;
 }
