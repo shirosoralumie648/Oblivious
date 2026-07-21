@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	stdhttp "net/http"
 	"strconv"
 	"strings"
@@ -130,7 +131,17 @@ func writeChatReadinessError(w stdhttp.ResponseWriter, err error) {
 func decodeStrictChatMutation(r *stdhttp.Request, target any) error {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
 }
 
 func (h chatHandler) publishChatMessagesSynced(sessionUserID, conversationID string, messages []chat.Message) {
