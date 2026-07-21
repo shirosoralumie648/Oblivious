@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-11-PLAN.md
-last_updated: "2026-07-21T17:04:31.670Z"
+stopped_at: Completed 31.2-12-PLAN.md
+last_updated: "2026-07-21T17:36:04.559Z"
 last_activity: 2026-07-21
-last_activity_desc: Completed Plan 31.2-11 Group A frontend operation contracts
+last_activity_desc: Completed Plan 31.2-12 Group B frontend operation contracts
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 36
-  percent: 82
+  completed_plans: 37
+  percent: 84
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 8 of 15
+Plan: 9 of 15
 Status: Ready to execute
-Last activity: 2026-07-21 — Completed Plan 31.2-11 Group A frontend operation contracts
+Last activity: 2026-07-21 — Plan 31.2-12 Group B frontend operation contracts
 
-Progress: [████████░░] 82%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -126,6 +126,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Preserve AgentToolDefinition.capabilityId only on normalized server responses and retain explicit business-field mutation serialization. — Prevents read-only capability identity from becoming caller-controlled mutation authority.
 - [Phase 31.2]: Treat runtime durable Knowledge ingestion as authoritative: multipart upload returns 202 KnowledgeDocumentIngestionJob and canonical/legacy status routes return job arrays. — Reconciles stale OpenAPI and generated consumers with the already-shipped durable runtime behavior.
 - [Phase 31.2]: Keep existing API behavior assertions by stripping the new transport argument only inside test client adapters; compiler-symbol verification owns contract-identity proof. — Separates public business behavior compatibility from exact metadata identity verification.
+- [Phase 31.2]: Use concrete generated operation constants and Plan 04 codec factories across every Group B HttpClient call, including optional-body actions. — Prevents method, path, media, schema, or status identity from being reconstructed by callers.
+- [Phase 31.2]: Project MCP add-server and execute-tool mutations to their explicit business fields. — Caller-supplied capabilityId and unknown authority fields cannot cross the frontend mutation boundary.
+- [Phase 31.2]: Route Admin dashboard data through the shared typed SWR fetcher with getAdminStatsOperationContract. — The SWR owner now carries exact request and response identity into the actual transport.
+- [Phase 31.2]: Preserve legacy business-argument assertions by stripping only the new transport argument inside test client adapters. — Separates public behavior compatibility from compiler-owned exact metadata proof.
 
 ### Pending Todos
 
@@ -164,6 +168,7 @@ None yet.
 | Phase 31.2 P04 | 39 min | 3 tasks | 14 files |
 | Phase 31.2 P08 | 45 min | 2 tasks | 7 files |
 | Phase 31.2 P11 | 46m | 3 tasks | 19 files |
+| Phase 31.2 P12 | 22 min | 3 tasks | 16 files |
 
 ### Roadmap Evolution
 
@@ -176,8 +181,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T17:04:31.655Z
-Stopped at: Completed 31.2-11-PLAN.md
+Last session: 2026-07-21T17:36:04.548Z
+Stopped at: Completed 31.2-12-PLAN.md
 Resume file: None
 
 ## Performance Metrics
