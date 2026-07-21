@@ -13,12 +13,17 @@ import {
 import useSWR from 'swr';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 
-import { createAdminApi } from '../../features/admin/api';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { MetricCard } from '../../components/shared/MetricCard';
 import { StatChart } from '../../components/shared/StatChart';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { createHttpClient } from '../../services/http/client';
+import { getAdminStatsOperationContract } from '@/generated/operation-contracts.generated';
+import { fetcher, type SWRTransportKey } from '../../lib/swr';
+import {
+  jsonEnvelopeDecoder,
+  noneRequestEncoder,
+  type OperationTransportContract
+} from '../../services/http/client';
 import type { AdminStats } from '../../types/admin';
 
 type ChartPoint = {
@@ -107,9 +112,19 @@ function hasNoActivity(stats: AdminStats) {
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
+const adminStatsTransport: OperationTransportContract<AdminStats> = {
+  operation: getAdminStatsOperationContract,
+  requestEncoder: noneRequestEncoder(getAdminStatsOperationContract),
+  responseDecoder: jsonEnvelopeDecoder<AdminStats>(getAdminStatsOperationContract, 200)
+};
+const adminStatsKey = [
+  '/api/v1/admin/stats',
+  getAdminStatsOperationContract,
+  adminStatsTransport
+] as const satisfies SWRTransportKey<AdminStats>;
+
 export function AdminHomePage() {
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
-  const { data: stats, error, isLoading, mutate } = useSWR('/api/v1/admin/stats', () => api.getStats());
+  const { data: stats, error, isLoading, mutate } = useSWR<AdminStats>(adminStatsKey, fetcher<AdminStats>);
 
   const apiCallsData = useMemo(() => (stats ? buildApiCallsData(stats) : []), [stats]);
   const uptimeData = useMemo(() => (stats ? buildUptimeData(stats) : []), [stats]);
