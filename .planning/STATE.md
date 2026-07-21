@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 31.2
-current_phase_name: 契约表面一致性与聚合门禁
-status: planning
-stopped_at: Completed 31.1-20-PLAN.md; Phase 31.1 repository-local verification passed; manual final Stage B/push pending
-last_updated: "2026-07-21T06:36:21.751Z"
+current_phase_name: contract-surface-parity-gate
+status: executing
+stopped_at: Completed 31.2-01-PLAN.md
+last_updated: "2026-07-21T10:45:40.150Z"
 last_activity: 2026-07-21
-last_activity_desc: Phase 31.1 complete, transitioned to Phase 31.2
+last_activity_desc: Phase 31.2 execution started
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 29
+  completed_plans: 30
   percent: 18
 ---
 
@@ -24,16 +24,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 **Core value:** 让组织客户能够可靠地构建、运行并商业化 AI 应用，同时让每一次 AI 操作都可隔离、可计费、可追踪、可审计、可恢复。
-**Current focus:** Phase 31.2 — 契约表面一致性与聚合门禁
+**Current focus:** Phase 31.2 — contract-surface-parity-gate
 
 ## Current Position
 
-Phase: 31.2 — 契约表面一致性与聚合门禁
-Plan: Not started
-Status: Ready to plan Phase 31.2
-Last activity: 2026-07-21 — Phase 31.1 complete, transitioned to Phase 31.2
+Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
+Plan: 2 of 15
+Status: Ready to execute
+Last activity: 2026-07-21 — Phase 31.2 execution started
 
-Progress: [███████░░░] 66%
+Progress: [███████░░░] 68%
 
 ## Performance Metrics
 
@@ -102,6 +102,8 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Production runtime construction uses the strict duplicate-rejecting EffectRegistry and exposes only a defensive post-construction descriptor snapshot.
 - [Phase 31.1]: Shared Chat consumers retain current dispatch guards while the router remains the single descriptor registration owner.
 - [Phase 31.1]: Both readiness gate stages run the real BuildRuntime exact-join selector before deployment or identity-bearing harness work.
+- [Phase 31.2]: OpenAPI remains the sole HTTP schema authority; manifest and TypeScript artifacts are deterministic compare-only projections.
+- [Phase 31.2]: Runtime parity and complete frontend caller discovery remain owned by Plans 02 and 03; Plan 01 evidence is repository-local E1 only.
 
 ### Pending Todos
 
@@ -133,6 +135,7 @@ None yet.
 | Phase 31.1 P21 | 5 min | 2 tasks | 2 files |
 | Phase 31.1 P19 | 39 min | 3 tasks | 8 files |
 | Phase 31.1 P22 | 16 min | 2 tasks | 3 files |
+| Phase 31.2 P01 | 27 min | 3 tasks | 9 files |
 
 ### Roadmap Evolution
 
@@ -145,8 +148,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T06:35:40.893Z
-Stopped at: Completed 31.1-20-PLAN.md; Phase 31.1 repository-local verification passed; manual final Stage B/push pending
+Last session: 2026-07-21T10:41:33.969Z
+Stopped at: Completed 31.2-01-PLAN.md
 Resume file: None
 
 ## Performance Metrics
