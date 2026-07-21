@@ -356,7 +356,7 @@ def _sample_query(spec: dict[str, Any], operation: dict[str, Any], *, operation_
 
 
 def project_openapi(
-    spec: dict[str, Any], contract: dict[str, Any], prior_manifest: dict[str, Any] | None = None
+    spec: dict[str, Any], contract: dict[str, Any]
 ) -> dict[str, Any]:
     capability_rows = contract.get("capabilities")
     if not isinstance(capability_rows, list) or not capability_rows:
@@ -472,15 +472,25 @@ def validate_manifest(manifest: dict[str, Any], schema: dict[str, Any]) -> None:
 
     operations = manifest.get("operations", [])
     dispositions = manifest.get("scope", {}).get("dispositions", [])
+    route_samples = manifest.get("routeSamples", [])
     operation_ids = [row.get("operationId") for row in operations]
     operation_keys = [(row.get("method"), row.get("normalizedPath")) for row in operations]
     disposition_keys = [(row.get("method"), row.get("normalizedPath")) for row in dispositions]
+    sample_keys = [(row.get("method"), row.get("normalizedPath")) for row in route_samples]
     if len(set(operation_ids)) != len(operation_ids):
         raise ProjectionError("manifest_operation_id_duplicate", field="operationId")
     if len(set(operation_keys)) != len(operation_keys):
         raise ProjectionError("manifest_operation_duplicate", field="method+normalizedPath")
     if len(set(disposition_keys)) != len(disposition_keys):
         raise ProjectionError("manifest_disposition_duplicate", field="method+normalizedPath")
+    if len(set(sample_keys)) != len(sample_keys):
+        raise ProjectionError("manifest_sample_duplicate", field="method+normalizedPath")
+    if set(sample_keys) != set(disposition_keys):
+        raise ProjectionError(
+            "manifest_sample_scope_mismatch",
+            field="routeSamples",
+            count=len(set(sample_keys).symmetric_difference(set(disposition_keys))),
+        )
     included_keys = {
         (row["method"], row["normalizedPath"])
         for row in dispositions
@@ -492,6 +502,21 @@ def validate_manifest(manifest: dict[str, Any], schema: dict[str, Any]) -> None:
             field="scope.dispositions",
             count=len(included_keys.symmetric_difference(set(operation_keys))),
         )
+    for operation in operations:
+        response_keys = [
+            (
+                response["status"],
+                response["mediaType"],
+                canonical_json(response["schemaIdentity"]),
+            )
+            for response in operation["successResponses"]
+        ]
+        if len(set(response_keys)) != len(response_keys):
+            raise ProjectionError(
+                "manifest_success_response_duplicate",
+                operation["operationId"],
+                "successResponses",
+            )
     digest = canonical_digest({"scope": manifest["scope"], "operations": operations})
     if manifest.get("projectionDigest") != digest:
         raise ProjectionError("manifest_digest_mismatch", field="projectionDigest")
@@ -597,6 +622,21 @@ def operation_contracts_typescript(manifest: dict[str, Any]) -> bytes:
         + " as const satisfies readonly OperationContractMetadataV1[];",
         "",
     ]
+    exported_names: set[str] = set()
+    for index, operation in enumerate(manifest["operations"]):
+        raw_name = re.sub(r"[^A-Za-z0-9_$]", "_", operation["operationId"])
+        if not re.match(r"^[A-Za-z_$]", raw_name):
+            raw_name = "operation_" + raw_name
+        export_name = raw_name + "OperationContract"
+        if export_name in exported_names:
+            raise ProjectionError(
+                "typescript_export_duplicate", operation["operationId"], "operationId"
+            )
+        exported_names.add(export_name)
+        lines.append(
+            f"export const {export_name}: OperationContractMetadataV1 = operationContracts[{index}];"
+        )
+    lines.append("")
     return "\n".join(lines).encode("utf-8")
 
 
@@ -979,6 +1019,80 @@ def run_fixture_suite(args: argparse.Namespace, suite: str) -> dict[str, Any]:
                 raise ProjectionError("fixture_false_green", field="typedExportDrift")
             counts["typedExportDrift"] = 1
 
+            def expect_manifest_failure(
+                name: str, mutate: Callable[[dict[str, Any]], None], code: str
+            ) -> None:
+                for filename, content in baseline_files.items():
+                    (root / filename).write_bytes(content)
+                candidate = json.loads(baseline_files["manifest.json"])
+                mutate(candidate)
+                candidate["projectionDigest"] = canonical_digest(
+                    {"scope": candidate["scope"], "operations": candidate["operations"]}
+                )
+                (root / "manifest.json").write_bytes(pretty_json(candidate))
+                result = _run_projector(script, root, "--check")
+                if result.returncode == 0 or code not in result.stderr:
+                    raise ProjectionError("fixture_false_green", field=name)
+                counts[name] = 1
+
+            def remove_operation(candidate: dict[str, Any]) -> None:
+                removed = candidate["operations"].pop(0)
+                key = (removed["method"], removed["normalizedPath"])
+                candidate["scope"]["dispositions"] = [
+                    row
+                    for row in candidate["scope"]["dispositions"]
+                    if (row["method"], row["normalizedPath"]) != key
+                ]
+                candidate["routeSamples"] = [
+                    row
+                    for row in candidate["routeSamples"]
+                    if (row["method"], row["normalizedPath"]) != key
+                ]
+
+            def add_operation(candidate: dict[str, Any]) -> None:
+                operation = copy.deepcopy(candidate["operations"][0])
+                operation.update(
+                    {
+                        "method": "GET",
+                        "normalizedPath": "/api/v1/fixture-extra",
+                        "operationId": "fixtureExtraOperation",
+                    }
+                )
+                candidate["operations"].append(operation)
+                candidate["scope"]["dispositions"].append(
+                    {
+                        "method": "GET",
+                        "normalizedPath": "/api/v1/fixture-extra",
+                        "disposition": "included",
+                        "reason": "fixture_extra",
+                    }
+                )
+                candidate["routeSamples"].append(
+                    {
+                        "method": "GET",
+                        "normalizedPath": "/api/v1/fixture-extra",
+                        "samplePath": "/api/v1/fixture-extra",
+                        "tags": ["Fixture"],
+                    }
+                )
+
+            expect_manifest_failure("manifestMissingOperation", remove_operation, "manifest_incompatible")
+            expect_manifest_failure("manifestExtraOperation", add_operation, "manifest_incompatible")
+            expect_manifest_failure(
+                "manifestDuplicateOperation",
+                lambda candidate: candidate["operations"].append(
+                    copy.deepcopy(candidate["operations"][0])
+                ),
+                "manifest_operation_id_duplicate",
+            )
+            expect_manifest_failure(
+                "manifestCoreDrift",
+                lambda candidate: candidate["operations"][0].__setitem__(
+                    "capabilityId", "release.contract_reporting"
+                ),
+                "manifest_incompatible",
+            )
+
         required_families = [
             "methodMutations",
             "pathMutations",
@@ -1029,11 +1143,8 @@ def main() -> int:
             return 0
         spec = load_yaml(Path(args.openapi))
         contract = load_json(Path(args.contract), code="capability_contract_invalid")
-        prior_manifest = None
         manifest_path = Path(args.manifest)
-        if manifest_path.exists():
-            prior_manifest = load_json(manifest_path, code="manifest_json_invalid")
-        projected = project_openapi(spec, contract, prior_manifest)
+        projected = project_openapi(spec, contract)
         schema = load_json(Path(args.schema), code="manifest_schema_invalid")
         validate_manifest(projected, schema)
 
@@ -1071,8 +1182,9 @@ def main() -> int:
                 )
             )
         elif args.check:
-            if prior_manifest is None:
+            if not manifest_path.exists():
                 raise ProjectionError("artifact_missing", field="manifest")
+            prior_manifest = load_json(manifest_path, code="manifest_json_invalid")
             validate_manifest(prior_manifest, schema)
             differences = projection_differences(projected, prior_manifest)
             if differences:
