@@ -14,7 +14,7 @@
 - Decimal phases (2.1, 2.2): urgent insertions marked `INSERTED`
 
 - [x] **Phase 31: 发布合同与可信构建身份** - 固定能力承诺、显式 profile、clean source identity 和统一报告协议。 (completed 2026-07-17)
-- [ ] **Phase 31.1: 动态 Readiness 与持续 Fail-Closed** (INSERTED) - 用进程内动态授权源约束所有新副作用。
+- [x] **Phase 31.1: 动态 Readiness 与持续 Fail-Closed** (INSERTED) - 用进程内动态授权源约束所有新副作用。 (completed 2026-07-21)
 - [ ] **Phase 31.2: 契约表面一致性与聚合门禁** (INSERTED) - 让所有 canonical surface 与 runtime 双向一致并阻断漂移。
 - [ ] **Phase 32: 身份、租户与共享出站安全** - 建立可信组织边界和统一 fail-closed 集成安全。
 - [ ] **Phase 33: 耐久执行、RAG Worker 与共享对象** - 让知识和自动化任务可恢复、可重放且不依赖本地状态。
@@ -141,7 +141,7 @@ Plans:
 
 **Gap Wave 3** *(blocked on all Gap Waves 1-2 plans)*
 
-- [ ] 31.1-20-PLAN.md - Re-audit code, security, Nyquist, docs, and repository-local gates before handing final tracking-HEAD Stage B and push to a hard manual post-closeout gate.
+- [x] 31.1-20-PLAN.md - Re-audit code, security, Nyquist, docs, and repository-local gates before handing final tracking-HEAD Stage B and push to a hard manual post-closeout gate.
 
 Cross-cutting constraints:
 
@@ -358,7 +358,7 @@ Cross-cutting constraints:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
-| 31.1 动态 Readiness 与持续 Fail-Closed | 21/22 | In Progress|  |
+| 31.1 动态 Readiness 与持续 Fail-Closed | 22/22 | Complete    | 2026-07-21 |
 | 31.2 契约表面一致性与聚合门禁 | 0/15 | Not started | - |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
