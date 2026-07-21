@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.1
 current_phase_name: dynamic-readiness-continuous-fail-closed
 status: in_progress
-stopped_at: Completed 31.1-19-PLAN.md
-last_updated: "2026-07-21T02:19:07.036Z"
+stopped_at: Completed 31.1-22-PLAN.md
+last_updated: "2026-07-21T02:52:40.563Z"
 last_activity: 2026-07-21
-last_activity_desc: Production BuildRuntime exact-joined 17 descriptors across all supported web-search selections and both readiness gate stages
+last_activity_desc: Canonical Kubernetes runner applies and bounded-waits Kafka before app rollout and requires /readyz before smoke
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 44
-  completed_plans: 27
-  percent: 9
+  completed_plans: 28
+  percent: 64
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 20 of 22
-Status: Plan 31.1-19 complete; Plan 31.1-22 is next, followed by closeout Plan 31.1-20
-Last activity: 2026-07-21 — Production BuildRuntime exact-joined 17 descriptors across all supported web-search selections and both readiness gate stages
+Plan: 21 of 22
+Status: Plan 31.1-22 complete; closeout Plan 31.1-20 is next
+Last activity: 2026-07-21 — Canonical Kubernetes runner applies and bounded-waits Kafka before app rollout and requires /readyz before smoke
 
 Progress: [█████████░] 86%
 
@@ -133,6 +133,7 @@ None yet.
 | Phase 31.1 P18 | 2h 5m | 3 tasks | 3 files |
 | Phase 31.1 P21 | 5 min | 2 tasks | 2 files |
 | Phase 31.1 P19 | 39 min | 3 tasks | 8 files |
+| Phase 31.1 P22 | 16 min | 2 tasks | 3 files |
 
 ### Roadmap Evolution
 
@@ -145,8 +146,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T02:19:07.030Z
-Stopped at: Completed 31.1-19-PLAN.md
+Last session: 2026-07-21T02:52:40.552Z
+Stopped at: Completed 31.1-22-PLAN.md
 Resume file: None
 
 ## Performance Metrics
