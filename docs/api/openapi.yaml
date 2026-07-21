@@ -792,6 +792,51 @@ components:
           type: string
           enum: [full_replace, incremental, versioned]
 
+    KnowledgeDocumentIngestionJob:
+      type: object
+      required:
+        - id
+        - knowledgeBaseId
+        - title
+        - status
+        - attempts
+        - maxAttempts
+        - availableAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        knowledgeBaseId:
+          type: string
+        documentId:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, succeeded, failed, dead_letter]
+        error:
+          type: string
+        attempts:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        availableAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     UploadKnowledgeDocumentRequest:
       type: object
       required: [file]
@@ -9280,8 +9325,8 @@ paths:
             schema:
               $ref: "#/components/schemas/UploadKnowledgeDocumentRequest"
       responses:
-        "200":
-          description: 上传并解析后的文档
+        "202":
+          description: 已持久化并排队的文档摄取任务
           content:
             application/json:
               schema:
@@ -9290,9 +9335,45 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Document"
+                        $ref: "#/components/schemas/KnowledgeDocumentIngestionJob"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs:
+    get:
+      summary: 获取知识库文档摄取任务列表
+      operationId: listKnowledgeDocumentIngestionJobs
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
+      tags: [Knowledge]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 按最近更新时间排序的文档摄取任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeDocumentIngestionJob"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -9839,6 +9920,10 @@ paths:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1upload"
     x-oblivious-operation-id-overrides:
       post: legacyUploadKnowledgeDocument
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1ingestion-jobs"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeDocumentIngestionJobs
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}"
     x-oblivious-operation-id-overrides:

@@ -23,7 +23,7 @@ export type PublicOperationDispositionV1 = {
   readonly reason: string;
 };
 
-export const operationContractDigest = "sha256:a877f8ebf7a71dd3e3f91219b099bd69c94ae487f11e151b3e8aba9756fd0091" as const;
+export const operationContractDigest = "sha256:ea30976f776600c5e24c0fe71966cb77097b46ca87a135fec305596219576afc" as const;
 
 export const publicOperationScope = {
   "dispositions": [
@@ -1049,6 +1049,12 @@ export const publicOperationScope = {
     },
     {
       "disposition": "included",
+      "method": "GET",
+      "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "reason": "mandatory_prefix"
+    },
+    {
+      "disposition": "included",
       "method": "POST",
       "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload",
       "reason": "mandatory_prefix"
@@ -1769,6 +1775,12 @@ export const publicOperationScope = {
     },
     {
       "disposition": "included",
+      "method": "GET",
+      "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "reason": "mandatory_prefix"
+    },
+    {
+      "disposition": "included",
       "method": "POST",
       "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload",
       "reason": "mandatory_prefix"
@@ -2394,6 +2406,10 @@ export const schemaIdentities = [
   },
   {
     "kind": "inline",
+    "value": "sha256:238da5fa8009ced78a1114d0a447d0d949b78191769d174c663df2c928685718"
+  },
+  {
+    "kind": "inline",
     "value": "sha256:26e3672acf88559ded6f43167f94b6c7d578a9b631213e0c62b82cc0a5fd6bf0"
   },
   {
@@ -2719,6 +2735,10 @@ export const schemaIdentities = [
   {
     "kind": "inline",
     "value": "sha256:89577119329140d65a9e0b2cbafc66ce01d912b5acf05f1884f06674fb601892"
+  },
+  {
+    "kind": "inline",
+    "value": "sha256:8b1b1c4e08ce7a1663a811aeeb7000d8022440ee73ea51888e1b1c8ff7effc03"
   },
   {
     "kind": "inline",
@@ -7747,6 +7767,31 @@ export const operationContracts = [
   },
   {
     "capabilityId": "knowledge.ingestion",
+    "csrf": false,
+    "method": "GET",
+    "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+    "operationId": "listKnowledgeDocumentIngestionJobs",
+    "request": {
+      "mediaType": null,
+      "schemaIdentity": {
+        "kind": "none",
+        "value": null
+      }
+    },
+    "security": "cookie",
+    "successResponses": [
+      {
+        "mediaType": "application/json",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:238da5fa8009ced78a1114d0a447d0d949b78191769d174c663df2c928685718"
+        },
+        "status": "200"
+      }
+    ]
+  },
+  {
+    "capabilityId": "knowledge.ingestion",
     "csrf": true,
     "method": "POST",
     "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload",
@@ -7764,9 +7809,9 @@ export const operationContracts = [
         "mediaType": "application/json",
         "schemaIdentity": {
           "kind": "inline",
-          "value": "sha256:7f200d9c163803f673f4209c7d508bd0ef35e048d035cc73101a3aa0d7b7c4d1"
+          "value": "sha256:8b1b1c4e08ce7a1663a811aeeb7000d8022440ee73ea51888e1b1c8ff7effc03"
         },
-        "status": "200"
+        "status": "202"
       }
     ]
   },
@@ -10755,6 +10800,31 @@ export const operationContracts = [
   },
   {
     "capabilityId": "knowledge.ingestion",
+    "csrf": false,
+    "method": "GET",
+    "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+    "operationId": "legacyListKnowledgeDocumentIngestionJobs",
+    "request": {
+      "mediaType": null,
+      "schemaIdentity": {
+        "kind": "none",
+        "value": null
+      }
+    },
+    "security": "cookie",
+    "successResponses": [
+      {
+        "mediaType": "application/json",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:238da5fa8009ced78a1114d0a447d0d949b78191769d174c663df2c928685718"
+        },
+        "status": "200"
+      }
+    ]
+  },
+  {
+    "capabilityId": "knowledge.ingestion",
     "csrf": true,
     "method": "POST",
     "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload",
@@ -10772,9 +10842,9 @@ export const operationContracts = [
         "mediaType": "application/json",
         "schemaIdentity": {
           "kind": "inline",
-          "value": "sha256:7f200d9c163803f673f4209c7d508bd0ef35e048d035cc73101a3aa0d7b7c4d1"
+          "value": "sha256:8b1b1c4e08ce7a1663a811aeeb7000d8022440ee73ea51888e1b1c8ff7effc03"
         },
-        "status": "200"
+        "status": "202"
       }
     ]
   },
@@ -13015,205 +13085,207 @@ export const getKnowledgeBaseOperationContract: OperationContractMetadataV1 = op
 export const updateKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[167];
 export const listKnowledgeDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[168];
 export const createKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[169];
-export const uploadKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[170];
-export const deleteKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[171];
-export const updateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[172];
-export const listKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[173];
-export const updateKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[174];
-export const mergeKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[175];
-export const splitKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[176];
-export const listKnowledgeDocumentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[177];
-export const listKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[178];
-export const createKnowledgeRetrievalTestCaseOperationContract: OperationContractMetadataV1 = operationContracts[179];
-export const runKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[180];
-export const retrieveKnowledgeOperationContract: OperationContractMetadataV1 = operationContracts[181];
-export const retrieveKnowledgeDebugOperationContract: OperationContractMetadataV1 = operationContracts[182];
-export const listLocalMcpServersOperationContract: OperationContractMetadataV1 = operationContracts[183];
-export const listMcpServersOperationContract: OperationContractMetadataV1 = operationContracts[184];
-export const addMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[185];
-export const deleteMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[186];
-export const getMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[187];
-export const connectMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[188];
-export const disconnectMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[189];
-export const executeMcpServerToolOperationContract: OperationContractMetadataV1 = operationContracts[190];
-export const getMcpServerStatusOperationContract: OperationContractMetadataV1 = operationContracts[191];
-export const listMcpServerToolsOperationContract: OperationContractMetadataV1 = operationContracts[192];
-export const getPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[193];
-export const updatePreferencesOperationContract: OperationContractMetadataV1 = operationContracts[194];
-export const listMemoryDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[195];
-export const createMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[196];
-export const deleteMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[197];
-export const getMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[198];
-export const updateMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[199];
-export const listMemoryDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[200];
-export const searchMemoryDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[201];
-export const getMessageShareOperationContract: OperationContractMetadataV1 = operationContracts[202];
-export const listModelsOperationContract: OperationContractMetadataV1 = operationContracts[203];
-export const listNotificationsOperationContract: OperationContractMetadataV1 = operationContracts[204];
-export const createNotificationOperationContract: OperationContractMetadataV1 = operationContracts[205];
-export const markAllNotificationsReadOperationContract: OperationContractMetadataV1 = operationContracts[206];
-export const getNotificationUnreadCountOperationContract: OperationContractMetadataV1 = operationContracts[207];
-export const deleteNotificationOperationContract: OperationContractMetadataV1 = operationContracts[208];
-export const markNotificationReadOperationContract: OperationContractMetadataV1 = operationContracts[209];
-export const acceptOrganizationInvitationOperationContract: OperationContractMetadataV1 = operationContracts[210];
-export const listMyOrganizationsOperationContract: OperationContractMetadataV1 = operationContracts[211];
-export const inviteOrganizationMemberOperationContract: OperationContractMetadataV1 = operationContracts[212];
-export const revokeOrganizationInvitationOperationContract: OperationContractMetadataV1 = operationContracts[213];
-export const listOrganizationMembersOperationContract: OperationContractMetadataV1 = operationContracts[214];
-export const removeOrganizationMemberOperationContract: OperationContractMetadataV1 = operationContracts[215];
-export const updateOrganizationMemberRoleOperationContract: OperationContractMetadataV1 = operationContracts[216];
-export const transferOrganizationOwnershipOperationContract: OperationContractMetadataV1 = operationContracts[217];
-export const selectOrganizationOperationContract: OperationContractMetadataV1 = operationContracts[218];
-export const listPackagesOperationContract: OperationContractMetadataV1 = operationContracts[219];
-export const listPersonasOperationContract: OperationContractMetadataV1 = operationContracts[220];
-export const createPersonaOperationContract: OperationContractMetadataV1 = operationContracts[221];
-export const deletePersonaOperationContract: OperationContractMetadataV1 = operationContracts[222];
-export const getPersonaOperationContract: OperationContractMetadataV1 = operationContracts[223];
-export const updatePersonaOperationContract: OperationContractMetadataV1 = operationContracts[224];
-export const getQuotaOperationContract: OperationContractMetadataV1 = operationContracts[225];
-export const topupQuotaOperationContract: OperationContractMetadataV1 = operationContracts[226];
-export const getAppReadinessCapabilitiesOperationContract: OperationContractMetadataV1 = operationContracts[227];
-export const listTasksOperationContract: OperationContractMetadataV1 = operationContracts[228];
-export const createTaskOperationContract: OperationContractMetadataV1 = operationContracts[229];
-export const getTaskOperationContract: OperationContractMetadataV1 = operationContracts[230];
-export const approveTaskOperationContract: OperationContractMetadataV1 = operationContracts[231];
-export const updateTaskBudgetOperationContract: OperationContractMetadataV1 = operationContracts[232];
-export const cancelTaskOperationContract: OperationContractMetadataV1 = operationContracts[233];
-export const pauseTaskOperationContract: OperationContractMetadataV1 = operationContracts[234];
-export const resumeTaskOperationContract: OperationContractMetadataV1 = operationContracts[235];
-export const startTaskOperationContract: OperationContractMetadataV1 = operationContracts[236];
-export const loginOperationContract: OperationContractMetadataV1 = operationContracts[237];
-export const logoutOperationContract: OperationContractMetadataV1 = operationContracts[238];
-export const getCurrentSessionOperationContract: OperationContractMetadataV1 = operationContracts[239];
-export const confirmPasswordResetOperationContract: OperationContractMetadataV1 = operationContracts[240];
-export const requestPasswordResetOperationContract: OperationContractMetadataV1 = operationContracts[241];
-export const registerOperationContract: OperationContractMetadataV1 = operationContracts[242];
-export const receiveAlipayBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[243];
-export const createBillingCheckoutOperationContract: OperationContractMetadataV1 = operationContracts[244];
-export const receiveMarketplacePayoutWebhookOperationContract: OperationContractMetadataV1 = operationContracts[245];
-export const receiveStripeBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[246];
-export const receiveWeChatPayBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[247];
-export const listPublishingChannelsOperationContract: OperationContractMetadataV1 = operationContracts[248];
-export const createPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[249];
-export const receivePublishingChannelWebhookOperationContract: OperationContractMetadataV1 = operationContracts[250];
-export const deletePublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[251];
-export const getPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[252];
-export const updatePublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[253];
-export const listPublishingChannelFailedMessagesOperationContract: OperationContractMetadataV1 = operationContracts[254];
-export const listPublishingChannelMessagesOperationContract: OperationContractMetadataV1 = operationContracts[255];
-export const retryPublishingChannelFailedMessagesOperationContract: OperationContractMetadataV1 = operationContracts[256];
-export const sendPublishingChannelMessageOperationContract: OperationContractMetadataV1 = operationContracts[257];
-export const updatePublishingChannelStatusOperationContract: OperationContractMetadataV1 = operationContracts[258];
-export const testPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[259];
-export const getAccessOperationContract: OperationContractMetadataV1 = operationContracts[260];
-export const listConsoleAPITokensOperationContract: OperationContractMetadataV1 = operationContracts[261];
-export const createConsoleAPITokenOperationContract: OperationContractMetadataV1 = operationContracts[262];
-export const revokeConsoleAPITokenOperationContract: OperationContractMetadataV1 = operationContracts[263];
-export const listConsoleAPITokenUsageOperationContract: OperationContractMetadataV1 = operationContracts[264];
-export const getBillingOperationContract: OperationContractMetadataV1 = operationContracts[265];
-export const listConsoleBillingInvoicesOperationContract: OperationContractMetadataV1 = operationContracts[266];
-export const getConsoleModelsOperationContract: OperationContractMetadataV1 = operationContracts[267];
-export const getUsageOperationContract: OperationContractMetadataV1 = operationContracts[268];
-export const listConversationsAliasOperationContract: OperationContractMetadataV1 = operationContracts[269];
-export const createConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[270];
-export const deleteConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[271];
-export const getConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[272];
-export const updateConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[273];
-export const forkConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[274];
-export const listMessagesAliasOperationContract: OperationContractMetadataV1 = operationContracts[275];
-export const sendMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[276];
-export const deleteMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[277];
-export const updateMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[278];
-export const bookmarkMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[279];
-export const createMessageShareAliasOperationContract: OperationContractMetadataV1 = operationContracts[280];
-export const deleteKnowledgeDocumentByIDOperationContract: OperationContractMetadataV1 = operationContracts[281];
-export const gatewayProxyCreateChatCompletionOperationContract: OperationContractMetadataV1 = operationContracts[282];
-export const legacyListKnowledgeBasesOperationContract: OperationContractMetadataV1 = operationContracts[283];
-export const legacyCreateKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[284];
-export const legacyDeleteKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[285];
-export const legacyGetKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[286];
-export const legacyUpdateKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[287];
-export const legacyListKnowledgeDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[288];
-export const legacyCreateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[289];
-export const legacyUploadKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[290];
-export const legacyDeleteKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[291];
-export const legacyUpdateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[292];
-export const legacyListKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[293];
-export const legacyUpdateKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[294];
-export const legacyMergeKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[295];
-export const legacySplitKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[296];
-export const legacyListKnowledgeDocumentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[297];
-export const legacyListKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[298];
-export const legacyCreateKnowledgeRetrievalTestCaseOperationContract: OperationContractMetadataV1 = operationContracts[299];
-export const legacyRunKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[300];
-export const legacyRetrieveKnowledgeOperationContract: OperationContractMetadataV1 = operationContracts[301];
-export const legacyRetrieveKnowledgeDebugOperationContract: OperationContractMetadataV1 = operationContracts[302];
-export const listMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[303];
-export const publishMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[304];
-export const deleteMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[305];
-export const getMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[306];
-export const updateMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[307];
-export const reportMarketplaceAgentAbuseOperationContract: OperationContractMetadataV1 = operationContracts[308];
-export const appealMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[309];
-export const uninstallMarketplaceAgentByInstallEndpointOperationContract: OperationContractMetadataV1 = operationContracts[310];
-export const installMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[311];
-export const listMarketplaceAgentReviewsOperationContract: OperationContractMetadataV1 = operationContracts[312];
-export const submitMarketplaceAgentReviewOperationContract: OperationContractMetadataV1 = operationContracts[313];
-export const getMarketplaceAgentStatsOperationContract: OperationContractMetadataV1 = operationContracts[314];
-export const listMarketplaceAgentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[315];
-export const listMarketplaceCategoriesOperationContract: OperationContractMetadataV1 = operationContracts[316];
-export const getMarketplaceCuratedSectionsOperationContract: OperationContractMetadataV1 = operationContracts[317];
-export const getMarketplaceFeaturedAgentsOperationContract: OperationContractMetadataV1 = operationContracts[318];
-export const listMarketplaceInstallsOperationContract: OperationContractMetadataV1 = operationContracts[319];
-export const uninstallMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[320];
-export const listMyMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[321];
-export const getMarketplaceSettlementPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[322];
-export const updateMarketplaceSettlementPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[323];
-export const getMarketplacePublisherStatsOperationContract: OperationContractMetadataV1 = operationContracts[324];
-export const searchMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[325];
-export const listMarketplaceTemplatesOperationContract: OperationContractMetadataV1 = operationContracts[326];
-export const createMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[327];
-export const getMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[328];
-export const installMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[329];
-export const relayCreateAudioSpeechOperationContract: OperationContractMetadataV1 = operationContracts[330];
-export const relayCreateAudioTranscriptionOperationContract: OperationContractMetadataV1 = operationContracts[331];
-export const relayCreateAudioTranslationOperationContract: OperationContractMetadataV1 = operationContracts[332];
-export const relayCreateChatCompletionOperationContract: OperationContractMetadataV1 = operationContracts[333];
-export const relayCreateEmbeddingOperationContract: OperationContractMetadataV1 = operationContracts[334];
-export const relayCreateImageEditOperationContract: OperationContractMetadataV1 = operationContracts[335];
-export const relayCreateImageGenerationOperationContract: OperationContractMetadataV1 = operationContracts[336];
-export const relayCreateImageVariationOperationContract: OperationContractMetadataV1 = operationContracts[337];
-export const relayListModelsOperationContract: OperationContractMetadataV1 = operationContracts[338];
-export const relayCreateResponseOperationContract: OperationContractMetadataV1 = operationContracts[339];
-export const listScheduledTasksOperationContract: OperationContractMetadataV1 = operationContracts[340];
-export const createScheduledTaskOperationContract: OperationContractMetadataV1 = operationContracts[341];
-export const runScheduledTaskNowOperationContract: OperationContractMetadataV1 = operationContracts[342];
-export const listScheduledTaskRunsOperationContract: OperationContractMetadataV1 = operationContracts[343];
-export const updateScheduledTaskStatusOperationContract: OperationContractMetadataV1 = operationContracts[344];
-export const listWorkflowsOperationContract: OperationContractMetadataV1 = operationContracts[345];
-export const createWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[346];
-export const matchWorkflowConversationTriggersOperationContract: OperationContractMetadataV1 = operationContracts[347];
-export const pruneWorkflowExecutionDebugRetentionOperationContract: OperationContractMetadataV1 = operationContracts[348];
-export const matchWorkflowSemanticTriggersOperationContract: OperationContractMetadataV1 = operationContracts[349];
-export const triggerSignedWorkflowWebhookOperationContract: OperationContractMetadataV1 = operationContracts[350];
-export const deleteWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[351];
-export const getWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[352];
-export const updateWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[353];
-export const createWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[354];
-export const mergeWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[355];
-export const publishWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[356];
-export const executeWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[357];
-export const listWorkflowExecutionsOperationContract: OperationContractMetadataV1 = operationContracts[358];
-export const getWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[359];
-export const cancelWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[360];
-export const getWorkflowExecutionDebugSnapshotOperationContract: OperationContractMetadataV1 = operationContracts[361];
-export const decideWorkflowExecutionFailureOperationContract: OperationContractMetadataV1 = operationContracts[362];
-export const pauseWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[363];
-export const checkWorkflowExecutionResourcesOperationContract: OperationContractMetadataV1 = operationContracts[364];
-export const resumeWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[365];
-export const getWorkflowExecutionStateReplayOperationContract: OperationContractMetadataV1 = operationContracts[366];
-export const rollbackWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[367];
-export const testWorkflowNodeOperationContract: OperationContractMetadataV1 = operationContracts[368];
-export const listWorkflowVersionsOperationContract: OperationContractMetadataV1 = operationContracts[369];
-export const triggerWorkflowWebhookOperationContract: OperationContractMetadataV1 = operationContracts[370];
-export const connectWorkspaceWebSocketOperationContract: OperationContractMetadataV1 = operationContracts[371];
+export const listKnowledgeDocumentIngestionJobsOperationContract: OperationContractMetadataV1 = operationContracts[170];
+export const uploadKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[171];
+export const deleteKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[172];
+export const updateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[173];
+export const listKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[174];
+export const updateKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[175];
+export const mergeKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[176];
+export const splitKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[177];
+export const listKnowledgeDocumentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[178];
+export const listKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[179];
+export const createKnowledgeRetrievalTestCaseOperationContract: OperationContractMetadataV1 = operationContracts[180];
+export const runKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[181];
+export const retrieveKnowledgeOperationContract: OperationContractMetadataV1 = operationContracts[182];
+export const retrieveKnowledgeDebugOperationContract: OperationContractMetadataV1 = operationContracts[183];
+export const listLocalMcpServersOperationContract: OperationContractMetadataV1 = operationContracts[184];
+export const listMcpServersOperationContract: OperationContractMetadataV1 = operationContracts[185];
+export const addMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[186];
+export const deleteMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[187];
+export const getMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[188];
+export const connectMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[189];
+export const disconnectMcpServerOperationContract: OperationContractMetadataV1 = operationContracts[190];
+export const executeMcpServerToolOperationContract: OperationContractMetadataV1 = operationContracts[191];
+export const getMcpServerStatusOperationContract: OperationContractMetadataV1 = operationContracts[192];
+export const listMcpServerToolsOperationContract: OperationContractMetadataV1 = operationContracts[193];
+export const getPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[194];
+export const updatePreferencesOperationContract: OperationContractMetadataV1 = operationContracts[195];
+export const listMemoryDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[196];
+export const createMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[197];
+export const deleteMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[198];
+export const getMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[199];
+export const updateMemoryDocumentOperationContract: OperationContractMetadataV1 = operationContracts[200];
+export const listMemoryDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[201];
+export const searchMemoryDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[202];
+export const getMessageShareOperationContract: OperationContractMetadataV1 = operationContracts[203];
+export const listModelsOperationContract: OperationContractMetadataV1 = operationContracts[204];
+export const listNotificationsOperationContract: OperationContractMetadataV1 = operationContracts[205];
+export const createNotificationOperationContract: OperationContractMetadataV1 = operationContracts[206];
+export const markAllNotificationsReadOperationContract: OperationContractMetadataV1 = operationContracts[207];
+export const getNotificationUnreadCountOperationContract: OperationContractMetadataV1 = operationContracts[208];
+export const deleteNotificationOperationContract: OperationContractMetadataV1 = operationContracts[209];
+export const markNotificationReadOperationContract: OperationContractMetadataV1 = operationContracts[210];
+export const acceptOrganizationInvitationOperationContract: OperationContractMetadataV1 = operationContracts[211];
+export const listMyOrganizationsOperationContract: OperationContractMetadataV1 = operationContracts[212];
+export const inviteOrganizationMemberOperationContract: OperationContractMetadataV1 = operationContracts[213];
+export const revokeOrganizationInvitationOperationContract: OperationContractMetadataV1 = operationContracts[214];
+export const listOrganizationMembersOperationContract: OperationContractMetadataV1 = operationContracts[215];
+export const removeOrganizationMemberOperationContract: OperationContractMetadataV1 = operationContracts[216];
+export const updateOrganizationMemberRoleOperationContract: OperationContractMetadataV1 = operationContracts[217];
+export const transferOrganizationOwnershipOperationContract: OperationContractMetadataV1 = operationContracts[218];
+export const selectOrganizationOperationContract: OperationContractMetadataV1 = operationContracts[219];
+export const listPackagesOperationContract: OperationContractMetadataV1 = operationContracts[220];
+export const listPersonasOperationContract: OperationContractMetadataV1 = operationContracts[221];
+export const createPersonaOperationContract: OperationContractMetadataV1 = operationContracts[222];
+export const deletePersonaOperationContract: OperationContractMetadataV1 = operationContracts[223];
+export const getPersonaOperationContract: OperationContractMetadataV1 = operationContracts[224];
+export const updatePersonaOperationContract: OperationContractMetadataV1 = operationContracts[225];
+export const getQuotaOperationContract: OperationContractMetadataV1 = operationContracts[226];
+export const topupQuotaOperationContract: OperationContractMetadataV1 = operationContracts[227];
+export const getAppReadinessCapabilitiesOperationContract: OperationContractMetadataV1 = operationContracts[228];
+export const listTasksOperationContract: OperationContractMetadataV1 = operationContracts[229];
+export const createTaskOperationContract: OperationContractMetadataV1 = operationContracts[230];
+export const getTaskOperationContract: OperationContractMetadataV1 = operationContracts[231];
+export const approveTaskOperationContract: OperationContractMetadataV1 = operationContracts[232];
+export const updateTaskBudgetOperationContract: OperationContractMetadataV1 = operationContracts[233];
+export const cancelTaskOperationContract: OperationContractMetadataV1 = operationContracts[234];
+export const pauseTaskOperationContract: OperationContractMetadataV1 = operationContracts[235];
+export const resumeTaskOperationContract: OperationContractMetadataV1 = operationContracts[236];
+export const startTaskOperationContract: OperationContractMetadataV1 = operationContracts[237];
+export const loginOperationContract: OperationContractMetadataV1 = operationContracts[238];
+export const logoutOperationContract: OperationContractMetadataV1 = operationContracts[239];
+export const getCurrentSessionOperationContract: OperationContractMetadataV1 = operationContracts[240];
+export const confirmPasswordResetOperationContract: OperationContractMetadataV1 = operationContracts[241];
+export const requestPasswordResetOperationContract: OperationContractMetadataV1 = operationContracts[242];
+export const registerOperationContract: OperationContractMetadataV1 = operationContracts[243];
+export const receiveAlipayBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[244];
+export const createBillingCheckoutOperationContract: OperationContractMetadataV1 = operationContracts[245];
+export const receiveMarketplacePayoutWebhookOperationContract: OperationContractMetadataV1 = operationContracts[246];
+export const receiveStripeBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[247];
+export const receiveWeChatPayBillingWebhookOperationContract: OperationContractMetadataV1 = operationContracts[248];
+export const listPublishingChannelsOperationContract: OperationContractMetadataV1 = operationContracts[249];
+export const createPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[250];
+export const receivePublishingChannelWebhookOperationContract: OperationContractMetadataV1 = operationContracts[251];
+export const deletePublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[252];
+export const getPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[253];
+export const updatePublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[254];
+export const listPublishingChannelFailedMessagesOperationContract: OperationContractMetadataV1 = operationContracts[255];
+export const listPublishingChannelMessagesOperationContract: OperationContractMetadataV1 = operationContracts[256];
+export const retryPublishingChannelFailedMessagesOperationContract: OperationContractMetadataV1 = operationContracts[257];
+export const sendPublishingChannelMessageOperationContract: OperationContractMetadataV1 = operationContracts[258];
+export const updatePublishingChannelStatusOperationContract: OperationContractMetadataV1 = operationContracts[259];
+export const testPublishingChannelOperationContract: OperationContractMetadataV1 = operationContracts[260];
+export const getAccessOperationContract: OperationContractMetadataV1 = operationContracts[261];
+export const listConsoleAPITokensOperationContract: OperationContractMetadataV1 = operationContracts[262];
+export const createConsoleAPITokenOperationContract: OperationContractMetadataV1 = operationContracts[263];
+export const revokeConsoleAPITokenOperationContract: OperationContractMetadataV1 = operationContracts[264];
+export const listConsoleAPITokenUsageOperationContract: OperationContractMetadataV1 = operationContracts[265];
+export const getBillingOperationContract: OperationContractMetadataV1 = operationContracts[266];
+export const listConsoleBillingInvoicesOperationContract: OperationContractMetadataV1 = operationContracts[267];
+export const getConsoleModelsOperationContract: OperationContractMetadataV1 = operationContracts[268];
+export const getUsageOperationContract: OperationContractMetadataV1 = operationContracts[269];
+export const listConversationsAliasOperationContract: OperationContractMetadataV1 = operationContracts[270];
+export const createConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[271];
+export const deleteConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[272];
+export const getConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[273];
+export const updateConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[274];
+export const forkConversationAliasOperationContract: OperationContractMetadataV1 = operationContracts[275];
+export const listMessagesAliasOperationContract: OperationContractMetadataV1 = operationContracts[276];
+export const sendMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[277];
+export const deleteMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[278];
+export const updateMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[279];
+export const bookmarkMessageAliasOperationContract: OperationContractMetadataV1 = operationContracts[280];
+export const createMessageShareAliasOperationContract: OperationContractMetadataV1 = operationContracts[281];
+export const deleteKnowledgeDocumentByIDOperationContract: OperationContractMetadataV1 = operationContracts[282];
+export const gatewayProxyCreateChatCompletionOperationContract: OperationContractMetadataV1 = operationContracts[283];
+export const legacyListKnowledgeBasesOperationContract: OperationContractMetadataV1 = operationContracts[284];
+export const legacyCreateKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[285];
+export const legacyDeleteKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[286];
+export const legacyGetKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[287];
+export const legacyUpdateKnowledgeBaseOperationContract: OperationContractMetadataV1 = operationContracts[288];
+export const legacyListKnowledgeDocumentsOperationContract: OperationContractMetadataV1 = operationContracts[289];
+export const legacyCreateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[290];
+export const legacyListKnowledgeDocumentIngestionJobsOperationContract: OperationContractMetadataV1 = operationContracts[291];
+export const legacyUploadKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[292];
+export const legacyDeleteKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[293];
+export const legacyUpdateKnowledgeDocumentOperationContract: OperationContractMetadataV1 = operationContracts[294];
+export const legacyListKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[295];
+export const legacyUpdateKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[296];
+export const legacyMergeKnowledgeDocumentChunksOperationContract: OperationContractMetadataV1 = operationContracts[297];
+export const legacySplitKnowledgeDocumentChunkOperationContract: OperationContractMetadataV1 = operationContracts[298];
+export const legacyListKnowledgeDocumentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[299];
+export const legacyListKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[300];
+export const legacyCreateKnowledgeRetrievalTestCaseOperationContract: OperationContractMetadataV1 = operationContracts[301];
+export const legacyRunKnowledgeRetrievalTestCasesOperationContract: OperationContractMetadataV1 = operationContracts[302];
+export const legacyRetrieveKnowledgeOperationContract: OperationContractMetadataV1 = operationContracts[303];
+export const legacyRetrieveKnowledgeDebugOperationContract: OperationContractMetadataV1 = operationContracts[304];
+export const listMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[305];
+export const publishMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[306];
+export const deleteMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[307];
+export const getMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[308];
+export const updateMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[309];
+export const reportMarketplaceAgentAbuseOperationContract: OperationContractMetadataV1 = operationContracts[310];
+export const appealMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[311];
+export const uninstallMarketplaceAgentByInstallEndpointOperationContract: OperationContractMetadataV1 = operationContracts[312];
+export const installMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[313];
+export const listMarketplaceAgentReviewsOperationContract: OperationContractMetadataV1 = operationContracts[314];
+export const submitMarketplaceAgentReviewOperationContract: OperationContractMetadataV1 = operationContracts[315];
+export const getMarketplaceAgentStatsOperationContract: OperationContractMetadataV1 = operationContracts[316];
+export const listMarketplaceAgentVersionsOperationContract: OperationContractMetadataV1 = operationContracts[317];
+export const listMarketplaceCategoriesOperationContract: OperationContractMetadataV1 = operationContracts[318];
+export const getMarketplaceCuratedSectionsOperationContract: OperationContractMetadataV1 = operationContracts[319];
+export const getMarketplaceFeaturedAgentsOperationContract: OperationContractMetadataV1 = operationContracts[320];
+export const listMarketplaceInstallsOperationContract: OperationContractMetadataV1 = operationContracts[321];
+export const uninstallMarketplaceAgentOperationContract: OperationContractMetadataV1 = operationContracts[322];
+export const listMyMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[323];
+export const getMarketplaceSettlementPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[324];
+export const updateMarketplaceSettlementPreferencesOperationContract: OperationContractMetadataV1 = operationContracts[325];
+export const getMarketplacePublisherStatsOperationContract: OperationContractMetadataV1 = operationContracts[326];
+export const searchMarketplaceAgentsOperationContract: OperationContractMetadataV1 = operationContracts[327];
+export const listMarketplaceTemplatesOperationContract: OperationContractMetadataV1 = operationContracts[328];
+export const createMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[329];
+export const getMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[330];
+export const installMarketplaceTemplateOperationContract: OperationContractMetadataV1 = operationContracts[331];
+export const relayCreateAudioSpeechOperationContract: OperationContractMetadataV1 = operationContracts[332];
+export const relayCreateAudioTranscriptionOperationContract: OperationContractMetadataV1 = operationContracts[333];
+export const relayCreateAudioTranslationOperationContract: OperationContractMetadataV1 = operationContracts[334];
+export const relayCreateChatCompletionOperationContract: OperationContractMetadataV1 = operationContracts[335];
+export const relayCreateEmbeddingOperationContract: OperationContractMetadataV1 = operationContracts[336];
+export const relayCreateImageEditOperationContract: OperationContractMetadataV1 = operationContracts[337];
+export const relayCreateImageGenerationOperationContract: OperationContractMetadataV1 = operationContracts[338];
+export const relayCreateImageVariationOperationContract: OperationContractMetadataV1 = operationContracts[339];
+export const relayListModelsOperationContract: OperationContractMetadataV1 = operationContracts[340];
+export const relayCreateResponseOperationContract: OperationContractMetadataV1 = operationContracts[341];
+export const listScheduledTasksOperationContract: OperationContractMetadataV1 = operationContracts[342];
+export const createScheduledTaskOperationContract: OperationContractMetadataV1 = operationContracts[343];
+export const runScheduledTaskNowOperationContract: OperationContractMetadataV1 = operationContracts[344];
+export const listScheduledTaskRunsOperationContract: OperationContractMetadataV1 = operationContracts[345];
+export const updateScheduledTaskStatusOperationContract: OperationContractMetadataV1 = operationContracts[346];
+export const listWorkflowsOperationContract: OperationContractMetadataV1 = operationContracts[347];
+export const createWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[348];
+export const matchWorkflowConversationTriggersOperationContract: OperationContractMetadataV1 = operationContracts[349];
+export const pruneWorkflowExecutionDebugRetentionOperationContract: OperationContractMetadataV1 = operationContracts[350];
+export const matchWorkflowSemanticTriggersOperationContract: OperationContractMetadataV1 = operationContracts[351];
+export const triggerSignedWorkflowWebhookOperationContract: OperationContractMetadataV1 = operationContracts[352];
+export const deleteWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[353];
+export const getWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[354];
+export const updateWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[355];
+export const createWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[356];
+export const mergeWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[357];
+export const publishWorkflowBranchOperationContract: OperationContractMetadataV1 = operationContracts[358];
+export const executeWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[359];
+export const listWorkflowExecutionsOperationContract: OperationContractMetadataV1 = operationContracts[360];
+export const getWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[361];
+export const cancelWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[362];
+export const getWorkflowExecutionDebugSnapshotOperationContract: OperationContractMetadataV1 = operationContracts[363];
+export const decideWorkflowExecutionFailureOperationContract: OperationContractMetadataV1 = operationContracts[364];
+export const pauseWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[365];
+export const checkWorkflowExecutionResourcesOperationContract: OperationContractMetadataV1 = operationContracts[366];
+export const resumeWorkflowExecutionOperationContract: OperationContractMetadataV1 = operationContracts[367];
+export const getWorkflowExecutionStateReplayOperationContract: OperationContractMetadataV1 = operationContracts[368];
+export const rollbackWorkflowOperationContract: OperationContractMetadataV1 = operationContracts[369];
+export const testWorkflowNodeOperationContract: OperationContractMetadataV1 = operationContracts[370];
+export const listWorkflowVersionsOperationContract: OperationContractMetadataV1 = operationContracts[371];
+export const triggerWorkflowWebhookOperationContract: OperationContractMetadataV1 = operationContracts[372];
+export const connectWorkspaceWebSocketOperationContract: OperationContractMetadataV1 = operationContracts[373];
