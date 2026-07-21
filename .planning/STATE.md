@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-02-PLAN.md
-last_updated: "2026-07-21T13:44:05.002Z"
+stopped_at: Completed 31.2-04-PLAN.md
+last_updated: "2026-07-21T14:57:27.145Z"
 last_activity: 2026-07-21
-last_activity_desc: Completed Plan 31.2-02 HTTP runtime registrar and report
+last_activity_desc: Completed Plan 31.2-04 typed frontend transport contracts
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 33
-  percent: 75
+  completed_plans: 34
+  percent: 77
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 5 of 15
+Plan: 6 of 15
 Status: Ready to execute
-Last activity: 2026-07-21 — Completed Plan 31.2-02 HTTP runtime registrar and report
+Last activity: 2026-07-21 — Completed Plan 31.2-04 typed frontend transport contracts
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
@@ -114,6 +114,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Keep route-surface-manifest.json outside runtime registration construction and load it only as a post-registration comparison input. — Preserves OpenAPI as schema authority and Go declarations as handler/middleware runtime authority.
 - [Phase 31.2]: Require an explicit registrar capability allowlist and fail snapshot discovery when mount/descriptor parity is internally invalid. — Unknown capability and split handler/descriptor state cannot become passing runtime evidence.
 - [Phase 31.2]: Construct http-runtime reports from typed HTTPRuntimeObservation values and trusted resolvers with no caller-supplied identity, outcome, writer, or path. — Keeps mismatch evidence repository-local and prevents identity, skip, or claim injection.
+- [Phase 31.2]: Generated operation metadata is the only frontend transport identity authority — Paths and TypeScript generics remain diagnostic and cannot select contracts.
+- [Phase 31.2]: The source-compatible implicit HttpClient contract remains JSON envelope — Migrated production callers pass explicit operation transports while later plans close the remaining owner set.
+- [Phase 31.2]: Markdown export uses Response.text() for text/markdown — It never enters JSON envelope decoding and keeps structured errors on the single shared non-OK path.
+- [Phase 31.2]: Shared stream, upload, and SWR wrappers validate caller-supplied exact contracts — Runtime method/path lookup and generic-only identity cannot authorize dispatch.
 
 ### Pending Todos
 
@@ -149,6 +153,7 @@ None yet.
 | Phase 31.2 P06 | 42 min | 3 tasks | 10 files |
 | Phase 31.2 P07 | 32 min | 3 tasks | 9 files |
 | Phase 31.2 P02 | 55 min | 3 tasks | 6 files |
+| Phase 31.2 P04 | 39 min | 3 tasks | 14 files |
 
 ### Roadmap Evolution
 
@@ -161,8 +166,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T13:44:04.992Z
-Stopped at: Completed 31.2-02-PLAN.md
+Last session: 2026-07-21T14:57:26.836Z
+Stopped at: Completed 31.2-04-PLAN.md
 Resume file: None
 
 ## Performance Metrics
