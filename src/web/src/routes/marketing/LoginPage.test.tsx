@@ -32,6 +32,7 @@ describe('LoginPage', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
+        headers: new Headers({ 'Content-Type': 'application/json' }),
         json: async () => ({ ok: true, data: { user: { id: 'u1', email: 'admin@example.com' } }, error: null }),
         ok: true,
         status: 200
