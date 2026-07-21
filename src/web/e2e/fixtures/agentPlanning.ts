@@ -172,6 +172,7 @@ const updatedConfigAgent = {
 
 const toolCatalog = [
   {
+    capabilityId: 'mcp.network_execution',
     name: 'web_search',
     description: 'Search the web with tenant policy controls.',
     inputSchema: {
