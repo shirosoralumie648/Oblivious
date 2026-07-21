@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 31.1
-current_phase_name: dynamic-readiness-continuous-fail-closed
-status: in_progress
-stopped_at: Completed 31.1-22-PLAN.md
-last_updated: "2026-07-21T02:52:40.563Z"
+current_phase: 31.2
+current_phase_name: 契约表面一致性与聚合门禁
+status: planning
+stopped_at: Completed 31.1-20-PLAN.md; Phase 31.1 repository-local verification passed; manual final Stage B/push pending
+last_updated: "2026-07-21T06:36:21.751Z"
 last_activity: 2026-07-21
-last_activity_desc: Canonical Kubernetes runner applies and bounded-waits Kafka before app rollout and requires /readyz before smoke
+last_activity_desc: Phase 31.1 complete, transitioned to Phase 31.2
 progress:
   total_phases: 11
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 44
-  completed_plans: 28
-  percent: 64
+  completed_plans: 29
+  percent: 18
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 **Core value:** 让组织客户能够可靠地构建、运行并商业化 AI 应用，同时让每一次 AI 操作都可隔离、可计费、可追踪、可审计、可恢复。
-**Current focus:** Phase 31.1 — dynamic-readiness-continuous-fail-closed
+**Current focus:** Phase 31.2 — 契约表面一致性与聚合门禁
 
 ## Current Position
 
-Phase: 31.1 (dynamic-readiness-continuous-fail-closed) — IN PROGRESS
-Plan: 21 of 22
-Status: Plan 31.1-22 complete; closeout Plan 31.1-20 is next
-Last activity: 2026-07-21 — Canonical Kubernetes runner applies and bounded-waits Kafka before app rollout and requires /readyz before smoke
+Phase: 31.2 — 契约表面一致性与聚合门禁
+Plan: Not started
+Status: Ready to plan Phase 31.2
+Last activity: 2026-07-21 — Phase 31.1 complete, transitioned to Phase 31.2
 
-Progress: [█████████░] 86%
+Progress: [███████░░░] 66%
 
 ## Performance Metrics
 
@@ -109,7 +109,6 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 31] `RELS-01` remains pending: dynamic readiness, surface parity, deployment-mode parity, supply-chain attestations, and target/live proof belong to later phases.
 - [Phase 33] Target object storage and Sandbox capacity/deployment model are not selected.
 - [Phases 34, 36, 37, 39] Provider, payment/payout, observability, cluster and signing details require target credentials and fresh external evidence.
 
@@ -146,8 +145,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T02:52:40.552Z
-Stopped at: Completed 31.1-22-PLAN.md
+Last session: 2026-07-21T06:35:40.893Z
+Stopped at: Completed 31.1-20-PLAN.md; Phase 31.1 repository-local verification passed; manual final Stage B/push pending
 Resume file: None
 
 ## Performance Metrics
