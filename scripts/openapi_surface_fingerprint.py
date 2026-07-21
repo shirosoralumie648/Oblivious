@@ -34,6 +34,7 @@ MANDATORY_PREFIXES = ("/api/", "/v1/")
 DISPOSITION_EXTENSION = "x-oblivious-public-operation"
 CAPABILITY_EXTENSION = "x-oblivious-capability-id"
 TERMINAL_SUCCESS_EXTENSION = "x-oblivious-terminal-success-statuses"
+OPERATION_ID_OVERRIDES_EXTENSION = "x-oblivious-operation-id-overrides"
 SCHEMA_VERSION = "route-surface-manifest/v2"
 SCOPE_VERSION = "public-operation-scope/v1"
 FIXTURE_VERSION = "operation-surface-fixtures/v1"
@@ -143,16 +144,34 @@ def iter_operations(spec: dict[str, Any]) -> Iterable[tuple[str, str, dict[str, 
         if not isinstance(raw_path, str) or not isinstance(raw_item, dict):
             raise ProjectionError("path_item_invalid", field="paths")
         item = raw_item
+        operation_id_overrides: dict[str, Any] = {}
         if "$ref" in item:
+            raw_overrides = item.get(OPERATION_ID_OVERRIDES_EXTENSION, {})
+            if not isinstance(raw_overrides, dict):
+                raise ProjectionError("operation_id_override_invalid", field=raw_path)
+            operation_id_overrides = raw_overrides
             item = resolve_ref(spec, item["$ref"], operation_id="none", field="pathItem")
         if not isinstance(item, dict):
             raise ProjectionError("path_item_invalid", field="paths")
+        unknown_overrides = set(operation_id_overrides) - {
+            method for method in HTTP_METHODS if isinstance(item.get(method), dict)
+        }
+        if unknown_overrides:
+            raise ProjectionError(
+                "operation_id_override_invalid", field=raw_path, count=len(unknown_overrides)
+            )
         for method in HTTP_METHODS:
             operation = item.get(method)
             if operation is None:
                 continue
             if not isinstance(operation, dict):
                 raise ProjectionError("operation_invalid", field=method)
+            if method in operation_id_overrides:
+                override = operation_id_overrides[method]
+                if not isinstance(override, str) or not override.strip():
+                    raise ProjectionError("operation_id_override_invalid", field=raw_path)
+                operation = copy.deepcopy(operation)
+                operation["operationId"] = override.strip()
             count += 1
             yield raw_path, method.upper(), operation
     if count == 0:
@@ -293,27 +312,47 @@ def project_success_responses(
     )
 
 
-def _sample_map(manifest: dict[str, Any] | None) -> dict[tuple[str, str], dict[str, Any]]:
-    if not manifest:
-        return {}
-    entries = manifest.get("routeSamples")
-    if not isinstance(entries, list):
-        entries = manifest.get("routes", [])
-    result: dict[tuple[str, str], dict[str, Any]] = {}
-    if not isinstance(entries, list):
-        return result
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        method = entry.get("method")
-        path = entry.get("normalizedPath", entry.get("path"))
-        if isinstance(method, str) and isinstance(path, str):
-            result[(method.upper(), path)] = entry
-    return result
-
-
 def _default_sample_path(path: str) -> str:
-    return PATH_PARAMETER_RE.sub(lambda match: f"{match.group(1)}_1", path)
+    def sample_value(match: re.Match[str]) -> str:
+        name = match.group(1)
+        stem = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+        if stem.endswith("_id"):
+            stem = stem[:-3]
+        return f"{stem}_1"
+
+    return PATH_PARAMETER_RE.sub(sample_value, path)
+
+
+def _default_query_value(parameter: dict[str, Any]) -> str:
+    schema = parameter.get("schema", {})
+    if not isinstance(schema, dict):
+        return "value_1"
+    if schema.get("format") == "date-time":
+        return "1970-01-01T00:00:00Z"
+    if schema.get("format") == "date":
+        return "1970-01-01"
+    if schema.get("type") in {"integer", "number"}:
+        return "1"
+    if schema.get("type") == "boolean":
+        return "true"
+    return f"{parameter.get('name', 'value')}_1"
+
+
+def _sample_query(spec: dict[str, Any], operation: dict[str, Any], *, operation_id: str) -> dict[str, str] | None:
+    result: dict[str, str] = {}
+    parameters = operation.get("parameters", [])
+    if not isinstance(parameters, list):
+        raise ProjectionError("operation_parameters_invalid", operation_id, "parameters")
+    for raw_parameter in parameters:
+        parameter = resolve_component_object(
+            spec, raw_parameter, operation_id=operation_id, field="parameters"
+        )
+        name = parameter.get("name")
+        if parameter.get("in") != "query" or not isinstance(name, str):
+            continue
+        if parameter.get("required") is True or name in {"from", "to"}:
+            result[name] = _default_query_value(parameter)
+    return dict(sorted(result.items())) or None
 
 
 def project_openapi(
@@ -335,7 +374,6 @@ def project_openapi(
     route_samples: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str]] = set()
     operation_ids: set[str] = set()
-    samples = _sample_map(prior_manifest)
 
     for raw_path, method, operation in iter_operations(spec):
         operation_id = operation.get("operationId")
@@ -370,15 +408,15 @@ def project_openapi(
         }
         dispositions.append(disposition_row)
 
-        prior_sample = samples.get(key, {})
         sample_row: dict[str, Any] = {
             "method": method,
             "normalizedPath": path,
-            "samplePath": prior_sample.get("samplePath", _default_sample_path(path)),
+            "samplePath": _default_sample_path(path),
             "tags": operation.get("tags", []),
         }
-        if "sampleQuery" in prior_sample:
-            sample_row["sampleQuery"] = prior_sample["sampleQuery"]
+        sample_query = _sample_query(spec, operation, operation_id=operation_id)
+        if sample_query:
+            sample_row["sampleQuery"] = sample_query
         if not isinstance(sample_row["samplePath"], str) or "{" in sample_row["samplePath"]:
             raise ProjectionError("sample_path_invalid", operation_id, "samplePath")
         if not isinstance(sample_row["tags"], list) or not sample_row["tags"]:

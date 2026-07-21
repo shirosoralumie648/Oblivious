@@ -6903,6 +6903,10 @@ paths:
     get:
       summary: 获取当前可用能力投影
       operationId: getAppReadinessCapabilities
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Readiness]
       security:
         - cookieAuth: []
@@ -6920,6 +6924,9 @@ paths:
     get:
       summary: 健康检查
       operationId: healthCheck
+      x-oblivious-public-operation:
+        disposition: excluded
+        reason: operational_health_probe
       tags: [系统]
       security: []
       responses:
@@ -6934,6 +6941,9 @@ paths:
     get:
       summary: Prometheus 指标
       operationId: metrics
+      x-oblivious-public-operation:
+        disposition: excluded
+        reason: operator_metrics_endpoint
       tags: [系统]
       security: []
       description: 返回 Prometheus 格式的运行指标，由 promhttp 提供。
@@ -6946,6 +6956,10 @@ paths:
     post:
       summary: 注册
       operationId: register
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security: []
       requestBody:
@@ -6975,6 +6989,10 @@ paths:
     post:
       summary: 登录
       operationId: login
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security: []
       requestBody:
@@ -7014,6 +7032,10 @@ paths:
     post:
       summary: 请求密码重置
       operationId: requestPasswordReset
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security: []
       requestBody:
@@ -7043,6 +7065,10 @@ paths:
     post:
       summary: 确认密码重置
       operationId: confirmPasswordReset
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security: []
       requestBody:
@@ -7070,6 +7096,10 @@ paths:
     get:
       summary: 获取当前会话信息
       operationId: getCurrentSession
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security:
         - cookieAuth: []
@@ -7092,6 +7122,10 @@ paths:
     post:
       summary: 登出
       operationId: logout
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Auth]
       security:
         - cookieAuth: []
@@ -7116,6 +7150,10 @@ paths:
     get:
       summary: 获取用户偏好设置
       operationId: getPreferences
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Preferences]
       security:
         - cookieAuth: []
@@ -7136,6 +7174,10 @@ paths:
     put:
       summary: 更新用户偏好设置
       operationId: updatePreferences
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.account_session
       tags: [Preferences]
       security:
         - cookieAuth: []
@@ -7166,6 +7208,10 @@ paths:
     get:
       summary: 获取可用模型列表
       operationId: listModels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7194,6 +7240,11 @@ paths:
         Chat clients send ChatRealtimeClientMessage frames to join or leave a conversation room and publish typing presence.
         The server emits ChatRealtimeEvent frames for conversation-scoped message sync, message update/delete, and typing presence.
       operationId: connectWorkspaceWebSocket
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: gateway.request_admission
+      x-oblivious-terminal-success-statuses: [101]
       tags: [Realtime]
       security:
         - cookieAuth: []
@@ -7213,6 +7264,10 @@ paths:
     get:
       summary: 获取对话人格列表
       operationId: listPersonas
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7235,6 +7290,10 @@ paths:
     post:
       summary: 创建对话人格
       operationId: createPersona
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7266,6 +7325,10 @@ paths:
     get:
       summary: 获取对话人格详情
       operationId: getPersona
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7294,6 +7357,10 @@ paths:
     put:
       summary: 更新对话人格
       operationId: updatePersona
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7331,6 +7398,10 @@ paths:
     delete:
       summary: 删除对话人格
       operationId: deletePersona
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7366,6 +7437,10 @@ paths:
         The server injects trusted internal user and organization headers, strips any browser-supplied
         Authorization header, and returns the Relay response unchanged.
       operationId: gatewayProxyCreateChatCompletion
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay, Chat]
       security:
         - cookieAuth: []
@@ -7404,6 +7479,10 @@ paths:
     post:
       summary: OpenAI-compatible chat completions relay
       operationId: relayCreateChatCompletion
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7440,6 +7519,10 @@ paths:
     post:
       summary: OpenAI-compatible embeddings relay
       operationId: relayCreateEmbedding
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7473,6 +7556,10 @@ paths:
     post:
       summary: OpenAI-compatible responses relay
       operationId: relayCreateResponse
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7509,6 +7596,10 @@ paths:
     post:
       summary: OpenAI-compatible image generation relay
       operationId: relayCreateImageGeneration
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7542,6 +7633,10 @@ paths:
     post:
       summary: OpenAI-compatible image edit relay
       operationId: relayCreateImageEdit
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7576,6 +7671,10 @@ paths:
     post:
       summary: OpenAI-compatible image variation relay
       operationId: relayCreateImageVariation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7610,6 +7709,10 @@ paths:
     post:
       summary: OpenAI-compatible speech relay
       operationId: relayCreateAudioSpeech
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7648,6 +7751,10 @@ paths:
     post:
       summary: OpenAI-compatible audio transcription relay
       operationId: relayCreateAudioTranscription
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7685,6 +7792,10 @@ paths:
     post:
       summary: OpenAI-compatible audio translation relay
       operationId: relayCreateAudioTranslation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7722,6 +7833,10 @@ paths:
     get:
       summary: OpenAI-compatible model list relay
       operationId: relayListModels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Relay]
       security:
         - bearerAuth: []
@@ -7744,6 +7859,10 @@ paths:
     get:
       summary: 获取对话列表
       operationId: listConversations
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7766,6 +7885,10 @@ paths:
     post:
       summary: 创建新对话
       operationId: createConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7794,6 +7917,10 @@ paths:
     get:
       summary: 获取对话详情
       operationId: getConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7820,6 +7947,10 @@ paths:
     put:
       summary: 更新对话
       operationId: updateConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7854,6 +7985,10 @@ paths:
     delete:
       summary: 删除对话
       operationId: deleteConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7883,6 +8018,10 @@ paths:
     post:
       summary: 从指定消息分叉对话
       operationId: forkConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7920,6 +8059,10 @@ paths:
     get:
       summary: 获取对话消息列表
       operationId: listMessages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7948,6 +8091,10 @@ paths:
     post:
       summary: 发送消息
       operationId: sendMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -7987,6 +8134,10 @@ paths:
     post:
       summary: 流式发送消息
       operationId: streamMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8019,6 +8170,10 @@ paths:
     get:
       summary: 导出对话 Markdown
       operationId: exportConversationMarkdown
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.export
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8042,6 +8197,10 @@ paths:
     get:
       summary: 获取对话配置
       operationId: getConversationConfig
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8068,6 +8227,10 @@ paths:
     put:
       summary: 更新对话配置
       operationId: updateConversationConfig
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8103,6 +8266,10 @@ paths:
     post:
       summary: 将对话转换为任务
       operationId: convertConversationToTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8132,6 +8299,10 @@ paths:
     post:
       summary: 创建对话分享
       operationId: createConversationShare
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8168,6 +8339,10 @@ paths:
     post:
       summary: 创建单条消息分享
       operationId: createMessageShare
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8209,6 +8384,10 @@ paths:
     put:
       summary: 更新消息内容
       operationId: updateMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8249,6 +8428,10 @@ paths:
     delete:
       summary: 删除消息
       operationId: deleteMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8283,6 +8466,10 @@ paths:
     post:
       summary: 收藏或取消收藏消息
       operationId: bookmarkMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8323,6 +8510,10 @@ paths:
     get:
       summary: "Alias: list conversations"
       operationId: listConversationsAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8345,6 +8536,10 @@ paths:
     post:
       summary: "Alias: create conversation"
       operationId: createConversationAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8375,6 +8570,10 @@ paths:
     get:
       summary: "Alias: get conversation"
       operationId: getConversationAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8401,6 +8600,10 @@ paths:
     put:
       summary: "Alias: update conversation"
       operationId: updateConversationAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8435,6 +8638,10 @@ paths:
     delete:
       summary: "Alias: delete conversation"
       operationId: deleteConversationAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8464,6 +8671,10 @@ paths:
     post:
       summary: "Alias: fork conversation"
       operationId: forkConversationAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8501,6 +8712,10 @@ paths:
     get:
       summary: "Alias: list messages"
       operationId: listMessagesAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8529,6 +8744,10 @@ paths:
     post:
       summary: "Alias: send message"
       operationId: sendMessageAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8568,6 +8787,10 @@ paths:
     put:
       summary: "Alias: update message"
       operationId: updateMessageAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8608,6 +8831,10 @@ paths:
     delete:
       summary: "Alias: delete message"
       operationId: deleteMessageAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8642,6 +8869,10 @@ paths:
     post:
       summary: "Alias: bookmark message"
       operationId: bookmarkMessageAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8681,6 +8912,10 @@ paths:
     post:
       summary: "Alias: create message share"
       operationId: createMessageShareAlias
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security:
         - cookieAuth: []
@@ -8722,6 +8957,10 @@ paths:
     get:
       summary: 公开读取消息分享
       operationId: getMessageShare
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security: []
       parameters:
@@ -8755,6 +8994,10 @@ paths:
     get:
       summary: 公开读取对话分享
       operationId: getConversationShare
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: chat.conversation_use
       tags: [Chat]
       security: []
       parameters:
@@ -8789,6 +9032,10 @@ paths:
     get:
       summary: 获取知识库列表
       operationId: listKnowledgeBases
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8811,6 +9058,10 @@ paths:
     post:
       summary: 创建知识库
       operationId: createKnowledgeBase
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8842,6 +9093,10 @@ paths:
     get:
       summary: 获取知识库详情
       operationId: getKnowledgeBase
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8868,6 +9123,10 @@ paths:
     put:
       summary: 更新知识库
       operationId: updateKnowledgeBase
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8903,6 +9162,10 @@ paths:
     delete:
       summary: 删除知识库
       operationId: deleteKnowledgeBase
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8923,6 +9186,10 @@ paths:
     get:
       summary: 获取知识库文档列表
       operationId: listKnowledgeDocuments
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8951,6 +9218,10 @@ paths:
     post:
       summary: 创建知识库文档
       operationId: createKnowledgeDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -8988,6 +9259,10 @@ paths:
     post:
       summary: 上传知识库文档
       operationId: uploadKnowledgeDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9027,6 +9302,10 @@ paths:
     put:
       summary: 更新知识库文档
       operationId: updateKnowledgeDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9067,6 +9346,10 @@ paths:
     delete:
       summary: 删除知识库文档
       operationId: deleteKnowledgeDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9092,6 +9375,10 @@ paths:
     get:
       summary: 获取知识库文档版本历史
       operationId: listKnowledgeDocumentVersions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9129,6 +9416,10 @@ paths:
     get:
       summary: 获取知识库文档分块
       operationId: listKnowledgeDocumentChunks
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9166,6 +9457,10 @@ paths:
     put:
       summary: 更新知识库文档分块
       operationId: updateKnowledgeDocumentChunk
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9215,6 +9510,10 @@ paths:
     post:
       summary: 拆分知识库文档分块
       operationId: splitKnowledgeDocumentChunk
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9266,6 +9565,10 @@ paths:
     post:
       summary: 合并知识库文档分块
       operationId: mergeKnowledgeDocumentChunks
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9317,6 +9620,10 @@ paths:
     post:
       summary: 知识库检索
       operationId: retrieveKnowledge
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9356,6 +9663,10 @@ paths:
     post:
       summary: 知识库检索调试
       operationId: retrieveKnowledgeDebug
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9393,6 +9704,10 @@ paths:
     get:
       summary: 获取知识库检索测试用例
       operationId: listKnowledgeRetrievalTestCases
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9423,6 +9738,10 @@ paths:
     post:
       summary: 创建知识库检索测试用例
       operationId: createKnowledgeRetrievalTestCase
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9462,6 +9781,10 @@ paths:
     post:
       summary: 运行知识库检索测试或跨模式质量基准
       operationId: runKnowledgeRetrievalTestCases
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9498,36 +9821,74 @@ paths:
   # ---- 知识库兼容别名 (Knowledge aliases) ----
   /api/v1/knowledge-bases:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeBases
+      post: legacyCreateKnowledgeBase
   /api/v1/knowledge-bases/{knowledgeBaseId}:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}"
+    x-oblivious-operation-id-overrides:
+      delete: legacyDeleteKnowledgeBase
+      get: legacyGetKnowledgeBase
+      put: legacyUpdateKnowledgeBase
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeDocuments
+      post: legacyCreateKnowledgeDocument
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1upload"
+    x-oblivious-operation-id-overrides:
+      post: legacyUploadKnowledgeDocument
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}"
+    x-oblivious-operation-id-overrides:
+      delete: legacyDeleteKnowledgeDocument
+      put: legacyUpdateKnowledgeDocument
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1versions"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeDocumentVersions
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeDocumentChunks
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}"
+    x-oblivious-operation-id-overrides:
+      put: legacyUpdateKnowledgeDocumentChunk
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1split"
+    x-oblivious-operation-id-overrides:
+      post: legacySplitKnowledgeDocumentChunk
   /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1merge"
+    x-oblivious-operation-id-overrides:
+      post: legacyMergeKnowledgeDocumentChunks
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieve:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve"
+    x-oblivious-operation-id-overrides:
+      post: legacyRetrieveKnowledge
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieve/debug:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve~1debug"
+    x-oblivious-operation-id-overrides:
+      post: legacyRetrieveKnowledgeDebug
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases"
+    x-oblivious-operation-id-overrides:
+      get: legacyListKnowledgeRetrievalTestCases
+      post: legacyCreateKnowledgeRetrievalTestCase
   /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run:
     $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases~1run"
+    x-oblivious-operation-id-overrides:
+      post: legacyRunKnowledgeRetrievalTestCases
   /api/v1/documents/{documentId}:
     delete:
       summary: 通过文档 ID 删除知识库文档
       operationId: deleteKnowledgeDocumentByID
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Knowledge]
       security:
         - cookieAuth: []
@@ -9551,6 +9912,10 @@ paths:
     get:
       summary: 获取当前用户配额余额
       operationId: getQuota
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -9575,6 +9940,10 @@ paths:
     get:
       summary: 获取可购买套餐
       operationId: listPackages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -9601,6 +9970,11 @@ paths:
     post:
       summary: 旧版配额充值入口
       operationId: topupQuota
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
+      x-oblivious-terminal-success-statuses: [402]
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -9640,6 +10014,10 @@ paths:
     get:
       summary: 获取当前用户的组织成员身份
       operationId: listMyOrganizations
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9662,6 +10040,10 @@ paths:
     post:
       summary: 切换当前会话的活动组织
       operationId: selectOrganization
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9699,6 +10081,10 @@ paths:
     get:
       summary: 获取组织成员列表
       operationId: listOrganizationMembers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9735,6 +10121,10 @@ paths:
     put:
       summary: 更新组织成员角色
       operationId: updateOrganizationMemberRole
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9789,6 +10179,10 @@ paths:
     delete:
       summary: 移除组织成员
       operationId: removeOrganizationMember
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9828,6 +10222,10 @@ paths:
     post:
       summary: 邀请用户加入组织
       operationId: inviteOrganizationMember
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9877,6 +10275,10 @@ paths:
     post:
       summary: 撤销待处理的组织邀请
       operationId: revokeOrganizationInvitation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9925,6 +10327,10 @@ paths:
     post:
       summary: 转移组织所有权
       operationId: transferOrganizationOwnership
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -9976,6 +10382,10 @@ paths:
     post:
       summary: 接受组织邀请
       operationId: acceptOrganizationInvitation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: identity.organization_membership
       tags: [Tenant]
       security:
         - cookieAuth: []
@@ -10014,6 +10424,10 @@ paths:
     get:
       summary: 获取当前用户通知列表
       operationId: listNotifications
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10053,6 +10467,10 @@ paths:
     post:
       summary: 创建当前用户通知
       operationId: createNotification
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10084,6 +10502,10 @@ paths:
     get:
       summary: 获取当前用户未读通知数
       operationId: getNotificationUnreadCount
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10106,6 +10528,10 @@ paths:
     post:
       summary: 标记当前用户所有通知为已读
       operationId: markAllNotificationsRead
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10129,6 +10555,10 @@ paths:
     patch:
       summary: 标记单条通知为已读
       operationId: markNotificationRead
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10164,6 +10594,10 @@ paths:
     delete:
       summary: 删除单条通知
       operationId: deleteNotification
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Notification]
       security:
         - cookieAuth: []
@@ -10202,6 +10636,10 @@ paths:
     get:
       summary: 获取任务列表
       operationId: listTasks
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10224,6 +10662,10 @@ paths:
     post:
       summary: 创建任务
       operationId: createTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10255,6 +10697,10 @@ paths:
     get:
       summary: 获取任务详情
       operationId: getTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10283,6 +10729,10 @@ paths:
     post:
       summary: 启动任务
       operationId: startTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10312,6 +10762,10 @@ paths:
     post:
       summary: 审批任务
       operationId: approveTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10341,6 +10795,10 @@ paths:
     post:
       summary: 暂停任务
       operationId: pauseTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10370,6 +10828,10 @@ paths:
     post:
       summary: 恢复任务
       operationId: resumeTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10399,6 +10861,10 @@ paths:
     post:
       summary: 取消任务
       operationId: cancelTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10428,6 +10894,10 @@ paths:
     post:
       summary: 更新任务预算
       operationId: updateTaskBudget
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [Task]
       security:
         - cookieAuth: []
@@ -10464,6 +10934,10 @@ paths:
     get:
       summary: 获取计划任务列表
       operationId: listScheduledTasks
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [ScheduledTask]
       security:
         - cookieAuth: []
@@ -10486,6 +10960,10 @@ paths:
     post:
       summary: 创建计划任务
       operationId: createScheduledTask
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [ScheduledTask]
       security:
         - cookieAuth: []
@@ -10517,6 +10995,10 @@ paths:
     get:
       summary: 获取计划任务运行记录
       operationId: listScheduledTaskRuns
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [ScheduledTask]
       security:
         - cookieAuth: []
@@ -10549,6 +11031,10 @@ paths:
     patch:
       summary: 更新计划任务启用状态
       operationId: updateScheduledTaskStatus
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [ScheduledTask]
       security:
         - cookieAuth: []
@@ -10588,6 +11074,10 @@ paths:
     post:
       summary: 立即运行计划任务
       operationId: runScheduledTaskNow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: task.scheduled_execution
       tags: [ScheduledTask]
       security:
         - cookieAuth: []
@@ -10622,6 +11112,10 @@ paths:
     get:
       summary: 获取当前用户的 Agent 列表
       operationId: listWorkspaceAgents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10644,6 +11138,10 @@ paths:
     post:
       summary: 创建 Agent
       operationId: createWorkspaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10675,6 +11173,10 @@ paths:
     get:
       summary: 获取 Agent 详情
       operationId: getWorkspaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10709,6 +11211,10 @@ paths:
     put:
       summary: 更新 Agent
       operationId: updateWorkspaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10752,6 +11258,10 @@ paths:
     delete:
       summary: 删除 Agent
       operationId: deleteWorkspaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10789,6 +11299,10 @@ paths:
     get:
       summary: 获取 Agent 可用工具定义
       operationId: listWorkspaceAgentTools
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10827,6 +11341,10 @@ paths:
     get:
       summary: 获取 Agent 对话列表
       operationId: listWorkspaceAgentConversations
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10863,6 +11381,10 @@ paths:
     post:
       summary: 创建 Agent 对话
       operationId: createWorkspaceAgentConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10900,6 +11422,10 @@ paths:
     get:
       summary: 获取 Agent 对话详情
       operationId: getWorkspaceAgentConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10934,6 +11460,10 @@ paths:
     delete:
       summary: 删除 Agent 对话
       operationId: deleteWorkspaceAgentConversation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -10971,6 +11501,10 @@ paths:
     get:
       summary: 获取 Agent 对话消息
       operationId: listWorkspaceAgentMessages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11007,6 +11541,10 @@ paths:
     post:
       summary: 发送 Agent 对话消息
       operationId: sendWorkspaceAgentMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11052,6 +11590,10 @@ paths:
     get:
       summary: 获取 Agent 对话运行记录
       operationId: listWorkspaceAgentRuns
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11090,6 +11632,10 @@ paths:
     get:
       summary: 获取 workspace Agent 运行详情
       operationId: getWorkspaceAgentRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11126,6 +11672,10 @@ paths:
     post:
       summary: 审批 workspace Agent 工具调用
       operationId: approveWorkspaceAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11175,6 +11725,10 @@ paths:
     post:
       summary: 拒绝 workspace Agent 工具调用
       operationId: rejectWorkspaceAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11224,6 +11778,10 @@ paths:
     post:
       summary: 重试 workspace Agent 工具调用
       operationId: retryWorkspaceAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11268,6 +11826,10 @@ paths:
     get:
       summary: 获取 workspace memory 文档列表
       operationId: listMemoryDocuments
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11302,6 +11864,10 @@ paths:
     post:
       summary: 创建 workspace memory 文档并分块嵌入
       operationId: createMemoryDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11333,6 +11899,10 @@ paths:
     get:
       summary: 获取 workspace memory 文档详情
       operationId: getMemoryDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11367,6 +11937,10 @@ paths:
     put:
       summary: 更新 workspace memory 文档
       operationId: updateMemoryDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11410,6 +11984,10 @@ paths:
     delete:
       summary: 删除 workspace memory 文档
       operationId: deleteMemoryDocument
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11447,6 +12025,10 @@ paths:
     get:
       summary: 获取 workspace memory 文档分块
       operationId: listMemoryDocumentChunks
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.retrieval
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11485,6 +12067,10 @@ paths:
     post:
       summary: 搜索 workspace memory 文档分块
       operationId: searchMemoryDocuments
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: knowledge.ingestion
       tags: [Memory]
       security:
         - cookieAuth: []
@@ -11519,6 +12105,10 @@ paths:
     get:
       summary: 获取内置本地 MCP server catalog
       operationId: listLocalMcpServers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11543,6 +12133,10 @@ paths:
     get:
       summary: 获取当前用户的 MCP server 列表
       operationId: listMcpServers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11565,6 +12159,10 @@ paths:
     post:
       summary: 添加当前用户的 MCP server
       operationId: addMcpServer
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11596,6 +12194,10 @@ paths:
     get:
       summary: 获取 MCP server 详情
       operationId: getMcpServer
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11630,6 +12232,10 @@ paths:
     delete:
       summary: 删除 MCP server
       operationId: deleteMcpServer
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11667,6 +12273,10 @@ paths:
     post:
       summary: 连接 MCP server 并刷新工具列表
       operationId: connectMcpServer
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11704,6 +12314,10 @@ paths:
     post:
       summary: 断开 MCP server
       operationId: disconnectMcpServer
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11741,6 +12355,10 @@ paths:
     get:
       summary: 获取 MCP server 工具定义
       operationId: listMcpServerTools
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11779,6 +12397,10 @@ paths:
     get:
       summary: 获取 MCP server 连接状态
       operationId: getMcpServerStatus
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11815,6 +12437,10 @@ paths:
     post:
       summary: 执行 MCP server 工具
       operationId: executeMcpServerTool
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: mcp.tool_execution
       tags: [MCP]
       security:
         - cookieAuth: []
@@ -11861,6 +12487,10 @@ paths:
     get:
       summary: 获取 Agent 可用工具定义
       operationId: listAgentTools
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11908,6 +12538,10 @@ paths:
     post:
       summary: 创建并执行 Agent run
       operationId: createAgentRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11939,6 +12573,10 @@ paths:
     get:
       summary: 获取 Agent run 详情
       operationId: getAgentRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -11969,6 +12607,10 @@ paths:
     post:
       summary: 审批待处理的 Agent 工具调用
       operationId: approveAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12005,6 +12647,10 @@ paths:
     post:
       summary: 拒绝待处理的 Agent 工具调用
       operationId: rejectAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12041,6 +12687,10 @@ paths:
     post:
       summary: 重试失败的 Agent 工具调用
       operationId: retryAgentToolRun
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.tool_execution
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12077,6 +12727,10 @@ paths:
     post:
       summary: 增加 Agent run Token 预算并继续执行
       operationId: continueAgentRunWithBudget
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12120,6 +12774,10 @@ paths:
     post:
       summary: 根据已完成结果调整 Agent planning 剩余步骤
       operationId: adjustAgentRunPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12163,6 +12821,10 @@ paths:
     post:
       summary: 连续执行 Agent planning 中已批准或免审批的步骤
       operationId: continueAgentRunPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12200,6 +12862,10 @@ paths:
     post:
       summary: 审批 Agent planning 步骤
       operationId: approveAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12236,6 +12902,10 @@ paths:
     post:
       summary: 执行 Agent planning 步骤
       operationId: executeAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12272,6 +12942,10 @@ paths:
     post:
       summary: 跳过 Agent planning 步骤
       operationId: skipAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12308,6 +12982,10 @@ paths:
     post:
       summary: 重试失败的 Agent planning 步骤
       operationId: retryAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12344,6 +13022,10 @@ paths:
     patch:
       summary: 调整 Agent planning 步骤草稿
       operationId: updateAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12380,6 +13062,10 @@ paths:
     post:
       summary: 新增 Agent planning 步骤草稿
       operationId: createAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12417,6 +13103,10 @@ paths:
     post:
       summary: 移动 Agent planning 步骤顺序
       operationId: moveAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12453,6 +13143,10 @@ paths:
     post:
       summary: 删除 Agent planning 步骤草稿
       operationId: deleteAgentPlanStep
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12490,6 +13184,10 @@ paths:
     get:
       summary: 搜索或列出 Agent 记忆
       operationId: listAgentMemories
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12539,6 +13237,10 @@ paths:
     post:
       summary: 创建用户管理的 Agent 记忆
       operationId: createAgentMemory
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12572,6 +13274,10 @@ paths:
     post:
       summary: 批量导入 Agent 记忆
       operationId: importAgentMemories
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12605,6 +13311,10 @@ paths:
     get:
       summary: 导出当前用户可访问的 Agent 记忆
       operationId: exportAgentMemories
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12659,6 +13369,10 @@ paths:
     patch:
       summary: 更新 Agent 记忆
       operationId: updateAgentMemory
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12696,6 +13410,10 @@ paths:
     delete:
       summary: 删除 Agent 记忆
       operationId: deleteAgentMemory
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: agent.run
       tags: [Agent]
       security:
         - cookieAuth: []
@@ -12719,6 +13437,10 @@ paths:
     get:
       summary: 获取工作流列表
       operationId: listWorkflows
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12734,6 +13456,10 @@ paths:
     post:
       summary: 创建工作流
       operationId: createWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12760,6 +13486,10 @@ paths:
     post:
       summary: 匹配语义触发器
       operationId: matchWorkflowSemanticTriggers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12786,6 +13516,10 @@ paths:
     post:
       summary: 匹配会话触发器
       operationId: matchWorkflowConversationTriggers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12812,6 +13546,10 @@ paths:
     post:
       summary: 清理工作流执行调试保留数据
       operationId: pruneWorkflowExecutionDebugRetention
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12838,6 +13576,10 @@ paths:
     post:
       summary: 接收公开签名工作流 webhook
       operationId: triggerSignedWorkflowWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security: []
       parameters:
@@ -12898,6 +13640,10 @@ paths:
     get:
       summary: 获取工作流详情
       operationId: getWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12921,6 +13667,10 @@ paths:
     put:
       summary: 更新工作流
       operationId: updateWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12953,6 +13703,10 @@ paths:
     delete:
       summary: 删除或归档工作流
       operationId: deleteWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -12979,6 +13733,10 @@ paths:
     post:
       summary: 启动工作流执行
       operationId: executeWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13012,6 +13770,10 @@ paths:
     post:
       summary: 通过登录会话触发工作流 webhook
       operationId: triggerWorkflowWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13046,6 +13808,10 @@ paths:
     get:
       summary: 获取工作流版本历史
       operationId: listWorkflowVersions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.replay
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13071,6 +13837,10 @@ paths:
     post:
       summary: 创建工作流分支
       operationId: createWorkflowBranch
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13105,6 +13875,10 @@ paths:
     post:
       summary: 将工作流分支发布为新工作流
       operationId: publishWorkflowBranch
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13143,6 +13917,10 @@ paths:
     post:
       summary: 合并工作流分支回主线
       operationId: mergeWorkflowBranch
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13174,6 +13952,10 @@ paths:
     post:
       summary: 回滚工作流版本
       operationId: rollbackWorkflow
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.replay
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13208,6 +13990,10 @@ paths:
     post:
       summary: 测试单个工作流节点
       operationId: testWorkflowNode
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13242,6 +14028,10 @@ paths:
     get:
       summary: 获取工作流执行列表
       operationId: listWorkflowExecutions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13267,6 +14057,10 @@ paths:
     get:
       summary: 获取工作流执行详情
       operationId: getWorkflowExecution
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13297,6 +14091,10 @@ paths:
     get:
       summary: 获取工作流执行调试快照
       operationId: getWorkflowExecutionDebugSnapshot
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13327,6 +14125,10 @@ paths:
     get:
       summary: 获取工作流执行状态回放
       operationId: getWorkflowExecutionStateReplay
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.replay
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13357,6 +14159,10 @@ paths:
     post:
       summary: 检查工作流执行资源限制
       operationId: checkWorkflowExecutionResources
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13402,6 +14208,10 @@ paths:
     post:
       summary: 处理暂停失败的工作流执行
       operationId: decideWorkflowExecutionFailure
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13447,6 +14257,10 @@ paths:
     post:
       summary: 暂停工作流执行
       operationId: pauseWorkflowExecution
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13484,6 +14298,10 @@ paths:
     post:
       summary: 恢复工作流执行
       operationId: resumeWorkflowExecution
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13528,6 +14346,10 @@ paths:
     post:
       summary: 取消工作流执行
       operationId: cancelWorkflowExecution
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: workflow.graph_execution
       tags: [Workflow]
       security:
         - cookieAuth: []
@@ -13566,6 +14388,10 @@ paths:
     get:
       summary: 获取发布渠道列表
       operationId: listPublishingChannels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13588,6 +14414,10 @@ paths:
     post:
       summary: 创建发布渠道
       operationId: createPublishingChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13619,6 +14449,10 @@ paths:
     get:
       summary: 获取发布渠道配置
       operationId: getPublishingChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13647,6 +14481,10 @@ paths:
     put:
       summary: 更新发布渠道配置
       operationId: updatePublishingChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13682,6 +14520,10 @@ paths:
     delete:
       summary: 禁用发布渠道
       operationId: deletePublishingChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13713,6 +14555,10 @@ paths:
     patch:
       summary: 更新发布渠道状态
       operationId: updatePublishingChannelStatus
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13750,6 +14596,10 @@ paths:
     post:
       summary: 测试发布渠道连接
       operationId: testPublishingChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13781,6 +14631,10 @@ paths:
     post:
       summary: 通过发布渠道发送消息
       operationId: sendPublishingChannelMessage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13818,6 +14672,10 @@ paths:
     get:
       summary: 获取发布渠道消息日志
       operationId: listPublishingChannelMessages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13852,6 +14710,10 @@ paths:
     get:
       summary: 获取发布渠道失败重试队列
       operationId: listPublishingChannelFailedMessages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13886,6 +14748,10 @@ paths:
     post:
       summary: 重试发布渠道失败消息
       operationId: retryPublishingChannelFailedMessages
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security:
         - cookieAuth: []
@@ -13922,6 +14788,10 @@ paths:
     post:
       summary: 接收发布渠道公开 webhook
       operationId: receivePublishingChannelWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: channel.delivery
       tags: [Publishing]
       security: []
       parameters:
@@ -13971,6 +14841,10 @@ paths:
     get:
       summary: 管理员获取账务巡检汇总
       operationId: getAdminBillingSummary
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14024,6 +14898,10 @@ paths:
     get:
       summary: 管理员获取 Relay billing session 列表
       operationId: listAdminBillingSessions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14088,6 +14966,10 @@ paths:
     get:
       summary: 管理员获取 payment intent 列表
       operationId: listAdminPaymentIntents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14113,6 +14995,10 @@ paths:
     get:
       summary: 管理员获取支付 webhook 事件列表
       operationId: listAdminBillingWebhookEvents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14138,6 +15024,10 @@ paths:
     get:
       summary: 管理员获取订阅列表
       operationId: listAdminSubscriptions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14163,6 +15053,10 @@ paths:
     get:
       summary: 管理员获取 top-up 订单列表
       operationId: listAdminTopups
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14188,6 +15082,10 @@ paths:
     get:
       summary: 管理员获取发票列表
       operationId: listAdminInvoices
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14213,6 +15111,10 @@ paths:
     get:
       summary: 管理员获取退款列表
       operationId: listAdminRefunds
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14238,6 +15140,10 @@ paths:
     get:
       summary: 管理员获取 Marketplace settlement 列表
       operationId: listAdminMarketplaceSettlements
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing, Marketplace]
       security:
         - cookieAuth: []
@@ -14263,6 +15169,10 @@ paths:
     get:
       summary: 管理员获取 Marketplace payout 列表
       operationId: listAdminMarketplacePayouts
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing, Marketplace]
       security:
         - cookieAuth: []
@@ -14288,6 +15198,10 @@ paths:
     post:
       summary: 触发创建到期 Marketplace provider payout
       operationId: createDueAdminMarketplacePayouts
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing, Marketplace]
       security:
         - cookieAuth: []
@@ -14315,6 +15229,10 @@ paths:
     post:
       summary: 记录管理员确认的 top-up 退款
       operationId: recordAdminTopupRefund
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -14356,6 +15274,10 @@ paths:
     post:
       summary: 标记 Marketplace payout 为已由 provider 打款
       operationId: markAdminMarketplacePayoutPaid
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing, Marketplace]
       security:
         - cookieAuth: []
@@ -14395,6 +15317,10 @@ paths:
     post:
       summary: 标记 Marketplace payout provider 打款失败并释放结算
       operationId: markAdminMarketplacePayoutFailed
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing, Marketplace]
       security:
         - cookieAuth: []
@@ -14435,6 +15361,10 @@ paths:
     get:
       summary: 获取 Relay channel provider catalog
       operationId: listAdminChannelProviders
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14459,6 +15389,10 @@ paths:
     get:
       summary: 获取 active organization 的 Relay model inventory
       operationId: listAdminModelInventory
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14517,6 +15451,10 @@ paths:
     get:
       summary: 管理员获取 Relay channel 列表
       operationId: listAdminChannels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14564,6 +15502,10 @@ paths:
     post:
       summary: 管理员创建 Relay channel
       operationId: createAdminChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14597,6 +15539,10 @@ paths:
     post:
       summary: 批量启用或禁用 Relay channels
       operationId: batchUpdateAdminChannels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14630,6 +15576,10 @@ paths:
     get:
       summary: 获取 Relay channel 运行时统计
       operationId: listAdminChannelRuntimeStats
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14654,6 +15604,10 @@ paths:
     get:
       summary: 管理员获取 Relay channel 详情
       operationId: getAdminChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14684,6 +15638,10 @@ paths:
     put:
       summary: 管理员更新 Relay channel
       operationId: updateAdminChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14723,6 +15681,10 @@ paths:
     delete:
       summary: 管理员删除 Relay channel
       operationId: deleteAdminChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14756,6 +15718,10 @@ paths:
     post:
       summary: 测试 Relay channel 连通性
       operationId: testAdminChannel
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14789,6 +15755,10 @@ paths:
     post:
       summary: 探测并同步 Relay channel 模型列表
       operationId: syncAdminChannelModels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14824,6 +15794,10 @@ paths:
     post:
       summary: 探测 Relay channel 模型列表变更
       operationId: detectAdminChannelModelUpdates
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14859,6 +15833,10 @@ paths:
     post:
       summary: 应用 Relay channel 模型列表变更
       operationId: applyAdminChannelModelUpdates
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14900,6 +15878,10 @@ paths:
     post:
       summary: 刷新并保存 Relay channel 余额和健康诊断
       operationId: refreshAdminChannelBalance
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14935,6 +15917,10 @@ paths:
     get:
       summary: 获取 Relay channel 健康状态
       operationId: getAdminChannelHealth
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -14968,6 +15954,10 @@ paths:
     get:
       summary: 获取管理员仪表盘统计
       operationId: getAdminStats
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -14992,6 +15982,10 @@ paths:
     get:
       summary: 获取完整 readiness inventory
       operationId: getAdminReadinessInventory
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, Readiness]
       security:
         - cookieAuth: []
@@ -15009,6 +16003,10 @@ paths:
     get:
       summary: 检索全局 Relay API token 运行视图
       operationId: listAdminAPITokens
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -15067,6 +16065,10 @@ paths:
     post:
       summary: 管理员撤销 Relay API token
       operationId: revokeAdminAPIToken
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -15100,6 +16102,10 @@ paths:
     get:
       summary: 获取 Relay 计费倍率设置
       operationId: getAdminRelayPricingSettings
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -15122,6 +16128,10 @@ paths:
     put:
       summary: 更新 Relay 计费倍率设置
       operationId: updateAdminRelayPricingSettings
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -15155,6 +16165,10 @@ paths:
     get:
       summary: 检索 Relay 价格目录导入批次
       operationId: listAdminRelayPricingCatalogImports
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15202,6 +16216,10 @@ paths:
     post:
       summary: 创建 Relay 价格目录导入草案
       operationId: createAdminRelayPricingCatalogImport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15235,6 +16253,10 @@ paths:
     post:
       summary: 从 LiteLLM 价格源创建 Relay 价格目录导入草案
       operationId: syncAdminRelayPricingCatalogImport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15268,6 +16290,10 @@ paths:
     get:
       summary: 检索 Relay 价格源同步和对账运行记录
       operationId: listAdminRelayPricingCatalogSyncRuns
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15322,6 +16348,10 @@ paths:
     post:
       summary: 审批并应用 Relay 价格目录导入
       operationId: approveAdminRelayPricingCatalogImport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15359,6 +16389,10 @@ paths:
     post:
       summary: 拒绝 Relay 价格目录导入
       operationId: rejectAdminRelayPricingCatalogImport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15402,6 +16436,10 @@ paths:
     post:
       summary: 创建 Relay 价格目录回滚导入
       operationId: rollbackAdminRelayPricingCatalogImport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Relay, Billing]
       security:
         - cookieAuth: []
@@ -15445,6 +16483,10 @@ paths:
     get:
       summary: 获取当前组织 Usage Limit 设置
       operationId: listAdminUsageLimitSettings
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -15467,6 +16509,10 @@ paths:
     put:
       summary: 保存 Usage Limit 设置
       operationId: updateAdminUsageLimitSettings
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -15500,6 +16546,10 @@ paths:
     get:
       summary: 检索 Relay usage logs
       operationId: listAdminUsageLogs
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -15577,6 +16627,10 @@ paths:
     get:
       summary: 检索 Relay usage analytics
       operationId: getAdminUsageAnalytics
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -15657,6 +16711,10 @@ paths:
     get:
       summary: 对账 Relay usage ledger 与价格快照成本
       operationId: getAdminRelayUsagePriceReconciliation
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Admin, Billing, Relay]
       security:
         - cookieAuth: []
@@ -15755,6 +16813,10 @@ paths:
     get:
       summary: 检查 usage records 与 request logs 的 request_id 关联覆盖率
       operationId: getAdminUsageRequestLogCoverage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Billing, Observability]
       security:
         - cookieAuth: []
@@ -15843,6 +16905,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for durable RAG indexing
       operationId: getAdminReleaseEvidenceRAGIndexingProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15879,6 +16945,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for Relay realtime policy
       operationId: getAdminReleaseEvidenceRelayRealtimeProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15903,6 +16973,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for Relay batch policy
       operationId: getAdminReleaseEvidenceRelayBatchProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15927,6 +17001,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for Marketplace payout lifecycle
       operationId: getAdminReleaseEvidenceMarketplacePayoutProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15951,6 +17029,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for Marketplace governance lifecycle
       operationId: getAdminReleaseEvidenceMarketplaceGovernanceProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15975,6 +17057,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for provider runtime configuration
       operationId: getAdminReleaseEvidenceProviderRuntimeConfigProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -15999,6 +17085,10 @@ paths:
     get:
       summary: Fetch target release evidence proof for microservice database configuration
       operationId: getAdminReleaseEvidenceMicroserviceDatabaseProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: release.contract_reporting
       tags: [Admin, ReleaseEvidence]
       security:
         - cookieAuth: []
@@ -16023,6 +17113,10 @@ paths:
     get:
       summary: 获取 Relay model routes
       operationId: listAdminRoutes
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -16045,6 +17139,10 @@ paths:
     post:
       summary: 创建 Relay model route
       operationId: createAdminRoute
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -16084,6 +17182,10 @@ paths:
     get:
       summary: 获取 Relay model route 详情
       operationId: getAdminRoute
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -16108,6 +17210,10 @@ paths:
     put:
       summary: 更新 Relay model route
       operationId: updateAdminRoute
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -16141,6 +17247,10 @@ paths:
     delete:
       summary: 删除 Relay model route
       operationId: deleteAdminRoute
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: relay.provider_inference
       tags: [Admin, Relay]
       security:
         - cookieAuth: []
@@ -16168,6 +17278,10 @@ paths:
     get:
       summary: 获取订阅套餐列表
       operationId: listAdminPlans
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16215,6 +17329,10 @@ paths:
     post:
       summary: 创建订阅套餐
       operationId: createAdminPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16254,6 +17372,10 @@ paths:
     get:
       summary: 获取订阅套餐详情
       operationId: getAdminPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16278,6 +17400,10 @@ paths:
     put:
       summary: 更新订阅套餐
       operationId: updateAdminPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16311,6 +17437,10 @@ paths:
     delete:
       summary: 停用订阅套餐
       operationId: deactivateAdminPlan
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16338,6 +17468,10 @@ paths:
     get:
       summary: 获取用户列表
       operationId: listAdminUsers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16401,6 +17535,10 @@ paths:
     get:
       summary: 获取用户详情
       operationId: getAdminUser
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16425,6 +17563,10 @@ paths:
     put:
       summary: 更新用户属性
       operationId: updateAdminUser
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16458,6 +17600,10 @@ paths:
     patch:
       summary: 更新用户余额配额
       operationId: updateAdminUserQuota
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Admin, Billing]
       security:
         - cookieAuth: []
@@ -16491,6 +17637,10 @@ paths:
     delete:
       summary: 删除用户
       operationId: deleteAdminUser
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16524,6 +17674,10 @@ paths:
     post:
       summary: 禁用用户
       operationId: disableAdminUser
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16557,6 +17711,10 @@ paths:
     post:
       summary: 启用用户
       operationId: enableAdminUser
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16584,6 +17742,10 @@ paths:
     get:
       summary: 获取审计日志列表
       operationId: listAdminAuditLogs
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16653,6 +17815,10 @@ paths:
     get:
       summary: 管理员获取组织列表
       operationId: listAdminOrganizations
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16700,6 +17866,10 @@ paths:
     post:
       summary: 管理员创建组织
       operationId: createAdminOrganization
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16743,6 +17913,10 @@ paths:
     get:
       summary: 管理员获取组织详情
       operationId: getAdminOrganization
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16777,6 +17951,10 @@ paths:
     put:
       summary: 管理员更新组织
       operationId: updateAdminOrganization
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16828,6 +18006,10 @@ paths:
     post:
       summary: 管理员归档组织
       operationId: archiveAdminOrganization
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16873,6 +18055,10 @@ paths:
     get:
       summary: 管理员获取组织成员列表
       operationId: listAdminOrganizationMembers
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: admin.governance
       tags: [Admin]
       security:
         - cookieAuth: []
@@ -16910,6 +18096,10 @@ paths:
     get:
       summary: 获取告警路由规则
       operationId: getAdminObservabilityAlertRouting
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -16936,6 +18126,10 @@ paths:
     put:
       summary: 更新告警路由规则
       operationId: updateAdminObservabilityAlertRouting
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -16973,6 +18167,10 @@ paths:
     get:
       summary: 获取告警投递 provider 配置
       operationId: listAdminObservabilityAlertProviders
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17001,6 +18199,10 @@ paths:
     post:
       summary: 创建告警投递 provider 配置
       operationId: createAdminObservabilityAlertProvider
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17038,6 +18240,10 @@ paths:
     put:
       summary: 更新告警投递 provider 配置
       operationId: updateAdminObservabilityAlertProvider
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17083,6 +18289,10 @@ paths:
     post:
       summary: 测试告警投递 provider 配置
       operationId: testAdminObservabilityAlertProvider
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17120,6 +18330,10 @@ paths:
     get:
       summary: 获取告警状态列表
       operationId: listAdminObservabilityAlerts
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17178,6 +18392,10 @@ paths:
     get:
       summary: 获取单个告警状态
       operationId: getAdminObservabilityAlert
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17214,6 +18432,10 @@ paths:
     post:
       summary: 确认告警
       operationId: acknowledgeAdminObservabilityAlert
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17251,6 +18473,10 @@ paths:
     post:
       summary: 解决告警
       operationId: resolveAdminObservabilityAlert
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17288,6 +18514,10 @@ paths:
     get:
       summary: 获取告警投递历史
       operationId: listAdminObservabilityAlertDeliveries
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17335,6 +18565,10 @@ paths:
     get:
       summary: Get latency SLO proof
       operationId: getAdminObservabilityLatencySLOProof
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.slo
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17383,6 +18617,10 @@ paths:
     get:
       summary: 获取自动恢复动作记录
       operationId: listAdminObservabilityRecoveryActions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: observability.audit
       tags: [Admin, Observability]
       security:
         - cookieAuth: []
@@ -17443,6 +18681,10 @@ paths:
     get:
       summary: 获取使用量概览
       operationId: getUsage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17465,6 +18707,10 @@ paths:
     get:
       summary: 获取访问权限概览
       operationId: getAccess
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17487,6 +18733,10 @@ paths:
     get:
       summary: 获取模型概览（控制台）
       operationId: getConsoleModels
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17511,6 +18761,10 @@ paths:
     get:
       summary: 获取账单概览
       operationId: getBilling
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17533,6 +18787,10 @@ paths:
     get:
       summary: 获取账单发票摘要列表
       operationId: listConsoleBillingInvoices
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17557,6 +18815,10 @@ paths:
     get:
       summary: 获取当前用户的 Relay API tokens
       operationId: listConsoleAPITokens
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17579,6 +18841,10 @@ paths:
     post:
       summary: 创建 Relay API token
       operationId: createConsoleAPIToken
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17610,6 +18876,10 @@ paths:
     delete:
       summary: 撤销 Relay API token
       operationId: revokeConsoleAPIToken
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17641,6 +18911,10 @@ paths:
     get:
       summary: 获取 Relay API token 使用记录
       operationId: listConsoleAPITokenUsage
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.ledger_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -17673,6 +18947,10 @@ paths:
     get:
       summary: 获取 Marketplace 推荐 Agent
       operationId: getMarketplaceFeaturedAgents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -17694,6 +18972,10 @@ paths:
     get:
       summary: 获取 Marketplace 分组推荐
       operationId: getMarketplaceCuratedSections
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -17715,6 +18997,10 @@ paths:
     get:
       summary: 获取 Marketplace 分类
       operationId: listMarketplaceCategories
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -17736,6 +19022,10 @@ paths:
     get:
       summary: 搜索 Marketplace Agent
       operationId: searchMarketplaceAgents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       parameters:
@@ -17800,6 +19090,10 @@ paths:
     get:
       summary: 列出 Marketplace Agent
       operationId: listMarketplaceAgents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -17817,6 +19111,10 @@ paths:
     post:
       summary: 发布 Marketplace Agent
       operationId: publishMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -17854,6 +19152,10 @@ paths:
     get:
       summary: 获取 Marketplace Agent 详情
       operationId: getMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -17873,6 +19175,10 @@ paths:
     put:
       summary: 更新当前发布者的 Marketplace Agent
       operationId: updateMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -17904,6 +19210,10 @@ paths:
     delete:
       summary: 删除当前发布者的 Marketplace Agent
       operationId: deleteMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -17935,6 +19245,10 @@ paths:
     post:
       summary: 安装 Marketplace Agent 或创建付费安装 checkout
       operationId: installMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -17985,6 +19299,10 @@ paths:
     delete:
       summary: 卸载 Marketplace Agent
       operationId: uninstallMarketplaceAgentByInstallEndpoint
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18014,6 +19332,10 @@ paths:
     get:
       summary: 获取 Marketplace Agent 评论
       operationId: listMarketplaceAgentReviews
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security: []
       responses:
@@ -18031,6 +19353,10 @@ paths:
     post:
       summary: 提交或更新 Marketplace Agent 评论
       operationId: submitMarketplaceAgentReview
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18068,6 +19394,10 @@ paths:
     post:
       summary: 对被治理的 Marketplace Agent 发起申诉
       operationId: appealMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18105,6 +19435,10 @@ paths:
     post:
       summary: 举报 Marketplace Agent
       operationId: reportMarketplaceAgentAbuse
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18142,6 +19476,10 @@ paths:
     get:
       summary: 获取 Marketplace Agent 版本
       operationId: listMarketplaceAgentVersions
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -18167,6 +19505,10 @@ paths:
     get:
       summary: 获取发布者视角的 Agent 统计
       operationId: getMarketplaceAgentStats
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18189,6 +19531,10 @@ paths:
     get:
       summary: 获取当前发布者的 Agent
       operationId: listMyMarketplaceAgents
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18211,6 +19557,10 @@ paths:
     get:
       summary: 获取当前用户安装的 Marketplace Agent
       operationId: listMarketplaceInstalls
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18239,6 +19589,10 @@ paths:
     delete:
       summary: 通过安装列表端点卸载 Marketplace Agent
       operationId: uninstallMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18262,6 +19616,10 @@ paths:
     get:
       summary: 获取 Marketplace 发布者统计
       operationId: getMarketplacePublisherStats
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18284,6 +19642,10 @@ paths:
     get:
       summary: 获取 Marketplace 发布者结算偏好
       operationId: getMarketplaceSettlementPreferences
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18304,6 +19666,10 @@ paths:
     put:
       summary: 更新 Marketplace 发布者结算偏好
       operationId: updateMarketplaceSettlementPreferences
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18335,6 +19701,10 @@ paths:
     get:
       summary: 搜索 Marketplace 模板
       operationId: listMarketplaceTemplates
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       parameters:
@@ -18380,6 +19750,10 @@ paths:
     post:
       summary: 创建 Marketplace 模板
       operationId: createMarketplaceTemplate
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18417,6 +19791,10 @@ paths:
     get:
       summary: 获取 Marketplace 模板详情
       operationId: getMarketplaceTemplate
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security: []
       responses:
@@ -18444,6 +19822,10 @@ paths:
     post:
       summary: 安装 Marketplace 模板
       operationId: installMarketplaceTemplate
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.commerce
       tags: [Marketplace]
       security:
         - cookieAuth: []
@@ -18469,6 +19851,10 @@ paths:
     get:
       summary: 管理员列出 Marketplace 审核队列
       operationId: listAdminMarketplaceReviews
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18504,6 +19890,10 @@ paths:
     post:
       summary: 管理员触发 Marketplace 审核 SLA 扫描
       operationId: enforceAdminMarketplaceReviewSLA
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18548,6 +19938,10 @@ paths:
     post:
       summary: 管理员批准 Marketplace Agent
       operationId: approveAdminMarketplaceReview
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18585,6 +19979,10 @@ paths:
     post:
       summary: 管理员领取 Marketplace Agent 审核
       operationId: claimAdminMarketplaceReview
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18622,6 +20020,10 @@ paths:
     post:
       summary: 管理员拒绝 Marketplace Agent
       operationId: rejectAdminMarketplaceReview
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18665,6 +20067,10 @@ paths:
     post:
       summary: 管理员要求 Marketplace Agent 发布者修改
       operationId: requestChangesForAdminMarketplaceReview
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18708,6 +20114,10 @@ paths:
     post:
       summary: 管理员下架 Marketplace Agent
       operationId: takedownMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18745,6 +20155,10 @@ paths:
     post:
       summary: 管理员恢复 Marketplace Agent
       operationId: reinstateMarketplaceAgent
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18782,6 +20196,10 @@ paths:
     post:
       summary: 管理员拒绝 Marketplace Agent 申诉
       operationId: rejectMarketplaceAgentAppeal
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18813,6 +20231,10 @@ paths:
     get:
       summary: 管理员列出 Marketplace abuse reports
       operationId: listMarketplaceAbuseReports
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18855,6 +20277,10 @@ paths:
     post:
       summary: 管理员解决 Marketplace abuse report
       operationId: resolveMarketplaceAbuseReport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18892,6 +20318,10 @@ paths:
     post:
       summary: 管理员驳回 Marketplace abuse report
       operationId: dismissMarketplaceAbuseReport
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: marketplace.governance
       tags: [Admin, Marketplace]
       security:
         - cookieAuth: []
@@ -18923,6 +20353,10 @@ paths:
     post:
       summary: 创建订阅或余额充值 checkout
       operationId: createBillingCheckout
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security:
         - cookieAuth: []
@@ -18972,6 +20406,10 @@ paths:
     post:
       summary: 接收 Stripe 支付 webhook
       operationId: receiveStripeBillingWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security: []
       parameters:
@@ -19010,6 +20448,10 @@ paths:
     post:
       summary: 接收 Alipay 支付 webhook
       operationId: receiveAlipayBillingWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security: []
       parameters:
@@ -19059,6 +20501,10 @@ paths:
     post:
       summary: Receive marketplace payout provider webhook
       operationId: receiveMarketplacePayoutWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing, Marketplace]
       security: []
       parameters:
@@ -19108,6 +20554,10 @@ paths:
     post:
       summary: 接收 WeChat Pay 支付 webhook
       operationId: receiveWeChatPayBillingWebhook
+      x-oblivious-public-operation:
+        disposition: included
+        reason: mandatory_prefix
+      x-oblivious-capability-id: billing.payment_lifecycle
       tags: [Billing]
       security: []
       parameters:
