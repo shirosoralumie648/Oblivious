@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "migration-disposition/v1",
+  "entries": [
+    {
+      "surface": "monolith",
+      "pattern": "src/server/migrations/*.sql",
+      "disposition": "monolith-managed"
+    },
+    {
+      "surface": "microservices",
+      "pattern": "src/server/migrations/microservices/*.sql",
+      "disposition": "microservice-non-monolith"
+    },
+    {
+      "surface": "clickhouse",
+      "pattern": "src/server/migrations/clickhouse/*.sql",
+      "disposition": "clickhouse-non-monolith"
+    }
+  ]
+}
