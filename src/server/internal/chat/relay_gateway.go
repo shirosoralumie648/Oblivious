@@ -34,9 +34,10 @@ type RelayGatewayOption func(*RelayGateway)
 // RelayGatewayRuntimeOptions is the exact startup-built readiness carrier for
 // provider dispatch. It is intentionally separate from HTTP/client settings.
 type RelayGatewayRuntimeOptions struct {
-	Guard       releasecontract.Guard
-	Authorities releasecontract.RuntimeAuthorities
-	Effects     releasecontract.EffectRegistrar
+	Guard                  releasecontract.Guard
+	Authorities            releasecontract.RuntimeAuthorities
+	Effects                releasecontract.EffectRegistrar
+	SkipEffectRegistration bool
 }
 
 type relayGatewayReadiness struct {
@@ -53,13 +54,15 @@ func newRelayGatewayReadiness(options RelayGatewayRuntimeOptions, descriptorID, 
 	if err != nil {
 		return nil, err
 	}
-	if err := options.Effects.Register(releasecontract.EffectDescriptor{
-		ID:           descriptorID,
-		CapabilityID: string(chatEffect),
-		Boundary:     releasecontract.BoundaryOutbound,
-		Owner:        owner,
-	}); err != nil {
-		return nil, err
+	if !options.SkipEffectRegistration {
+		if err := options.Effects.Register(releasecontract.EffectDescriptor{
+			ID:           descriptorID,
+			CapabilityID: string(chatEffect),
+			Boundary:     releasecontract.BoundaryOutbound,
+			Owner:        owner,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return &relayGatewayReadiness{guard: options.Guard, authorities: options.Authorities, chatEffect: chatEffect}, nil
 }

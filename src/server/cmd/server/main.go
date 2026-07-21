@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -172,7 +171,7 @@ func runServerWithInputs(ctx context.Context, inputs config.ResolvedEntrypointIn
 	if err != nil {
 		return fmt.Errorf("construct runtime authorities: %w", err)
 	}
-	effects := newRuntimeEffectRegistry()
+	effects := releasecontract.NewEffectRegistry()
 	runtime, err := deps.buildRuntime(cfg, database, serverhttp.RuntimeOptions{
 		Readiness: manager, Guard: guard, Effects: effects, Authorities: authorities,
 	})
@@ -232,30 +231,5 @@ func runServerWithInputs(ctx context.Context, inputs config.ResolvedEntrypointIn
 			return fmt.Errorf("server shutdown: %w", err)
 		}
 	}
-	return nil
-}
-
-type runtimeEffectRegistry struct {
-	mu          sync.Mutex
-	descriptors map[string]releasecontract.EffectDescriptor
-}
-
-func newRuntimeEffectRegistry() *runtimeEffectRegistry {
-	return &runtimeEffectRegistry{descriptors: make(map[string]releasecontract.EffectDescriptor)}
-}
-
-func (r *runtimeEffectRegistry) Register(descriptor releasecontract.EffectDescriptor) error {
-	if r == nil || descriptor.ID == "" || descriptor.CapabilityID == "" {
-		return fmt.Errorf("effect descriptor is incomplete")
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if existing, exists := r.descriptors[descriptor.ID]; exists {
-		if existing == descriptor {
-			return nil
-		}
-		return fmt.Errorf("duplicate effect descriptor %q", descriptor.ID)
-	}
-	r.descriptors[descriptor.ID] = descriptor
 	return nil
 }

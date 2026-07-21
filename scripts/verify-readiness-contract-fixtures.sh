@@ -23,6 +23,11 @@ expect_failure() {
 }
 
 bash -n "$harness" "$repo_root/scripts/verify-readiness-contract.sh" "$repo_root/scripts/verify-readiness-deployment-contract.sh"
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/releasecontract '^TestEffectSurfaceManifestRuntimeDescriptorContract$'
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/releasecontract '^TestStructuralEffectDiscoveryMutationContract$'
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/releasecontract '^TestEffectCoverageRequiresRuntimeAuthoritiesContract$'
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/releasecontract '^TestReadinessEffectCoverageContract$'
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/http '^TestProductionEffectCoverageContract$'
 bash "$repo_root/scripts/verify-readiness-deployment-contract.sh"
 bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/surfacereport '^TestDeploymentSurfaceContract$'
 
@@ -42,5 +47,10 @@ grep -Fq 'build_count=0' "$harness" || fail "aggregate build count is not initia
 grep -Fq 'mode" == "standalone-build' "$harness" || fail "builder is not isolated to standalone mode"
 grep -Fq 'artifact_bundle_mismatch' "$harness" || fail "aggregate bundle mismatch is not fail-closed"
 grep -Fq 'claim:"repository-local E2 only; no E3/E4, target, or commercial release claim"' "$harness" || fail "claim ceiling is missing"
+grep -Fq "TestProductionEffectCoverageContract" "$repo_root/scripts/verify-readiness-contract.sh" || fail "production exact-join selector is missing from the phase gate"
+grep -Fq "TestEffectSurfaceManifestRuntimeDescriptorContract" "$repo_root/scripts/verify-readiness-contract-fixtures.sh" || fail "manifest selector is missing from fixtures"
+grep -Fq "TestStructuralEffectDiscoveryMutationContract" "$repo_root/scripts/verify-readiness-contract-fixtures.sh" || fail "structural selector is missing from fixtures"
+grep -Fq "TestEffectCoverageRequiresRuntimeAuthoritiesContract" "$repo_root/scripts/verify-readiness-contract-fixtures.sh" || fail "authority selector is missing from fixtures"
+grep -Fq "TestReadinessEffectCoverageContract" "$repo_root/scripts/verify-readiness-contract-fixtures.sh" || fail "selection selector is missing from fixtures"
 
 echo "[readiness-contract-fixtures] fail-closed fixtures passed"

@@ -91,6 +91,30 @@ func TestChatRelayReadinessDispatchContract(t *testing.T) {
 		}
 	})
 
+	t.Run("shared consumer skips registration but preserves dispatch guard", func(t *testing.T) {
+		guard := &chatReadinessGuardSpy{denyAtCall: 1, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityBlocked, Field: "generation"}}
+		registrar := &chatEffectRegistrar{}
+		runtimeOptions := newRuntime(t, guard, registrar)
+		runtimeOptions.SkipEffectRegistration = true
+		networkCalls := 0
+		gateway, err := NewRelayGatewayWithOptions(runtimeOptions,
+			WithHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				networkCalls++
+				return nil, errors.New("network must not be called")
+			})}),
+		)
+		if err != nil {
+			t.Fatalf("construct shared guarded gateway: %v", err)
+		}
+		_, err = gateway.GenerateReply(context.Background(), nil, ConversationConfig{ModelID: "gpt-4o-mini"})
+		if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityBlocked) || networkCalls != 0 {
+			t.Fatalf("shared consumer denial leaked network call: err=%v calls=%d", err, networkCalls)
+		}
+		if len(registrar.descriptors) != 0 {
+			t.Fatalf("shared consumer registered descriptors: %#v", registrar.descriptors)
+		}
+	})
+
 	t.Run("fallback re-authorizes after primary failure", func(t *testing.T) {
 		guard := &chatReadinessGuardSpy{denyAtCall: 3, denial: &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"}}
 		registrar := &chatEffectRegistrar{}

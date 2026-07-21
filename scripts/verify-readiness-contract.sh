@@ -23,6 +23,10 @@ done
 
 [[ "$stage" == "stage-a" || "$stage" == "stage-b" ]] || fail invalid_stage
 [[ -n "$output_dir" ]] || fail output_required
+
+# The production descriptor exact join is a prerequisite for either deployment
+# harness stage. Keep this selector anchored before Docker or identity work.
+bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/http '^TestProductionEffectCoverageContract$'
 bash "$repo_root/scripts/verify-readiness-deployment-contract.sh"
 bash "$repo_root/scripts/run-go-tests-matched.sh" ./internal/surfacereport '^TestDeploymentSurfaceContract$'
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	stdhttp "net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -42,9 +43,19 @@ type shutdownRegistrar interface {
 }
 
 type Runtime struct {
-	Server          *stdhttp.Server
-	StartBackground func(context.Context) error
-	Close           func(context.Context) error
+	Server            *stdhttp.Server
+	StartBackground   func(context.Context) error
+	Close             func(context.Context) error
+	effectDescriptors []releasecontract.EffectDescriptor
+}
+
+// EffectDescriptors returns the immutable construction-time evidence captured
+// after every strict runtime constructor has completed successfully.
+func (r *Runtime) EffectDescriptors() []releasecontract.EffectDescriptor {
+	if r == nil {
+		return nil
+	}
+	return append([]releasecontract.EffectDescriptor(nil), r.effectDescriptors...)
 }
 
 type RuntimeOptions struct {
@@ -388,7 +399,14 @@ func buildRuntimeWithRouter(
 	}
 
 	lifecycle := &runtimeLifecycle{server: server, runners: runners, closers: closers}
-	runtime := &Runtime{Server: server}
+	var descriptors []releasecontract.EffectDescriptor
+	if snapshotter, ok := options.Effects.(interface {
+		Snapshot() []releasecontract.EffectDescriptor
+	}); ok {
+		descriptors = append(descriptors, snapshotter.Snapshot()...)
+		sort.Slice(descriptors, func(i, j int) bool { return descriptors[i].ID < descriptors[j].ID })
+	}
+	runtime := &Runtime{Server: server, effectDescriptors: descriptors}
 	runtime.StartBackground = lifecycle.startBackground
 	runtime.Close = lifecycle.closeRuntime
 	return runtime, nil
@@ -472,7 +490,10 @@ func closeRuntimeResources(closers []func()) {
 }
 
 func newReadinessAgentGateway(cfg config.Config, options RuntimeOptions) (chat.ChatGateway, error) {
-	runtime := chat.RelayGatewayRuntimeOptions{Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects}
+	runtime := chat.RelayGatewayRuntimeOptions{
+		Guard: options.Guard, Authorities: options.Authorities, Effects: options.Effects,
+		SkipEffectRegistration: true,
+	}
 	primary, err := chat.NewReadinessRelayGateway(runtime,
 		chat.WithRelayURL(configuredChatRelayBaseURL(cfg)), chat.WithDefaultModel(cfg.RelayDefaultModel),
 	)
