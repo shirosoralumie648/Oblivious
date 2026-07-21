@@ -5,6 +5,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
+// ⚡ Bolt Optimization: Instantiate Intl formatters once at the module level
+// Reusing these instances avoids expensive initialization overhead on every render call.
+const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
 export type MetricCardProps = {
   label: string;
   value: string | number;
@@ -22,7 +26,7 @@ function formatValue(value: string | number, format: MetricCardProps['format'] =
 
   switch (format) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+      return currencyFormatter.format(value);
     case 'percentage':
       return `${value}%`;
     case 'duration':
