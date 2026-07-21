@@ -114,6 +114,65 @@ run_fresh_checkout() {
   )
 }
 
+run_stage_a() {
+	[[ "$MANIFEST" == "config/release/protobuf-toolchain.v1.json" ]] || {
+		echo "protobuf_argument_invalid: stage-a requires the canonical manifest" >&2
+		exit 2
+	}
+	local fixture_root checkout observation report release_contract
+	local -a tracked_files
+	fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/oblivious-protobuf-stage-a.XXXXXX")"
+	checkout="$fixture_root/checkout"
+	observation="$checkout/.tmp/protobuf-observation.json"
+	report="$fixture_root/protobuf-report.json"
+	release_contract="$fixture_root/release-contract"
+	mkdir -p "$checkout"
+	trap 'rm -rf -- "$fixture_root"' RETURN
+
+	mapfile -d '' tracked_files < <(git -C "$ROOT_DIR" ls-files -z -- . ':(exclude)reference/**' ':(exclude).planning/**')
+	[[ ${#tracked_files[@]} -gt 0 ]] || {
+		echo "protobuf_stage_a_snapshot_empty: Git index has no tracked files" >&2
+		exit 1
+	}
+	git -C "$ROOT_DIR" checkout-index --prefix="$checkout/" -- "${tracked_files[@]}"
+	git -C "$checkout" init -q
+	git -C "$checkout" add -- .
+	git -C "$checkout" -c user.name=protobuf-gate -c user.email=protobuf-gate.invalid commit -q -m snapshot
+
+	(
+		cd "$checkout"
+		bash scripts/bootstrap-protobuf-tools.sh --manifest config/release/protobuf-toolchain.v1.json
+		python3 scripts/verify_protobuf_contract.py \
+			--manifest config/release/protobuf-toolchain.v1.json \
+			--tool-bin "$checkout/.tmp/protobuf-tools/bin" \
+			--regenerate \
+			--regeneration-fixtures \
+			--observation-out .tmp/protobuf-observation.json
+		(
+			cd src/server
+			go build -o "$release_contract" ./cmd/release-contract
+		)
+
+		report_invocation_count=0
+		invoke_report_protobuf() {
+			report_invocation_count=$((report_invocation_count + 1))
+			"$release_contract" report-protobuf "$@"
+		}
+		invoke_report_protobuf \
+			--repo "$checkout" \
+			--contract config/release/contract.v1.json \
+			--schema config/release/contract.schema.json \
+			--profile monolith \
+			--observation "$observation" \
+			--output "$report"
+		[[ $report_invocation_count -eq 1 ]] || {
+			echo "protobuf_report_invocation_count_invalid: expected one report-protobuf invocation" >&2
+			exit 1
+		}
+		"$release_contract" verify-report --input "$report"
+	)
+}
+
 case "$MODE" in
   manifest-only)
     exec python3 "$ROOT_DIR/scripts/verify_protobuf_contract.py" --manifest "$MANIFEST" --manifest-only
@@ -124,7 +183,10 @@ case "$MODE" in
   fresh-checkout)
     run_fresh_checkout
     ;;
-  stage-a|contract)
+  stage-a)
+	run_stage_a
+	;;
+  contract)
     run_current_checkout
     ;;
 esac

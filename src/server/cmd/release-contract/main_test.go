@@ -309,6 +309,109 @@ func TestRunReadinessAndDeploymentReportCommandsContract(t *testing.T) {
 	}
 }
 
+func TestRunProtobufSurfaceReportContract(t *testing.T) {
+	repoRoot := commandSourceRoot(t)
+	identity := commandTestIdentity()
+	observationPath := writeProtobufObservation(t, nil)
+	outputPath := filepath.Join(t.TempDir(), "nested", "protobuf-report.json")
+	provider := &commandIdentityProvider{identity: identity}
+	profiles := &reportProfileResolver{profile: commandCommittedProfile()}
+	writer := &countingAtomicReportWriter{delegate: surfacereport.NewAtomicWriter()}
+	args := protobufReportCommandArgs(repoRoot, observationPath, outputPath)
+	var stdout, stderr bytes.Buffer
+	if exitCode := runWithDependencies(context.Background(), args, &stdout, &stderr, dependencies{
+		gitProvider: provider, profileResolver: profiles, reportWriter: writer,
+	}); exitCode != 0 {
+		t.Fatalf("protobuf report exit=%d stderr=%s", exitCode, stderr.String())
+	}
+	if provider.calls != 1 || profiles.calls != 1 || writer.calls != 1 || provider.paths != profiles.paths {
+		t.Fatalf("protobuf resolver/writer calls = %d/%d/%d paths=%#v/%#v", provider.calls, profiles.calls, writer.calls, provider.paths, profiles.paths)
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read protobuf report: %v", err)
+	}
+	report, err := surfacereport.Decode(content, surfacereport.NewDetailsRegistry())
+	if err != nil {
+		t.Fatalf("decode protobuf report: %v", err)
+	}
+	if report.SurfaceIdentity.Surface != surfacereport.ProtobufSurfaceID || report.ReleaseIdentity.ReleaseCommit != identity.ReleaseCommit || report.ReleaseIdentity.DeploymentProfile != "monolith" {
+		t.Fatalf("protobuf report identity = %#v / %#v", report.SurfaceIdentity, report.ReleaseIdentity)
+	}
+
+	t.Run("rejects caller authority flags without replacing prior output", func(t *testing.T) {
+		for _, override := range []string{"--release-commit", "--source-tree", "--contract-digest", "--evidence-class", "--skipped-checks"} {
+			t.Run(override, func(t *testing.T) {
+				priorPath := filepath.Join(t.TempDir(), "protobuf-report.json")
+				if err := os.WriteFile(priorPath, []byte("prior-report"), 0o644); err != nil {
+					t.Fatalf("write prior report: %v", err)
+				}
+				invalid := protobufReportCommandArgs(repoRoot, observationPath, priorPath)
+				invalid = append(invalid, override, "caller-value")
+				localProvider := &commandIdentityProvider{identity: identity}
+				stdout.Reset()
+				stderr.Reset()
+				if exitCode := runWithDependencies(context.Background(), invalid, &stdout, &stderr, dependencies{
+					gitProvider: localProvider, profileResolver: &reportProfileResolver{profile: commandCommittedProfile()}, reportWriter: surfacereport.NewAtomicWriter(),
+				}); exitCode == 0 {
+					t.Fatalf("protobuf override %s passed", override)
+				}
+				prior, err := os.ReadFile(priorPath)
+				if err != nil || string(prior) != "prior-report" || localProvider.calls != 0 {
+					t.Fatalf("override changed authority/output: calls=%d content=%q err=%v", localProvider.calls, prior, err)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects unknown and identity-bearing observations atomically", func(t *testing.T) {
+		for _, extra := range []map[string]any{
+			{"unknown": true},
+			{"releaseIdentity": map[string]any{"releaseCommit": strings.Repeat("f", 40)}},
+			{"evidenceClass": "target-environment"},
+		} {
+			priorPath := filepath.Join(t.TempDir(), "protobuf-report.json")
+			if err := os.WriteFile(priorPath, []byte("prior-report"), 0o644); err != nil {
+				t.Fatalf("write prior report: %v", err)
+			}
+			localProvider := &commandIdentityProvider{identity: identity}
+			stdout.Reset()
+			stderr.Reset()
+			if exitCode := runWithDependencies(context.Background(), protobufReportCommandArgs(repoRoot, writeProtobufObservation(t, extra), priorPath), &stdout, &stderr, dependencies{
+				gitProvider: localProvider, profileResolver: &reportProfileResolver{profile: commandCommittedProfile()}, reportWriter: surfacereport.NewAtomicWriter(),
+			}); exitCode == 0 {
+				t.Fatalf("identity-bearing protobuf observation passed: %#v", extra)
+			}
+			prior, err := os.ReadFile(priorPath)
+			if err != nil || string(prior) != "prior-report" || localProvider.calls != 0 {
+				t.Fatalf("invalid observation changed authority/output: calls=%d content=%q err=%v", localProvider.calls, prior, err)
+			}
+		}
+	})
+
+	t.Run("rejects failed validator result and preserves output", func(t *testing.T) {
+		failedPath := writeProtobufObservation(t, map[string]any{
+			"regeneration": map[string]any{"result": "fail", "generatedCount": 21, "digest": "sha256:c74af7cc805309b00807b9ecfbbbce31ec2737c4fb726130a70ecbbc168da96a"},
+		})
+		priorPath := filepath.Join(t.TempDir(), "protobuf-report.json")
+		if err := os.WriteFile(priorPath, []byte("prior-report"), 0o644); err != nil {
+			t.Fatalf("write prior report: %v", err)
+		}
+		failedWriter := &countingAtomicReportWriter{delegate: surfacereport.NewAtomicWriter()}
+		stdout.Reset()
+		stderr.Reset()
+		if exitCode := runWithDependencies(context.Background(), protobufReportCommandArgs(repoRoot, failedPath, priorPath), &stdout, &stderr, dependencies{
+			gitProvider: &commandIdentityProvider{identity: identity}, profileResolver: &reportProfileResolver{profile: commandCommittedProfile()}, reportWriter: failedWriter,
+		}); exitCode == 0 {
+			t.Fatal("failed protobuf regeneration produced a report")
+		}
+		prior, err := os.ReadFile(priorPath)
+		if err != nil || string(prior) != "prior-report" || failedWriter.calls != 1 {
+			t.Fatalf("producer failure changed output/calls: content=%q calls=%d err=%v", prior, failedWriter.calls, err)
+		}
+	})
+}
+
 func TestReadinessOutputPathScansCommonFlags(t *testing.T) {
 	args := []string{"--repo", "/repo", "--contract", "contract.json", "--schema", "schema.json", "--profile", "monolith", "--snapshot", "snapshot.json", "--output", "/tmp/readiness.json"}
 	if got := readinessOutputPath(args); got != "/tmp/readiness.json" {
@@ -356,6 +459,16 @@ func (r *reportProfileResolver) ResolveCommittedProfile(_ context.Context, repo,
 type commandReportWriter struct {
 	err   error
 	calls int
+}
+
+type countingAtomicReportWriter struct {
+	delegate surfacereport.ReportWriter
+	calls    int
+}
+
+func (w *countingAtomicReportWriter) Write(ctx context.Context, destination string, report surfacereport.SurfaceReportV1) error {
+	w.calls++
+	return w.delegate.Write(ctx, destination, report)
 }
 
 func (w *commandReportWriter) Write(context.Context, string, surfacereport.SurfaceReportV1) error {
@@ -444,6 +557,45 @@ func writeCommandInspection(t *testing.T, identity buildinfo.BuildIdentityV1, ex
 	path := filepath.Join(t.TempDir(), "inspection.json")
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("write inspection: %v", err)
+	}
+	return path
+}
+
+func protobufReportCommandArgs(repoRoot, observation, output string) []string {
+	return []string{
+		"report-protobuf", "--repo", repoRoot,
+		"--contract", "config/release/contract.v1.json",
+		"--schema", "config/release/contract.schema.json",
+		"--profile", "monolith", "--observation", observation, "--output", output,
+	}
+}
+
+func writeProtobufObservation(t *testing.T, extra map[string]any) string {
+	t.Helper()
+	value := map[string]any{
+		"schemaVersion":  "protobuf-observation/v1",
+		"manifestDigest": "sha256:3b225e40c4a7659d07c2638f128ac2087483d2ebab737f4533415793dcad54eb",
+		"toolVersions": map[string]any{
+			"protoc": "25.1", "protoc-gen-go": "1.36.11", "protoc-gen-go-grpc": "1.6.2",
+		},
+		"generatedHeaderVersion": "v4.25.1",
+		"sourceCount":            10, "outputCount": 21, "managedCount": 9, "sourceOnlyCount": 1,
+		"regeneration": map[string]any{
+			"result": "pass", "generatedCount": 21,
+			"digest": "sha256:c74af7cc805309b00807b9ecfbbbce31ec2737c4fb726130a70ecbbc168da96a",
+		},
+		"errorCodes": []string{}, "skippedChecks": []string{},
+	}
+	for key, item := range extra {
+		value[key] = item
+	}
+	content, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal protobuf observation: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "protobuf-observation.json")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write protobuf observation: %v", err)
 	}
 	return path
 }

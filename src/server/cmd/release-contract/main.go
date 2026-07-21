@@ -100,6 +100,8 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return runVerifyReadinessSnapshot(ctx, args[1:], stdout, stderr, deps)
 	case "report-deployment":
 		return runDeploymentReport(ctx, args[1:], stdout, stderr, deps)
+	case "report-protobuf":
+		return runProtobufReport(ctx, args[1:], stdout, stderr, deps)
 	case "verify-report":
 		return runVerifyReport(args[1:], stdout, stderr)
 	default:
@@ -275,6 +277,43 @@ func runDeploymentReport(ctx context.Context, args []string, stdout, stderr io.W
 		return writeDomainError(stderr, err)
 	}
 	return writeSuccess(stdout, stderr, map[string]any{"schemaVersion": report.SchemaVersion, "surface": report.SurfaceIdentity.Surface, "profile": report.ReleaseIdentity.DeploymentProfile, "result": report.Outcome.Result, "output": *outputPath})
+}
+
+func runProtobufReport(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	flags := flag.NewFlagSet("report-protobuf", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options commonOptions
+	bindCommonOptions(flags, &options)
+	profileID := flags.String("profile", "", "explicit committed deployment profile")
+	observationPath := flags.String("observation", "", "typed protobuf observation")
+	outputPath := flags.String("output", "", "atomic report output path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !validCommonOptions(options) || strings.TrimSpace(*profileID) == "" || strings.TrimSpace(*observationPath) == "" || strings.TrimSpace(*outputPath) == "" || deps.gitProvider == nil || deps.profileResolver == nil || deps.reportWriter == nil {
+		writeCLIError(stderr, "invalid_arguments", "report-protobuf")
+		return 2
+	}
+	var details surfacereport.ProtobufDetails
+	if err := decodeStrictBoundedFile(*observationPath, &details); err != nil {
+		writeCLIError(stderr, string(surfacereport.ErrorSurfaceSchemaInvalid), "observation")
+		return 1
+	}
+	report, err := surfacereport.NewProtobufReport(
+		ctx, deps.gitProvider, deps.profileResolver,
+		options.repoRoot, options.contractPath, options.schemaPath, *profileID,
+		details, surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}},
+	)
+	if err != nil {
+		return writeReportProducerError(ctx, stderr, err, deps.reportWriter, *outputPath)
+	}
+	if err := deps.reportWriter.Write(ctx, *outputPath, report); err != nil {
+		return writeDomainError(stderr, err)
+	}
+	return writeSuccess(stdout, stderr, map[string]any{
+		"schemaVersion": report.SchemaVersion,
+		"surface":       report.SurfaceIdentity.Surface,
+		"profile":       report.ReleaseIdentity.DeploymentProfile,
+		"result":        report.Outcome.Result,
+		"output":        *outputPath,
+	})
 }
 
 func readinessOutputPath(args []string) string {
