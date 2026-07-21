@@ -4253,6 +4253,31 @@
     },
     {
       "capabilityId": "knowledge.ingestion",
+      "csrf": false,
+      "method": "GET",
+      "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "operationId": "listKnowledgeDocumentIngestionJobs",
+      "request": {
+        "mediaType": null,
+        "schemaIdentity": {
+          "kind": "none",
+          "value": null
+        }
+      },
+      "security": "cookie",
+      "successResponses": [
+        {
+          "mediaType": "application/json",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:238da5fa8009ced78a1114d0a447d0d949b78191769d174c663df2c928685718"
+          },
+          "status": "200"
+        }
+      ]
+    },
+    {
+      "capabilityId": "knowledge.ingestion",
       "csrf": true,
       "method": "POST",
       "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload",
@@ -4270,9 +4295,9 @@
           "mediaType": "application/json",
           "schemaIdentity": {
             "kind": "inline",
-            "value": "sha256:7f200d9c163803f673f4209c7d508bd0ef35e048d035cc73101a3aa0d7b7c4d1"
+            "value": "sha256:8b1b1c4e08ce7a1663a811aeeb7000d8022440ee73ea51888e1b1c8ff7effc03"
           },
-          "status": "200"
+          "status": "202"
         }
       ]
     },
@@ -7261,6 +7286,31 @@
     },
     {
       "capabilityId": "knowledge.ingestion",
+      "csrf": false,
+      "method": "GET",
+      "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "operationId": "legacyListKnowledgeDocumentIngestionJobs",
+      "request": {
+        "mediaType": null,
+        "schemaIdentity": {
+          "kind": "none",
+          "value": null
+        }
+      },
+      "security": "cookie",
+      "successResponses": [
+        {
+          "mediaType": "application/json",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:238da5fa8009ced78a1114d0a447d0d949b78191769d174c663df2c928685718"
+          },
+          "status": "200"
+        }
+      ]
+    },
+    {
+      "capabilityId": "knowledge.ingestion",
       "csrf": true,
       "method": "POST",
       "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload",
@@ -7278,9 +7328,9 @@
           "mediaType": "application/json",
           "schemaIdentity": {
             "kind": "inline",
-            "value": "sha256:7f200d9c163803f673f4209c7d508bd0ef35e048d035cc73101a3aa0d7b7c4d1"
+            "value": "sha256:8b1b1c4e08ce7a1663a811aeeb7000d8022440ee73ea51888e1b1c8ff7effc03"
           },
-          "status": "200"
+          "status": "202"
         }
       ]
     },
@@ -9350,7 +9400,7 @@
       ]
     }
   ],
-  "projectionDigest": "sha256:a877f8ebf7a71dd3e3f91219b099bd69c94ae487f11e151b3e8aba9756fd0091",
+  "projectionDigest": "sha256:ea30976f776600c5e24c0fe71966cb77097b46ca87a135fec305596219576afc",
   "routeSamples": [
     {
       "method": "GET",
@@ -10857,6 +10907,14 @@
       ]
     },
     {
+      "method": "GET",
+      "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "samplePath": "/api/v1/app/knowledge-bases/knowledge_base_1/documents/ingestion-jobs",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
       "method": "POST",
       "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload",
       "samplePath": "/api/v1/app/knowledge-bases/knowledge_base_1/documents/upload",
@@ -11814,6 +11872,14 @@
       "method": "POST",
       "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents",
       "samplePath": "/api/v1/knowledge-bases/knowledge_base_1/documents",
+      "tags": [
+        "Knowledge"
+      ]
+    },
+    {
+      "method": "GET",
+      "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+      "samplePath": "/api/v1/knowledge-bases/knowledge_base_1/documents/ingestion-jobs",
       "tags": [
         "Knowledge"
       ]
@@ -13516,6 +13582,12 @@
       },
       {
         "disposition": "included",
+        "method": "GET",
+        "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
+        "reason": "mandatory_prefix"
+      },
+      {
+        "disposition": "included",
         "method": "POST",
         "normalizedPath": "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload",
         "reason": "mandatory_prefix"
@@ -14232,6 +14304,12 @@
         "disposition": "included",
         "method": "POST",
         "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents",
+        "reason": "mandatory_prefix"
+      },
+      {
+        "disposition": "included",
+        "method": "GET",
+        "normalizedPath": "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs",
         "reason": "mandatory_prefix"
       },
       {

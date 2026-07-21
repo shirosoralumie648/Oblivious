@@ -2431,6 +2431,7 @@ def require_knowledge_mutation_csrf_contract(paths: dict[str, Any], schemas: dic
         ("/api/v1/app/knowledge-bases", "get"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}", "get"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "get"),
+        ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs", "get"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions", "get"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks", "get"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "get"),
@@ -2458,7 +2459,8 @@ def require_knowledge_mutation_csrf_contract(paths: dict[str, Any], schemas: dic
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}", "put", "200"): ("#/components/schemas/KnowledgeBase", "ref"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "get", "200"): ("#/components/schemas/Document", "array"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "post", "200"): ("#/components/schemas/Document", "ref"),
-        ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload", "post", "200"): ("#/components/schemas/Document", "ref"),
+        ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload", "post", "202"): ("#/components/schemas/KnowledgeDocumentIngestionJob", "ref"),
+        ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs", "get", "200"): ("#/components/schemas/KnowledgeDocumentIngestionJob", "array"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}", "put", "200"): ("#/components/schemas/Document", "ref"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions", "get", "200"): ("#/components/schemas/KnowledgeDocumentVersion", "array"),
         ("/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks", "get", "200"): ("#/components/schemas/KnowledgeDocumentChunk", "array"),
@@ -2481,6 +2483,7 @@ def require_knowledge_mutation_csrf_contract(paths: dict[str, Any], schemas: dic
         "/api/v1/knowledge-bases/{knowledgeBaseId}": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}",
         "/api/v1/knowledge-bases/{knowledgeBaseId}/documents": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents",
         "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1upload",
+        "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/ingestion-jobs": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1ingestion-jobs",
         "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}",
         "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1versions",
         "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks": "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks",
@@ -2518,6 +2521,14 @@ def require_knowledge_mutation_csrf_contract(paths: dict[str, Any], schemas: dic
         and dig(schemas, "UploadKnowledgeDocumentRequest", "properties", "file", "format") == "binary"
     ):
         missing.append("Knowledge document create/upload schemas must document metadata and multipart file fields")
+    if not (
+        dig(schemas, "KnowledgeDocumentIngestionJob", "properties", "knowledgeBaseId", "type") == "string"
+        and dig(schemas, "KnowledgeDocumentIngestionJob", "properties", "status", "type") == "string"
+        and "dead_letter" in enum_values(schemas.get("KnowledgeDocumentIngestionJob", {}), "properties", "status")
+        and dig(schemas, "KnowledgeDocumentIngestionJob", "properties", "attempts", "type") == "integer"
+        and dig(schemas, "KnowledgeDocumentIngestionJob", "properties", "maxAttempts", "type") == "integer"
+    ):
+        missing.append("KnowledgeDocumentIngestionJob must document durable status and retry fields")
     if not (
         dig(schemas, "KnowledgeRetrievalResult", "properties", "documentId", "type") == "string"
         and dig(schemas, "KnowledgeRetrievalResult", "properties", "snippet", "type") == "string"
