@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { HttpClient } from '../../services/http/client';
+import { exportConversationMarkdownOperationContract } from '@/generated/operation-contracts.generated';
+
+import { createHttpClient, type HttpClient } from '../../services/http/client';
 import { createChatApi } from './api';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
@@ -128,13 +130,64 @@ describe('createChatApi', () => {
     });
   });
 
-  it('downloads a conversation markdown export as text', async () => {
-    const get = vi.fn().mockResolvedValue('# Launch Review\n');
-    const api = createChatApi(createClient({ get }));
+  it('downloads markdown through real shared client Response', async () => {
+    const response = new Response('# Launch Review\n', {
+      status: 200,
+      headers: { 'Content-Type': 'text/markdown; charset=utf-8' }
+    });
+    const jsonSpy = vi.spyOn(response, 'json');
+    const fetchFn = vi.fn(async () => response);
+    const client = createHttpClient({ fetchFn: fetchFn as unknown as typeof fetch });
+    const api = createChatApi(client);
 
-    await expect(api.exportConversationMarkdown('conversation_1')).resolves.toBe('# Launch Review\n');
+    await expect(api.exportConversationMarkdown('conversation /1')).resolves.toBe('# Launch Review\n');
 
-    expect(get).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/export.md');
+    expect(jsonSpy).not.toHaveBeenCalled();
+    expect(exportConversationMarkdownOperationContract.successResponses).toEqual([
+      expect.objectContaining({
+        mediaType: 'text/markdown',
+        schemaIdentity: expect.objectContaining({ kind: 'inline' }),
+        status: '200'
+      })
+    ]);
+    expect(fetchFn).toHaveBeenCalledWith('/api/v1/app/conversations/conversation%20%2F1/export.md', {
+      body: undefined,
+      method: 'GET',
+      headers: { Accept: 'text/markdown' }
+    });
+  });
+
+  it('fails closed on invalid markdown success media, status, and error bodies', async () => {
+    const responses = [
+      new Response('# missing media', { status: 200 }),
+      new Response('# wrong status', { status: 201, headers: { 'Content-Type': 'text/markdown' } }),
+      new Response(
+        JSON.stringify({
+          ok: false,
+          data: { capabilityId: 'chat.export' },
+          error: { code: 'capability_unavailable', message: 'Markdown export is unavailable.' }
+        }),
+        { status: 503, statusText: 'Service Unavailable', headers: { 'Content-Type': 'application/json' } }
+      ),
+      new Response('provider-secret-markdown-error', { status: 502, statusText: 'Bad Gateway' })
+    ];
+    const fetchFn = vi.fn(async () => responses.shift()!);
+    const api = createChatApi(createHttpClient({ fetchFn: fetchFn as unknown as typeof fetch }));
+
+    await expect(api.exportConversationMarkdown('conversation_1')).rejects.toThrow('Response media type does not match');
+    await expect(api.exportConversationMarkdown('conversation_1')).rejects.toThrow(
+      'Response status 201 does not match declared status 200'
+    );
+    await expect(api.exportConversationMarkdown('conversation_1')).rejects.toMatchObject({
+      code: 'capability_unavailable',
+      data: { capabilityId: 'chat.export' },
+      message: 'Markdown export is unavailable.',
+      status: 503
+    });
+    await expect(api.exportConversationMarkdown('conversation_1')).rejects.toMatchObject({
+      message: 'Bad Gateway',
+      status: 502
+    });
   });
 
   it('lists chat personas from the app personas endpoint', async () => {

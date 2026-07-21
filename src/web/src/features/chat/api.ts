@@ -1,4 +1,11 @@
-import type { HttpClient } from '../../services/http/client';
+import { exportConversationMarkdownOperationContract } from '@/generated/operation-contracts.generated';
+
+import {
+  noneRequestEncoder,
+  textResponseDecoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 import { streamText } from '../../services/http/stream';
 import type {
   ConversationConfig,
@@ -104,6 +111,12 @@ export type ConversationRealtimeSocket = {
 
 type RawPersonaSummary = Omit<PersonaSummary, 'suggestedQuestions'> & {
   suggestedQuestions?: string[] | string;
+};
+
+const exportConversationMarkdownTransport: OperationTransportContract<string> = {
+  operation: exportConversationMarkdownOperationContract,
+  requestEncoder: noneRequestEncoder(exportConversationMarkdownOperationContract),
+  responseDecoder: textResponseDecoder(exportConversationMarkdownOperationContract, 200)
 };
 
 function websocketURL(path: string) {
@@ -225,7 +238,11 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
       await client.delete<unknown>(`/api/v1/app/personas/${encodeURIComponent(personaId)}`);
     },
     exportConversationMarkdown: (conversationId) =>
-      client.get<string>(`/api/v1/app/conversations/${encodeURIComponent(conversationId)}/export.md`),
+      client.get<string>(
+        `/api/v1/app/conversations/${encodeURIComponent(conversationId)}/export.md`,
+        undefined,
+        exportConversationMarkdownTransport
+      ),
     forkConversation: async (conversationId, payload) => {
       const { branchFromMessageId, messageId, ...rest } = payload;
       return normalizeConversationSummary(
