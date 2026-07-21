@@ -135,11 +135,13 @@ kubectl apply -f deploy/kubernetes/postgres.yaml
 kubectl apply -f deploy/kubernetes/redis.yaml
 kubectl apply -f deploy/kubernetes/qdrant.yaml
 kubectl apply -f deploy/kubernetes/clickhouse.yaml
+kubectl apply -f deploy/kubernetes/kafka.yaml
 
 echo "[k8s-validate] waiting for data service rollouts"
 kubectl -n "$namespace" rollout status deployment/oblivious-qdrant
 kubectl -n "$namespace" rollout status deployment/oblivious-clickhouse
 kubectl -n "$namespace" wait --for=condition=complete job/oblivious-clickhouse-migrate --timeout="${OBLIVIOUS_K8S_CLICKHOUSE_MIGRATION_TIMEOUT:-300s}"
+kubectl -n "$namespace" rollout status statefulset/kafka --timeout="${OBLIVIOUS_K8S_KAFKA_TIMEOUT:-300s}"
 
 echo "[k8s-validate] applying application workloads"
 kubectl apply -f "$render_dir/app-deployment.yaml"
@@ -173,6 +175,9 @@ for attempt in $(seq 1 "${OBLIVIOUS_K8S_PORT_FORWARD_ATTEMPTS:-20}"); do
 
   sleep "${OBLIVIOUS_K8S_PORT_FORWARD_SLEEP_SECONDS:-1}"
 done
+
+echo "[k8s-validate] requiring application readiness"
+curl -fsS "http://127.0.0.1:$port/readyz" >/dev/null
 
 echo "[k8s-validate] running smoke against Kubernetes service"
 BASE_URL="http://127.0.0.1:$port" bash scripts/deploy-smoke.sh
