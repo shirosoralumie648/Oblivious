@@ -157,7 +157,7 @@ func (r *RouteSurfaceRegistrar) Register(reg RouteSurfaceRegistration) error {
 }
 
 func (r *RouteSurfaceRegistrar) Snapshot() []RouteSurfaceDescriptor {
-	if r == nil {
+	if r == nil || r.validateSnapshot() != nil {
 		return nil
 	}
 	result := make([]RouteSurfaceDescriptor, 0, len(r.descriptors))

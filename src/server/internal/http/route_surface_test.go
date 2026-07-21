@@ -2546,6 +2546,323 @@ func routeSurfaceASTSelectorCallCount(t *testing.T, sourceFile, selectorName str
 	return count
 }
 
+func TestRouteSurfaceSnapshotContract(t *testing.T) {
+	registrar, mux, scope, expected, registrations, handlerDispatchCount := routeSurfaceSnapshotFixture(t)
+	registrationCount := len(registrations)
+	snapshot := registrar.Snapshot()
+	descriptorCount := len(snapshot)
+	caseCount := 0
+	run := func(name string, test func(*testing.T)) {
+		caseCount++
+		t.Run(name, test)
+	}
+
+	run("baseline snapshot is nonempty deterministic and independently comparable", func(t *testing.T) {
+		if registrationCount != 2 || descriptorCount != registrationCount {
+			t.Fatalf("unexpected snapshot evidence counts: registrations=%d descriptors=%d", registrationCount, descriptorCount)
+		}
+		if err := registrar.validateSnapshot(); err != nil {
+			t.Fatalf("validate baseline snapshot: %v", err)
+		}
+		observation, err := CompareRouteSurfaceSnapshot(scope, expected, snapshot)
+		if err != nil {
+			t.Fatalf("compare baseline snapshot: %v", err)
+		}
+		if observation.ParityResult != "pass" || observation.OperationCount != 2 || observation.MountedCount != 2 || observation.DescriptorCount != 2 || observation.MediaProbeCount == 0 {
+			t.Fatalf("unexpected baseline observation: %+v", observation)
+		}
+		second := registrar.Snapshot()
+		if !reflect.DeepEqual(snapshot, second) {
+			t.Fatalf("snapshot order is not deterministic: first=%#v second=%#v", snapshot, second)
+		}
+	})
+
+	run("exact handlers dispatch and wrong methods do not", func(t *testing.T) {
+		for _, request := range []*stdhttp.Request{
+			httptest.NewRequest(stdhttp.MethodGet, "/api/v1/snapshot/items/item_1", nil),
+			httptest.NewRequest(stdhttp.MethodPost, "/api/v1/snapshot/items", bytes.NewBufferString(`{}`)),
+		} {
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != stdhttp.StatusNoContent {
+				t.Fatalf("expected exact fixture dispatch for %s %s, got %d", request.Method, request.URL.Path, recorder.Code)
+			}
+		}
+		before := *handlerDispatchCount
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/snapshot/items/item_1", nil))
+		if recorder.Code != stdhttp.StatusMethodNotAllowed || *handlerDispatchCount != before {
+			t.Fatalf("wrong method reached handler: status=%d before=%d after=%d", recorder.Code, before, *handlerDispatchCount)
+		}
+	})
+
+	run("omitted extra and duplicate descriptors fail", func(t *testing.T) {
+		if _, err := CompareRouteSurfaceSnapshot(scope, expected, snapshot[1:]); routeSurfaceErrorCode(err) != "route_surface_parity_failed" {
+			t.Fatalf("expected omitted descriptor parity failure, got %v", err)
+		}
+		extra := cloneRouteSurfaceDescriptor(snapshot[0])
+		extra.Path = "/api/v1/snapshot/extra"
+		if _, err := CompareRouteSurfaceSnapshot(scope, expected, append(append([]RouteSurfaceDescriptor(nil), snapshot...), extra)); routeSurfaceErrorCode(err) != "route_surface_runtime_unknown" {
+			t.Fatalf("expected extra descriptor failure, got %v", err)
+		}
+		duplicate := append(append([]RouteSurfaceDescriptor(nil), snapshot...), cloneRouteSurfaceDescriptor(snapshot[0]))
+		if _, err := CompareRouteSurfaceSnapshot(scope, expected, duplicate); routeSurfaceErrorCode(err) != "route_surface_duplicate" {
+			t.Fatalf("expected duplicate descriptor failure, got %v", err)
+		}
+	})
+
+	run("descriptor and mount splits make snapshot empty", func(t *testing.T) {
+		key := routeSurfaceKey(snapshot[0].Method, snapshot[0].Path)
+		pattern := registrar.mounts[key]
+		delete(registrar.mounts, key)
+		if split := registrar.Snapshot(); len(split) != 0 {
+			t.Fatalf("descriptor without mount produced %d snapshot rows", len(split))
+		}
+		registrar.mounts[key] = pattern
+
+		registrar.mounts["GET /api/v1/snapshot/handler-only"] = "GET /api/v1/snapshot/handler-only"
+		if split := registrar.Snapshot(); len(split) != 0 {
+			t.Fatalf("mount without descriptor produced %d snapshot rows", len(split))
+		}
+		delete(registrar.mounts, "GET /api/v1/snapshot/handler-only")
+
+		registrar.mounts[key] = "POST " + snapshot[0].Path
+		if split := registrar.Snapshot(); len(split) != 0 {
+			t.Fatalf("wrong exact mount pattern produced %d snapshot rows", len(split))
+		}
+		registrar.mounts[key] = pattern
+		if err := registrar.validateSnapshot(); err != nil {
+			t.Fatalf("restore fixture registrar: %v", err)
+		}
+	})
+
+	run("registration policy mutations fail construction", func(t *testing.T) {
+		if err := registrar.Register(registrations[0]); routeSurfaceErrorCode(err) != "route_surface_duplicate" {
+			t.Fatalf("expected duplicate registration error, got %v", err)
+		}
+		mutations := []struct {
+			name string
+			code string
+			edit func(*RouteSurfaceRegistration, *RouteSurfacePolicies)
+		}{
+			{"missing handler", "route_surface_registration_invalid", func(reg *RouteSurfaceRegistration, _ *RouteSurfacePolicies) { reg.Handler = nil }},
+			{"unknown middleware", "route_surface_policy_missing", func(reg *RouteSurfaceRegistration, _ *RouteSurfacePolicies) { reg.MiddlewareIDs = []string{"unknown"} }},
+			{"missing auth", "route_surface_policy_missing", func(reg *RouteSurfaceRegistration, policies *RouteSurfacePolicies) {
+				delete(policies.Auth, RouteSurfaceAuthSession)
+			}},
+			{"csrf on safe method", "route_surface_policy_missing", func(reg *RouteSurfaceRegistration, _ *RouteSurfacePolicies) { reg.Method = stdhttp.MethodGet }},
+			{"missing guard", "route_surface_policy_missing", func(_ *RouteSurfaceRegistration, policies *RouteSurfacePolicies) { policies.Guard = nil }},
+			{"unknown capability", "route_surface_capability_unknown", func(reg *RouteSurfaceRegistration, _ *RouteSurfacePolicies) { reg.CapabilityID = "snapshot.unknown" }},
+		}
+		for _, mutation := range mutations {
+			t.Run(mutation.name, func(t *testing.T) {
+				candidate := registrations[1]
+				candidate.Path = "/api/v1/snapshot/mutation/" + strings.ReplaceAll(mutation.name, " ", "-")
+				policies := routeSurfaceSnapshotPolicies(handlerDispatchCount)
+				mutation.edit(&candidate, &policies)
+				candidateRegistrar, err := NewRouteSurfaceRegistrar(stdhttp.NewServeMux(), policies)
+				if err != nil {
+					t.Fatalf("construct mutation registrar: %v", err)
+				}
+				if err := candidateRegistrar.Register(candidate); routeSurfaceErrorCode(err) != mutation.code {
+					t.Fatalf("mutation %q error = %v, want %s", mutation.name, err, mutation.code)
+				}
+			})
+		}
+	})
+
+	run("auth csrf capability request and response mutations fail parity", func(t *testing.T) {
+		mutations := []struct {
+			name string
+			edit func([]RouteSurfaceDescriptor)
+		}{
+			{"operation", func(value []RouteSurfaceDescriptor) { value[0].OperationID = "wrongOperation" }},
+			{"auth", func(value []RouteSurfaceDescriptor) {
+				value[1].Auth = RouteSurfaceAuthPublic
+				value[1].Security = "public"
+			}},
+			{"csrf", func(value []RouteSurfaceDescriptor) { value[1].CSRF = false; value[1].Security = "cookie" }},
+			{"capability", func(value []RouteSurfaceDescriptor) { value[0].CapabilityID = "snapshot.wrong" }},
+			{"request media", func(value []RouteSurfaceDescriptor) { value[1].Request.MediaType = "text/plain" }},
+			{"request schema", func(value []RouteSurfaceDescriptor) { value[1].Request.SchemaIdentity.Value = "sha256:wrong" }},
+			{"response status", func(value []RouteSurfaceDescriptor) { value[0].SuccessResponses[0].Status = "201" }},
+			{"response media", func(value []RouteSurfaceDescriptor) { value[0].SuccessResponses[0].MediaType = "text/plain" }},
+			{"response schema", func(value []RouteSurfaceDescriptor) {
+				value[0].SuccessResponses[0].SchemaIdentity = SchemaIdentityV1{Kind: "inline", Value: "sha256:wrong"}
+			}},
+		}
+		for _, mutation := range mutations {
+			t.Run(mutation.name, func(t *testing.T) {
+				candidate := routeSurfaceCloneDescriptors(snapshot)
+				mutation.edit(candidate)
+				if _, err := CompareRouteSurfaceSnapshot(scope, expected, candidate); routeSurfaceErrorCode(err) != "route_surface_parity_failed" {
+					t.Fatalf("mutation %q error = %v, want route_surface_parity_failed", mutation.name, err)
+				}
+			})
+		}
+	})
+
+	run("markdown base media accepts charset and rejects wrong base", func(t *testing.T) {
+		operation := OperationContractMetadataV1{
+			Method: stdhttp.MethodGet, NormalizedPath: "/api/v1/snapshot/export", OperationID: "exportSnapshot",
+			Security: "public", CapabilityID: "snapshot.read", Request: MediaSchemaIdentityV1{SchemaIdentity: routeSurfaceNoneSchema()},
+			SuccessResponses: []StatusMediaSchemaIdentityV1{{Status: "200", MediaType: "text/markdown", SchemaIdentity: SchemaIdentityV1{Kind: "inline", Value: "sha256:markdown"}}},
+		}
+		descriptor := RouteSurfaceDescriptor{
+			Method: operation.Method, Path: operation.NormalizedPath, OperationID: operation.OperationID,
+			Auth: RouteSurfaceAuthPublic, Security: operation.Security, CapabilityID: operation.CapabilityID, Request: operation.Request,
+			SuccessResponses: []StatusMediaSchemaIdentityV1{{Status: "200", MediaType: "text/markdown; charset=utf-8", SchemaIdentity: operation.SuccessResponses[0].SchemaIdentity}},
+		}
+		markdownScope := PublicOperationScopeV1{SchemaVersion: "public-operation-scope/v1", Dispositions: []PublicOperationDispositionV1{{Method: operation.Method, NormalizedPath: operation.NormalizedPath, Disposition: "included"}}}
+		if _, err := CompareRouteSurfaceSnapshot(markdownScope, []OperationContractMetadataV1{operation}, []RouteSurfaceDescriptor{descriptor}); err != nil {
+			t.Fatalf("compatible markdown media failed: %v", err)
+		}
+		descriptor.SuccessResponses[0].MediaType = "application/json"
+		if _, err := CompareRouteSurfaceSnapshot(markdownScope, []OperationContractMetadataV1{operation}, []RouteSurfaceDescriptor{descriptor}); routeSurfaceErrorCode(err) != "route_surface_parity_failed" {
+			t.Fatalf("wrong markdown base media error = %v", err)
+		}
+	})
+
+	run("excluded registration and zero inventory fail", func(t *testing.T) {
+		excluded := cloneRouteSurfaceDescriptor(snapshot[0])
+		excluded.Method = stdhttp.MethodGet
+		excluded.Path = "/healthz"
+		excludedScope := scope
+		excludedScope.Dispositions = append(append([]PublicOperationDispositionV1(nil), scope.Dispositions...), PublicOperationDispositionV1{Method: stdhttp.MethodGet, NormalizedPath: "/healthz", Disposition: "excluded"})
+		if _, err := CompareRouteSurfaceSnapshot(excludedScope, expected, append(routeSurfaceCloneDescriptors(snapshot), excluded)); routeSurfaceErrorCode(err) != "route_surface_excluded_registered" {
+			t.Fatalf("excluded registration error = %v", err)
+		}
+		if _, err := CompareRouteSurfaceSnapshot(scope, nil, nil); routeSurfaceErrorCode(err) != "route_surface_inventory_empty" {
+			t.Fatalf("zero inventory error = %v", err)
+		}
+	})
+
+	run("browser fields and direct ServeMux bypass are independently rejected", func(t *testing.T) {
+		decoder := json.NewDecoder(bytes.NewBufferString(`{"method":"GET","normalizedPath":"/api/v1/snapshot/items/{itemId}","responseDecoder":"browser"}`))
+		decoder.DisallowUnknownFields()
+		var descriptor RouteSurfaceDescriptor
+		if err := decoder.Decode(&descriptor); err == nil {
+			t.Fatal("strict runtime descriptor accepted browser responseDecoder")
+		}
+		directSource := `package fixture
+import "net/http"
+func register(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/snapshot/bypass", handler)
+}`
+		if count := routeSurfaceDirectHandleCount(t, directSource); count != 1 {
+			t.Fatalf("direct ServeMux bypass fixture count = %d, want 1", count)
+		}
+		registrarSource := `package fixture
+func register(registrar interface{ Register(any) error }, registration any) error {
+	return registrar.Register(registration)
+}`
+		if count := routeSurfaceDirectHandleCount(t, registrarSource); count != 0 {
+			t.Fatalf("registrar fixture was misclassified as %d direct Handle calls", count)
+		}
+	})
+
+	if caseCount == 0 || registrationCount == 0 || *handlerDispatchCount == 0 || descriptorCount == 0 {
+		t.Fatalf("snapshot suite discovery is vacuous: cases=%d registrations=%d handlerDispatches=%d descriptors=%d", caseCount, registrationCount, *handlerDispatchCount, descriptorCount)
+	}
+}
+
+func routeSurfaceSnapshotFixture(t *testing.T) (*RouteSurfaceRegistrar, *stdhttp.ServeMux, PublicOperationScopeV1, []OperationContractMetadataV1, []RouteSurfaceRegistration, *int) {
+	t.Helper()
+	handlerDispatchCount := 0
+	policies := routeSurfaceSnapshotPolicies(&handlerDispatchCount)
+	mux := stdhttp.NewServeMux()
+	registrar, err := NewRouteSurfaceRegistrar(mux, policies)
+	if err != nil {
+		t.Fatalf("construct snapshot fixture registrar: %v", err)
+	}
+	read := OperationContractMetadataV1{
+		Method: stdhttp.MethodGet, NormalizedPath: "/api/v1/snapshot/items/{itemId}", OperationID: "getSnapshotItem",
+		Security: "public", CapabilityID: "snapshot.read", Request: MediaSchemaIdentityV1{SchemaIdentity: routeSurfaceNoneSchema()},
+		SuccessResponses: []StatusMediaSchemaIdentityV1{{Status: "204", SchemaIdentity: routeSurfaceNoneSchema()}},
+	}
+	write := OperationContractMetadataV1{
+		Method: stdhttp.MethodPost, NormalizedPath: "/api/v1/snapshot/items", OperationID: "createSnapshotItem",
+		Security: "cookie+csrf", CSRF: true, CapabilityID: "snapshot.write",
+		Request:          MediaSchemaIdentityV1{MediaType: "application/json", SchemaIdentity: SchemaIdentityV1{Kind: "inline", Value: "sha256:request"}},
+		SuccessResponses: []StatusMediaSchemaIdentityV1{{Status: "204", SchemaIdentity: routeSurfaceNoneSchema()}},
+	}
+	handler := stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		handlerDispatchCount++
+		w.WriteHeader(stdhttp.StatusNoContent)
+	})
+	registrations := []RouteSurfaceRegistration{
+		routeSurfaceRegistrationFromOperation(read, RouteSurfaceAuthPublic, nil, "", handler),
+		routeSurfaceRegistrationFromOperation(write, RouteSurfaceAuthSession, []string{"audit"}, "snapshot.write", handler),
+	}
+	for _, registration := range registrations {
+		if err := registrar.Register(registration); err != nil {
+			t.Fatalf("register snapshot fixture %s: %v", registration.OperationID, err)
+		}
+	}
+	scope := PublicOperationScopeV1{
+		SchemaVersion: "public-operation-scope/v1", MandatoryPrefixes: []string{"/api/"},
+		Dispositions: []PublicOperationDispositionV1{
+			{Method: read.Method, NormalizedPath: read.NormalizedPath, Disposition: "included"},
+			{Method: write.Method, NormalizedPath: write.NormalizedPath, Disposition: "included"},
+		},
+	}
+	return registrar, mux, scope, []OperationContractMetadataV1{read, write}, registrations, &handlerDispatchCount
+}
+
+func routeSurfaceSnapshotPolicies(handlerDispatchCount *int) RouteSurfacePolicies {
+	pass := func(next stdhttp.Handler) stdhttp.Handler {
+		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			next.ServeHTTP(w, r)
+		})
+	}
+	return RouteSurfacePolicies{
+		Auth: map[RouteSurfaceAuth]RouteSurfaceMiddleware{RouteSurfaceAuthSession: pass},
+		Middleware: map[string]RouteSurfaceMiddleware{
+			"audit": func(next stdhttp.Handler) stdhttp.Handler {
+				return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+					_ = handlerDispatchCount
+					next.ServeHTTP(w, r)
+				})
+			},
+		},
+		CSRF: pass,
+		Guard: func(_, _ string, next stdhttp.Handler) stdhttp.Handler {
+			return pass(next)
+		},
+		AllowedCapabilities: map[string]struct{}{"snapshot.read": {}, "snapshot.write": {}},
+	}
+}
+
+func routeSurfaceCloneDescriptors(input []RouteSurfaceDescriptor) []RouteSurfaceDescriptor {
+	result := make([]RouteSurfaceDescriptor, len(input))
+	for index, descriptor := range input {
+		result[index] = cloneRouteSurfaceDescriptor(descriptor)
+	}
+	return result
+}
+
+func routeSurfaceDirectHandleCount(t *testing.T, source string) int {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "fixture.go", source, 0)
+	if err != nil {
+		t.Fatalf("parse direct Handle fixture: %v", err)
+	}
+	count := 0
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && (selector.Sel.Name == "Handle" || selector.Sel.Name == "HandleFunc") {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
 func routeSurfaceRepoRoot(t *testing.T) string {
 	t.Helper()
 	return filepath.Clean(filepath.Join(routeSurfaceHTTPSourceDir(t), "..", "..", "..", ".."))
