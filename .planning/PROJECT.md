@@ -61,6 +61,7 @@ Oblivious 是一个面向组织工作区的 multi-tenant AI SaaS 平台。它在
 - Existing monetization foundation: Stripe、订阅、充值、发票、退款、quota、Marketplace 订单、结算和 payout 状态模型已存在。
 - Existing operations foundation: Docker、Kubernetes manifests、Prometheus/Grafana 资产、迁移、备份恢复、发布回滚、事故响应和 DR 文档与本地验证路径已存在。
 - Existing verification foundation: Go、Vitest、Playwright、DB evidence、OpenAPI、security、commercial verifier 和 target-evidence 工具链已存在。
+- Phase 31.1 dynamic readiness and fail-closed release commitment: 进程内 `ReadinessManager`、当前 generation guard、严格 runtime authority/effect exact-join、部署依赖 probe 和 repository-local E2 Stage B 已在 Phase 31.1 以 E1/E2 证据验证；final tracking-HEAD Stage B、push、target/live 与商业发布证明仍未执行。
 
 ### Active
 
@@ -173,4 +174,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current users, evidence, metrics and residual risks.
 
 ---
-*Last updated: 2026-07-14 after project reinitialization*
+*Last updated: 2026-07-21 after Phase 31.1 repository-local completion*
