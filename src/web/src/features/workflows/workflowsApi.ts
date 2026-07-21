@@ -1,4 +1,35 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  cancelWorkflowExecutionOperationContract,
+  checkWorkflowExecutionResourcesOperationContract,
+  createWorkflowBranchOperationContract,
+  createWorkflowOperationContract,
+  decideWorkflowExecutionFailureOperationContract,
+  deleteWorkflowOperationContract,
+  executeWorkflowOperationContract,
+  getWorkflowExecutionDebugSnapshotOperationContract,
+  getWorkflowExecutionOperationContract,
+  listWorkflowExecutionsOperationContract,
+  listWorkflowsOperationContract,
+  listWorkflowVersionsOperationContract,
+  matchWorkflowConversationTriggersOperationContract,
+  matchWorkflowSemanticTriggersOperationContract,
+  mergeWorkflowBranchOperationContract,
+  pauseWorkflowExecutionOperationContract,
+  publishWorkflowBranchOperationContract,
+  resumeWorkflowExecutionOperationContract,
+  rollbackWorkflowOperationContract,
+  testWorkflowNodeOperationContract,
+  triggerWorkflowWebhookOperationContract,
+  updateWorkflowOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 
 export type WorkflowStatus = 'draft' | 'published' | 'archived';
 export type WorkflowExecutionStatus =
@@ -281,50 +312,86 @@ export type WorkflowsApi = {
   updateWorkflow: (workflowId: string, payload: UpdateWorkflowRequest) => Promise<WorkflowDefinition>;
 };
 
+function jsonTransport<T>(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+const cancelExecutionTransport = jsonTransport<WorkflowExecution>(cancelWorkflowExecutionOperationContract);
+const checkWorkflowResourceLimitsTransport = jsonTransport<WorkflowExecution>(checkWorkflowExecutionResourcesOperationContract);
+const createWorkflowBranchTransport = jsonTransport<WorkflowDefinition>(createWorkflowBranchOperationContract, 201);
+const createWorkflowTransport = jsonTransport<WorkflowDefinition>(createWorkflowOperationContract, 201);
+const deleteWorkflowTransport = jsonTransport<WorkflowDefinition>(deleteWorkflowOperationContract);
+const executeWorkflowTransport = jsonTransport<WorkflowExecution>(executeWorkflowOperationContract, 201);
+const getExecutionTransport = jsonTransport<WorkflowExecution>(getWorkflowExecutionOperationContract);
+const getExecutionDebugSnapshotTransport = jsonTransport<WorkflowExecutionDebugSnapshot>(getWorkflowExecutionDebugSnapshotOperationContract);
+const listExecutionsTransport = jsonTransport<WorkflowExecution[]>(listWorkflowExecutionsOperationContract);
+const listWorkflowVersionsTransport = jsonTransport<WorkflowDefinition[]>(listWorkflowVersionsOperationContract);
+const listWorkflowsTransport = jsonTransport<WorkflowDefinition[]>(listWorkflowsOperationContract);
+const matchConversationTriggersTransport = jsonTransport<ConversationTriggerMatch[]>(matchWorkflowConversationTriggersOperationContract);
+const matchSemanticTriggersTransport = jsonTransport<SemanticTriggerMatch[]>(matchWorkflowSemanticTriggersOperationContract);
+const mergeWorkflowBranchTransport = jsonTransport<WorkflowDefinition>(mergeWorkflowBranchOperationContract);
+const pauseExecutionTransport = jsonTransport<WorkflowExecution>(pauseWorkflowExecutionOperationContract);
+const publishWorkflowBranchTransport = jsonTransport<WorkflowDefinition>(publishWorkflowBranchOperationContract, 201);
+const resumeExecutionTransport = jsonTransport<WorkflowExecution>(resumeWorkflowExecutionOperationContract);
+const resolvePausedFailureTransport = jsonTransport<WorkflowExecution>(decideWorkflowExecutionFailureOperationContract);
+const rollbackWorkflowTransport = jsonTransport<WorkflowDefinition>(rollbackWorkflowOperationContract);
+const testNodeTransport = jsonTransport<WorkflowNodeTestResult>(testWorkflowNodeOperationContract);
+const triggerWorkflowWebhookTransport = jsonTransport<WorkflowExecution>(triggerWorkflowWebhookOperationContract, 201);
+const updateWorkflowTransport = jsonTransport<WorkflowDefinition>(updateWorkflowOperationContract);
+
 export function createWorkflowsApi(client: HttpClient): WorkflowsApi {
   const executionPath = (workflowId: string, executionId: string) =>
     `/api/v1/workflows/${workflowId}/executions/${executionId}`;
 
   return {
-    createWorkflow: (payload) => client.post<WorkflowDefinition>('/api/v1/workflows', payload),
+    createWorkflow: (payload) => client.post<WorkflowDefinition>('/api/v1/workflows', payload, undefined, createWorkflowTransport),
     createWorkflowBranch: (workflowId, payload) =>
-      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches`, payload),
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches`, payload, undefined, createWorkflowBranchTransport),
     publishWorkflowBranch: (workflowId, branchId, payload = {}) =>
-      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/publish`, payload),
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/publish`, payload, undefined, publishWorkflowBranchTransport),
     mergeWorkflowBranch: (workflowId, branchId) =>
-      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/merge`),
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/merge`, undefined, undefined, mergeWorkflowBranchTransport),
     checkWorkflowResourceLimits: (workflowId, executionId, payload) =>
-      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resource-check`, payload),
+      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resource-check`, payload, undefined, checkWorkflowResourceLimitsTransport),
     cancelExecution: (workflowId, executionId) =>
-      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/cancel`),
-    deleteWorkflow: (workflowId) => client.delete<WorkflowDefinition>(`/api/v1/workflows/${workflowId}`),
+      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/cancel`, undefined, undefined, cancelExecutionTransport),
+    deleteWorkflow: (workflowId) => client.delete<WorkflowDefinition>(`/api/v1/workflows/${workflowId}`, undefined, deleteWorkflowTransport),
     executeWorkflow: (workflowId, payload = { input: {} }) =>
-      client.post<WorkflowExecution>(`/api/v1/workflows/${workflowId}/execute`, payload),
-    getExecution: (workflowId, executionId) => client.get<WorkflowExecution>(executionPath(workflowId, executionId)),
+      client.post<WorkflowExecution>(`/api/v1/workflows/${workflowId}/execute`, payload, undefined, executeWorkflowTransport),
+    getExecution: (workflowId, executionId) => client.get<WorkflowExecution>(executionPath(workflowId, executionId), undefined, getExecutionTransport),
     getExecutionDebugSnapshot: (workflowId, executionId) =>
-      client.get<WorkflowExecutionDebugSnapshot>(`${executionPath(workflowId, executionId)}/debug-snapshot`),
-    listExecutions: (workflowId) => client.get<WorkflowExecution[]>(`/api/v1/workflows/${workflowId}/executions`),
+      client.get<WorkflowExecutionDebugSnapshot>(`${executionPath(workflowId, executionId)}/debug-snapshot`, undefined, getExecutionDebugSnapshotTransport),
+    listExecutions: (workflowId) => client.get<WorkflowExecution[]>(`/api/v1/workflows/${workflowId}/executions`, undefined, listExecutionsTransport),
     listWorkflowVersions: (workflowId) =>
-      client.get<WorkflowDefinition[]>(`/api/v1/workflows/${workflowId}/versions`),
-    listWorkflows: () => client.get<WorkflowDefinition[]>('/api/v1/workflows'),
+      client.get<WorkflowDefinition[]>(`/api/v1/workflows/${workflowId}/versions`, undefined, listWorkflowVersionsTransport),
+    listWorkflows: () => client.get<WorkflowDefinition[]>('/api/v1/workflows', undefined, listWorkflowsTransport),
     matchConversationTriggers: (payload) =>
-      client.post<ConversationTriggerMatch[]>('/api/v1/workflows/conversation-matches', payload),
-    matchSemanticTriggers: (payload) => client.post<SemanticTriggerMatch[]>('/api/v1/workflows/semantic-matches', payload),
+      client.post<ConversationTriggerMatch[]>('/api/v1/workflows/conversation-matches', payload, undefined, matchConversationTriggersTransport),
+    matchSemanticTriggers: (payload) => client.post<SemanticTriggerMatch[]>('/api/v1/workflows/semantic-matches', payload, undefined, matchSemanticTriggersTransport),
     pauseExecution: (workflowId, executionId) =>
-      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/pause`),
+      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/pause`, undefined, undefined, pauseExecutionTransport),
     resumeExecution: (workflowId, executionId, payload) =>
       payload === undefined
-        ? client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resume`)
-        : client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resume`, payload),
+        ? client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resume`, undefined, undefined, resumeExecutionTransport)
+        : client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resume`, payload, undefined, resumeExecutionTransport),
     resolvePausedFailure: (workflowId, executionId, payload) =>
-      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/decision`, payload),
+      client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/decision`, payload, undefined, resolvePausedFailureTransport),
     rollbackWorkflow: (workflowId, payload) =>
-      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/rollback`, payload),
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/rollback`, payload, undefined, rollbackWorkflowTransport),
     testNode: (workflowId, payload) =>
-      client.post<WorkflowNodeTestResult>(`/api/v1/workflows/${workflowId}/test-node`, payload),
+      client.post<WorkflowNodeTestResult>(`/api/v1/workflows/${workflowId}/test-node`, payload, undefined, testNodeTransport),
     triggerWorkflowWebhook: (workflowId, payload = {}) =>
-      client.post<WorkflowExecution>(`/api/v1/workflows/${workflowId}/webhook`, payload),
+      client.post<WorkflowExecution>(`/api/v1/workflows/${workflowId}/webhook`, payload, undefined, triggerWorkflowWebhookTransport),
     updateWorkflow: (workflowId, payload) =>
-      client.put<WorkflowDefinition>(`/api/v1/workflows/${workflowId}`, payload),
+      client.put<WorkflowDefinition>(`/api/v1/workflows/${workflowId}`, payload, undefined, updateWorkflowTransport),
   };
 }

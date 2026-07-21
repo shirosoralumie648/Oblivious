@@ -4,8 +4,8 @@ import { SWRConfig } from 'swr';
 
 const getStats = vi.fn();
 
-vi.mock('../../features/admin/api', () => ({
-  createAdminApi: () => ({ getStats }),
+vi.mock('../../lib/swr', () => ({
+  fetcher: () => getStats(),
 }));
 
 import { AdminHomePage } from './AdminHomePage';
