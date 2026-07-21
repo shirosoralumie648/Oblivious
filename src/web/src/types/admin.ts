@@ -60,6 +60,9 @@ export type ChannelInfo = {
 };
 
 export type ChannelProviderInfo = {
+  installable?: boolean;
+  configurable?: boolean;
+  runtimeReady?: boolean;
   id: string;
   displayName: string;
   kind: string;
