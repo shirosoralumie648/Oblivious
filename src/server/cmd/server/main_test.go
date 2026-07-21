@@ -194,8 +194,8 @@ func TestRuntimeBuildAndBackgroundLifecycleContract(t *testing.T) {
 	}
 }
 
-func TestRuntimeEffectRegistryAllowsExactSharedDescriptor(t *testing.T) {
-	registry := newRuntimeEffectRegistry()
+func TestRuntimeEffectRegistryRejectsExactDuplicateContract(t *testing.T) {
+	registry := releasecontract.NewEffectRegistry()
 	descriptor := releasecontract.EffectDescriptor{
 		ID: "chat.provider.dispatch", CapabilityID: "relay.provider_inference",
 		Boundary: releasecontract.BoundaryOutbound, Owner: "chat.RelayGateway",
@@ -203,13 +203,11 @@ func TestRuntimeEffectRegistryAllowsExactSharedDescriptor(t *testing.T) {
 	if err := registry.Register(descriptor); err != nil {
 		t.Fatalf("register first descriptor: %v", err)
 	}
-	if err := registry.Register(descriptor); err != nil {
-		t.Fatalf("exact shared descriptor should be idempotent: %v", err)
+	if err := registry.Register(descriptor); !releasecontract.IsEffectCoverageCode(err, "effect_registry_duplicate") {
+		t.Fatalf("exact duplicate error = %v, want effect_registry_duplicate", err)
 	}
-	conflict := descriptor
-	conflict.Owner = "chat.CompositeGateway"
-	if err := registry.Register(conflict); err == nil {
-		t.Fatal("conflicting descriptor unexpectedly passed")
+	if got := registry.Snapshot(); len(got) != 1 || got[0] != descriptor {
+		t.Fatalf("registry snapshot = %#v, want only the first descriptor", got)
 	}
 }
 
