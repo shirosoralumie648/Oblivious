@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-04-PLAN.md
-last_updated: "2026-07-21T14:57:27.145Z"
+stopped_at: Completed 31.2-08-PLAN.md
+last_updated: "2026-07-21T16:10:15.548Z"
 last_activity: 2026-07-21
-last_activity_desc: Completed Plan 31.2-04 typed frontend transport contracts
+last_activity_desc: Completed Plan 31.2-08 isolated migration replay evidence
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 34
-  percent: 77
+  completed_plans: 35
+  percent: 80
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 6 of 15
+Plan: 7 of 15
 Status: Ready to execute
-Last activity: 2026-07-21 — Completed Plan 31.2-04 typed frontend transport contracts
+Last activity: 2026-07-21 — Completed Plan 31.2-08 isolated migration replay evidence
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -118,6 +118,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: The source-compatible implicit HttpClient contract remains JSON envelope — Migrated production callers pass explicit operation transports while later plans close the remaining owner set.
 - [Phase 31.2]: Markdown export uses Response.text() for text/markdown — It never enters JSON envelope decoding and keeps structured errors on the single shared non-OK path.
 - [Phase 31.2]: Shared stream, upload, and SWR wrappers validate caller-supplied exact contracts — Runtime method/path lookup and generic-only identity cannot authorize dispatch.
+- [Phase 31.2]: Migration replay counts derive only from exact before, after-first, and after-second ledger identity transitions. — Human migrate output is diagnostic only and cannot authorize the replay verdict.
+- [Phase 31.2]: Unavailable replay emits migration_replay_unavailable while preserving a nonzero producer exit. — Failure evidence cannot become an accepted skip or successful release signal.
+- [Phase 31.2]: Docker replay uses container-internal psql and external replay requires host psql through named environment indirection. — Connection material stays out of argv, reports, and logs.
+- [Phase 31.2]: Passing replay evidence is written only after resource removal and cleanup verification. — cleanupResult records verified post-session state rather than cleanup intent.
 
 ### Pending Todos
 
@@ -154,6 +158,7 @@ None yet.
 | Phase 31.2 P07 | 32 min | 3 tasks | 9 files |
 | Phase 31.2 P02 | 55 min | 3 tasks | 6 files |
 | Phase 31.2 P04 | 39 min | 3 tasks | 14 files |
+| Phase 31.2 P08 | 45 min | 2 tasks | 7 files |
 
 ### Roadmap Evolution
 
@@ -166,8 +171,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T14:57:26.836Z
-Stopped at: Completed 31.2-04-PLAN.md
+Last session: 2026-07-21T16:10:15.540Z
+Stopped at: Completed 31.2-08-PLAN.md
 Resume file: None
 
 ## Performance Metrics
