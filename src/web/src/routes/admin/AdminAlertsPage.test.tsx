@@ -17,6 +17,7 @@ const defaultRoutingRules = {
 
 function okResponse(data: unknown) {
   return {
+    headers: new Headers({ 'Content-Type': 'application/json' }),
     ok: true,
     status: 200,
     json: () => Promise.resolve({ ok: true, data, error: null }),
@@ -27,6 +28,7 @@ type FetchRoute = {
   path: string;
   method?: string;
   response: {
+    headers: Headers;
     ok: boolean;
     status: number;
     statusText?: string;
@@ -36,6 +38,7 @@ type FetchRoute = {
 
 function errorResponse(status: number, message: string) {
   return {
+    headers: new Headers({ 'Content-Type': 'application/json' }),
     ok: false,
     status,
     statusText: message,

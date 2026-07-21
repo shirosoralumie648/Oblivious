@@ -32,6 +32,7 @@ describe('RegisterPage', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
+        headers: new Headers({ 'Content-Type': 'application/json' }),
         json: async () => ({ ok: true, data: { user: { id: 'u1', email: 'founder@example.com' } }, error: null }),
         ok: true,
         status: 200
