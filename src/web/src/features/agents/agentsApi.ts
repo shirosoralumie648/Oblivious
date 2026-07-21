@@ -1,4 +1,21 @@
-import type { HttpClient } from '../../services/http/client';
+import {
+  createAgentRunOperationContract,
+  createWorkspaceAgentOperationContract,
+  deleteWorkspaceAgentOperationContract,
+  getWorkspaceAgentOperationContract,
+  listWorkspaceAgentsOperationContract,
+  listWorkspaceAgentToolsOperationContract,
+  updateWorkspaceAgentOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
+
+import {
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  noneRequestEncoder,
+  type HttpClient,
+  type OperationTransportContract
+} from '../../services/http/client';
 import type { AgentDetail, AgentSummary } from '../../types/api';
 import type { AgentPlanStep, AgentToolRun } from './planStepsApi';
 
@@ -131,20 +148,54 @@ function serializeAgentMutation(payload: CreateAgentRequest | UpdateAgentRequest
   return result;
 }
 
+function jsonTransport<T>(
+  operation: OperationContractMetadataV1,
+  status = 200
+): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null
+      ? noneRequestEncoder(operation)
+      : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+const createAgentTransport = jsonTransport<AgentDetail>(createWorkspaceAgentOperationContract, 201);
+const createRunTransport = jsonTransport<AgentRunPayload>(createAgentRunOperationContract, 201);
+const deleteAgentTransport = jsonTransport<unknown>(deleteWorkspaceAgentOperationContract);
+const getAgentTransport = jsonTransport<AgentDetail>(getWorkspaceAgentOperationContract);
+const getAgentToolsTransport = jsonTransport<Array<Partial<AgentToolDefinition> & { name: string }>>(
+  listWorkspaceAgentToolsOperationContract
+);
+const listAgentsTransport = jsonTransport<AgentSummary[]>(listWorkspaceAgentsOperationContract);
+const updateAgentTransport = jsonTransport<AgentDetail>(updateWorkspaceAgentOperationContract);
+
 export function createAgentsApi(client: HttpClient): AgentsApi {
   const path = '/api/v1/app/agents';
 
   return {
-    createAgent: (payload) => client.post<AgentDetail>(path, serializeAgentMutation(payload)),
+    createAgent: (payload) => client.post<AgentDetail>(path, serializeAgentMutation(payload), undefined, createAgentTransport),
     deleteAgent: async (agentId) => {
-      await client.delete<unknown>(`${path}/${encodeURIComponent(agentId)}`);
+      await client.delete<unknown>(`${path}/${encodeURIComponent(agentId)}`, undefined, deleteAgentTransport);
     },
     createRun: async (payload) =>
-      createdRunFromPayload(await client.post<AgentRunPayload>('/api/v1/agent/runs', createRunPayload(payload))),
-    getAgent: (agentId) => client.get<AgentDetail>(`${path}/${encodeURIComponent(agentId)}`),
+      createdRunFromPayload(
+        await client.post<AgentRunPayload>('/api/v1/agent/runs', createRunPayload(payload), undefined, createRunTransport)
+      ),
+    getAgent: (agentId) => client.get<AgentDetail>(`${path}/${encodeURIComponent(agentId)}`, undefined, getAgentTransport),
     getAgentTools: async (agentId) =>
-      (await client.get<Array<Partial<AgentToolDefinition> & { name: string }>>(`${path}/${encodeURIComponent(agentId)}/tools`)).map(normalizeToolDefinition),
-    listAgents: () => client.get<AgentSummary[]>(path),
-    updateAgent: (agentId, payload) => client.put<AgentDetail>(`${path}/${encodeURIComponent(agentId)}`, serializeAgentMutation(payload))
+      (await client.get<Array<Partial<AgentToolDefinition> & { name: string }>>(
+        `${path}/${encodeURIComponent(agentId)}/tools`,
+        undefined,
+        getAgentToolsTransport
+      )).map(normalizeToolDefinition),
+    listAgents: () => client.get<AgentSummary[]>(path, undefined, listAgentsTransport),
+    updateAgent: (agentId, payload) => client.put<AgentDetail>(
+      `${path}/${encodeURIComponent(agentId)}`,
+      serializeAgentMutation(payload),
+      undefined,
+      updateAgentTransport
+    )
   };
 }
