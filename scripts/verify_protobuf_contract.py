@@ -9,8 +9,10 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 
@@ -262,6 +264,197 @@ def validate_manifest(manifest: dict[str, Any], repo: Path, inventories: tuple[s
     }
 
 
+def verify_tool_bin(manifest: dict[str, Any], tool_bin: Path) -> dict[str, str]:
+    expected = {
+        "protoc": manifest["tools"]["protoc"]["versionOutput"],
+        "protoc-gen-go": manifest["tools"]["protoc-gen-go"]["versionOutput"],
+        "protoc-gen-go-grpc": manifest["tools"]["protoc-gen-go-grpc"]["versionOutput"],
+    }
+    if not tool_bin.is_dir():
+        fail("protobuf_tool_missing", f"tool directory does not exist: {tool_bin}")
+    marker = tool_bin / ".protobuf-toolchain-digest"
+    if marker.is_symlink() or not marker.is_file() or marker.read_text(encoding="utf-8").strip() != manifest["manifestDigest"]:
+        fail("protobuf_tool_manifest_mismatch", "tool directory was not installed from the current manifest")
+    actual: dict[str, str] = {}
+    for name, expected_output in expected.items():
+        binary = tool_bin / name
+        if binary.is_symlink() or not binary.is_file() or not os.access(binary, os.X_OK):
+            fail("protobuf_tool_missing", f"pinned tool is absent or not executable: {name}")
+        try:
+            result = subprocess.run(
+                [str(binary), "--version"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env={"PATH": str(tool_bin), "LANG": "C", "LC_ALL": "C"},
+                timeout=30,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            fail("protobuf_tool_execution_failed", f"could not execute {name}: {error}")
+        actual[name] = result.stdout.strip()
+        if actual[name] != expected_output:
+            fail("protobuf_tool_version_mismatch", f"{name}: expected {expected_output!r}, got {actual[name]!r}")
+    return actual
+
+
+def regeneration_digest(output_paths: list[str], root: Path) -> str:
+    digest = hashlib.sha256()
+    for output in sorted(output_paths):
+        digest.update(output.encode())
+        digest.update(b"\0")
+        digest.update((root / output).read_bytes())
+        digest.update(b"\0")
+    return "sha256:" + digest.hexdigest()
+
+
+def regenerate(manifest: dict[str, Any], repo: Path, tool_bin: Path) -> dict[str, Any]:
+    tool_versions = verify_tool_bin(manifest, tool_bin)
+    declared_outputs = sorted(
+        output
+        for disposition in manifest["dispositions"]
+        for output in disposition["outputs"]
+    )
+    if not declared_outputs:
+        fail("protobuf_generated_inventory_empty", "manifest declares zero generated outputs")
+    with tempfile.TemporaryDirectory(prefix="oblivious-protobuf-generation-") as temporary:
+        generation_root = Path(temporary)
+        for disposition in manifest["dispositions"]:
+            if disposition["mode"] != "managed":
+                continue
+            source = (repo / disposition["source"]).resolve()
+            for generation in disposition["generations"]:
+                output_root = (generation_root / generation["outputRoot"]).resolve()
+                output_root.mkdir(parents=True, exist_ok=True)
+                command = [
+                    str((tool_bin / "protoc").resolve()),
+                    "-I" + str((repo / generation["includeRoot"]).resolve()),
+                ]
+                for plugin in generation["plugins"]:
+                    binary_name = "protoc-gen-" + plugin
+                    command.extend([
+                        f"--plugin={binary_name}={(tool_bin / binary_name).resolve()}",
+                        f"--{plugin}_out={output_root}",
+                    ])
+                    for option in generation["options"][plugin]:
+                        command.append(f"--{plugin}_opt={option}")
+                command.append(str(source))
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env={"PATH": str(tool_bin), "LANG": "C", "LC_ALL": "C"},
+                        timeout=120,
+                    )
+                except subprocess.CalledProcessError as error:
+                    diagnostic = (error.stderr or error.stdout or "generation failed").strip().splitlines()[-1]
+                    fail("protobuf_generation_failed", f"{generation['name']}: {diagnostic}")
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    fail("protobuf_generation_failed", f"{generation['name']}: {error}")
+        generated_outputs = sorted(
+            path.relative_to(generation_root).as_posix()
+            for path in generation_root.rglob("*")
+            if path.is_file()
+        )
+        if not generated_outputs:
+            fail("protobuf_generated_inventory_empty", "protoc produced zero files")
+        if generated_outputs != declared_outputs:
+            missing = sorted(set(declared_outputs) - set(generated_outputs))
+            extra = sorted(set(generated_outputs) - set(declared_outputs))
+            fail("protobuf_generated_set_mismatch", f"generated set differs: missing={missing}, extra={extra}")
+        drift = [output for output in declared_outputs if (generation_root / output).read_bytes() != (repo / output).read_bytes()]
+        if drift:
+            fail("protobuf_generated_byte_drift", f"generated bytes differ for: {drift}")
+        digest = regeneration_digest(declared_outputs, generation_root)
+    return {
+        "result": "pass",
+        "generatedCount": len(declared_outputs),
+        "regenerationDigest": digest,
+        "toolVersionOutputs": tool_versions,
+    }
+
+
+def write_observation(path: Path, observation: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(observation, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix="." + path.name + ".", delete=False) as handle:
+        temporary = Path(handle.name)
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def make_fake_tool_bin(manifest: dict[str, Any], root: Path, *, wrong_version: bool = False, empty_generator: bool = False) -> Path:
+    root.mkdir(parents=True)
+    outputs = {
+        "protoc": manifest["tools"]["protoc"]["versionOutput"],
+        "protoc-gen-go": manifest["tools"]["protoc-gen-go"]["versionOutput"],
+        "protoc-gen-go-grpc": manifest["tools"]["protoc-gen-go-grpc"]["versionOutput"],
+    }
+    if wrong_version:
+        outputs["protoc-gen-go"] = "protoc-gen-go v0.0.0"
+    for name, version_output in outputs.items():
+        binary = root / name
+        if name == "protoc" and empty_generator:
+            body = f"#!/bin/sh\nif [ \"${{1:-}}\" = \"--version\" ]; then printf '%s\\n' '{version_output}'; fi\nexit 0\n"
+        else:
+            body = f"#!/bin/sh\nprintf '%s\\n' '{version_output}'\n"
+        binary.write_text(body, encoding="utf-8")
+        binary.chmod(0o755)
+    (root / ".protobuf-toolchain-digest").write_text(manifest["manifestDigest"] + "\n", encoding="utf-8")
+    return root
+
+
+def expect_error(expected_code: str, action: Any, name: str, number: int) -> None:
+    try:
+        action()
+    except ContractError as error:
+        if error.code != expected_code:
+            print(f"not ok {number} - {name} # expected {expected_code}, got {error.code}")
+            raise
+        print(f"ok {number} - {name} [{error.code}]")
+        return
+    fail("protobuf_fixture_false_green", f"fixture unexpectedly passed: {name}")
+
+
+def run_regeneration_fixtures(manifest: dict[str, Any], repo: Path, tool_bin: Path) -> dict[str, int]:
+    with tempfile.TemporaryDirectory(prefix="oblivious-protobuf-regeneration-fixtures-") as temporary:
+        root = Path(temporary)
+        expect_error("protobuf_tool_missing", lambda: verify_tool_bin(manifest, root / "missing"), "missing pinned tool directory", 1)
+        wrong = make_fake_tool_bin(manifest, root / "wrong", wrong_version=True)
+        expect_error("protobuf_tool_version_mismatch", lambda: verify_tool_bin(manifest, wrong), "wrong installed tool version", 2)
+        empty = make_fake_tool_bin(manifest, root / "empty", empty_generator=True)
+        expect_error("protobuf_generated_inventory_empty", lambda: regenerate(manifest, repo, empty), "empty generation", 3)
+
+        fixture_repo = root / "drift-repo"
+        fixture_repo.mkdir()
+        fixture_paths = {
+            disposition["source"]
+            for disposition in manifest["dispositions"]
+        } | {
+            output
+            for disposition in manifest["dispositions"]
+            for output in disposition["outputs"]
+        }
+        for relative in fixture_paths:
+            destination = fixture_repo / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / relative, destination)
+        drift_output = next(iter(sorted(path for path in fixture_paths if path.endswith(".pb.go"))))
+        with (fixture_repo / drift_output).open("ab") as handle:
+            handle.write(b"\n// fixture drift\n")
+        expect_error("protobuf_generated_byte_drift", lambda: regenerate(manifest, fixture_repo, tool_bin), "tracked output byte drift", 4)
+    return {"regenerationCaseCount": 4, "regenerationMutationCount": 4}
+
+
 def refresh_digest(manifest: dict[str, Any]) -> None:
     manifest["manifestDigest"] = computed_manifest_digest(manifest)
 
@@ -319,6 +512,10 @@ def main() -> int:
     parser.add_argument("--manifest", default="config/release/protobuf-toolchain.v1.json")
     parser.add_argument("--fixtures", action="store_true")
     parser.add_argument("--manifest-only", action="store_true")
+    parser.add_argument("--regenerate", action="store_true")
+    parser.add_argument("--regeneration-fixtures", action="store_true")
+    parser.add_argument("--tool-bin")
+    parser.add_argument("--observation-out")
     parser.add_argument("--print-computed-digest", action="store_true")
     args = parser.parse_args()
 
@@ -338,8 +535,44 @@ def main() -> int:
         summary = validate_manifest(manifest, repo, inventories)
         if args.fixtures:
             summary.update(run_fixtures(manifest, repo, inventories))
+        if args.regenerate or args.regeneration_fixtures:
+            if not args.tool_bin:
+                fail("protobuf_tool_missing", "--tool-bin is required for regeneration")
+            tool_bin = Path(args.tool_bin).resolve()
+            expected_tool_bin = (repo / ".tmp/protobuf-tools/bin").resolve()
+            if tool_bin != expected_tool_bin:
+                fail("protobuf_host_tool_forbidden", f"tool directory must be {expected_tool_bin}")
+            summary.update(regenerate(manifest, repo, tool_bin))
+            if args.regeneration_fixtures:
+                summary.update(run_regeneration_fixtures(manifest, repo, tool_bin))
         summary["result"] = "pass"
         summary["mode"] = "manifest-only" if args.manifest_only else "contract"
+        summary["errorCodes"] = []
+        summary["skippedChecks"] = []
+        if args.observation_out:
+            observation_path = (repo / args.observation_out).resolve()
+            try:
+                observation_path.relative_to(repo.resolve())
+            except ValueError:
+                fail("protobuf_path_invalid", "observation output must be inside the repository")
+            observation = {
+                "schemaVersion": "protobuf-observation/v1",
+                "manifestDigest": summary["manifestDigest"],
+                "toolVersions": summary["toolVersions"],
+                "generatedHeaderVersion": summary["generatedHeaderVersion"],
+                "sourceCount": summary["sourceCount"],
+                "outputCount": summary["outputCount"],
+                "managedCount": summary["managedCount"],
+                "sourceOnlyCount": summary["sourceOnlyCount"],
+                "regeneration": {
+                    "result": summary.get("result", "pass"),
+                    "generatedCount": summary.get("generatedCount", 0),
+                    "digest": summary.get("regenerationDigest", ""),
+                },
+                "errorCodes": [],
+                "skippedChecks": [],
+            }
+            write_observation(observation_path, observation)
         print("# summary " + json.dumps(summary, sort_keys=True, separators=(",", ":")))
         return 0
     except (OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
