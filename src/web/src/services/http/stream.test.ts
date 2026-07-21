@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  exportConversationMarkdownOperationContract,
+  streamMessageOperationContract
+} from '@/generated/operation-contracts.generated';
+
+import { jsonRequestEncoder, rawResponseDecoder } from './client';
 import { streamText } from './stream';
+
+const streamContract = {
+  operation: streamMessageOperationContract,
+  requestEncoder: jsonRequestEncoder(streamMessageOperationContract),
+  responseDecoder: rawResponseDecoder(streamMessageOperationContract, 200)
+};
 
 function streamFromChunks(chunks: string[]) {
   const encoder = new TextEncoder();
@@ -15,33 +27,69 @@ function streamFromChunks(chunks: string[]) {
 }
 
 describe('streamText', () => {
-  it('posts request init and emits server-sent event data chunks', async () => {
+  const path = '/api/v1/app/conversations/conversation_1/messages/stream';
+
+  it('posts exact operation metadata and emits server-sent event data chunks', async () => {
     const fetchFn = vi.fn(async () =>
       new Response(streamFromChunks(['data: Hel', 'lo\n\n', 'data:  world\n\n', 'data: [DONE]\n\n']), {
         status: 200,
-        headers: { 'Content-Type': 'text/event-stream' }
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' }
       })
     );
     const chunks: string[] = [];
 
-    await streamText('/api/v1/app/conversations/conversation_1/messages/stream', chunks.push.bind(chunks), fetchFn as unknown as typeof fetch, {
-      body: JSON.stringify({ content: 'hello' }),
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST'
-    });
+    await streamText(
+      path,
+      chunks.push.bind(chunks),
+      streamMessageOperationContract,
+      streamContract,
+      fetchFn as unknown as typeof fetch,
+      {
+        body: JSON.stringify({ content: 'hello' }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST'
+      }
+    );
 
-    expect(fetchFn).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/messages/stream', {
+    expect(fetchFn).toHaveBeenCalledWith(path, {
       body: JSON.stringify({ content: 'hello' }),
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' },
       method: 'POST'
     });
     expect(chunks).toEqual(['Hello', ' world']);
   });
 
-  it('throws when the stream cannot be opened', async () => {
-    const fetchFn = vi.fn(async () => new Response('nope', { status: 500 }));
+  it('rejects wrong operation metadata before opening the transport', async () => {
+    const fetchFn = vi.fn();
 
-    await expect(streamText('/stream', () => undefined, fetchFn as unknown as typeof fetch)).rejects.toThrow('Unable to open stream');
+    await expect(
+      streamText(
+        path,
+        () => undefined,
+        exportConversationMarkdownOperationContract,
+        streamContract,
+        fetchFn as unknown as typeof fetch,
+        { body: '{}', method: 'POST' }
+      )
+    ).rejects.toThrow('does not reference the caller-supplied operation metadata');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('throws when the validated stream has no body', async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(null, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    );
+
+    await expect(
+      streamText(
+        path,
+        () => undefined,
+        streamMessageOperationContract,
+        streamContract,
+        fetchFn as unknown as typeof fetch,
+        { body: '{}', method: 'POST' }
+      )
+    ).rejects.toThrow('Unable to open stream');
   });
 
   it('throws server-sent event errors instead of emitting them as chunks', async () => {
@@ -53,9 +101,16 @@ describe('streamText', () => {
     );
     const onChunk = vi.fn();
 
-    await expect(streamText('/stream', onChunk, fetchFn as unknown as typeof fetch)).rejects.toThrow(
-      'quota preauthorization failed'
-    );
+    await expect(
+      streamText(
+        path,
+        onChunk,
+        streamMessageOperationContract,
+        streamContract,
+        fetchFn as unknown as typeof fetch,
+        { body: '{}', method: 'POST' }
+      )
+    ).rejects.toThrow('quota preauthorization failed');
     expect(onChunk).not.toHaveBeenCalled();
   });
 });

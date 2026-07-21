@@ -1,7 +1,35 @@
-import { exportConversationMarkdownOperationContract } from '@/generated/operation-contracts.generated';
+import {
+  bookmarkMessageOperationContract,
+  convertConversationToTaskOperationContract,
+  createConversationOperationContract,
+  createConversationShareOperationContract,
+  createMessageShareOperationContract,
+  createPersonaOperationContract,
+  deleteConversationOperationContract,
+  deleteMessageOperationContract,
+  deletePersonaOperationContract,
+  exportConversationMarkdownOperationContract,
+  forkConversationOperationContract,
+  getConversationConfigOperationContract,
+  getConversationOperationContract,
+  listConversationsOperationContract,
+  listMessagesOperationContract,
+  listModelsOperationContract,
+  listPersonasOperationContract,
+  sendMessageOperationContract,
+  streamMessageOperationContract,
+  updateConversationConfigOperationContract,
+  updateConversationOperationContract,
+  updateMessageOperationContract,
+  updatePersonaOperationContract,
+  type OperationContractMetadataV1
+} from '@/generated/operation-contracts.generated';
 
 import {
   noneRequestEncoder,
+  jsonRequestEncoder,
+  jsonEnvelopeDecoder,
+  rawResponseDecoder,
   textResponseDecoder,
   type HttpClient,
   type OperationTransportContract
@@ -113,10 +141,46 @@ type RawPersonaSummary = Omit<PersonaSummary, 'suggestedQuestions'> & {
   suggestedQuestions?: string[] | string;
 };
 
+function jsonTransport<T>(operation: OperationContractMetadataV1, status = 200): OperationTransportContract<T> {
+  return {
+    operation,
+    requestEncoder: operation.request.mediaType === null ? noneRequestEncoder(operation) : jsonRequestEncoder(operation),
+    responseDecoder: jsonEnvelopeDecoder<T>(operation, status)
+  };
+}
+
+const bookmarkMessageTransport = jsonTransport<ConversationMessage>(bookmarkMessageOperationContract);
+const convertConversationToTaskTransport = jsonTransport<ConvertConversationToTaskResponse>(convertConversationToTaskOperationContract);
+const createConversationTransport = jsonTransport<ConversationSummary>(createConversationOperationContract);
+const createConversationShareTransport = jsonTransport<ConversationShareResponse>(createConversationShareOperationContract, 201);
+const createMessageShareTransport = jsonTransport<MessageShareResponse>(createMessageShareOperationContract, 201);
+const createPersonaTransport = jsonTransport<RawPersonaSummary>(createPersonaOperationContract);
+const deleteConversationTransport = jsonTransport<void>(deleteConversationOperationContract);
+const deleteMessageTransport = jsonTransport<void>(deleteMessageOperationContract);
+const deletePersonaTransport = jsonTransport<unknown>(deletePersonaOperationContract);
+const forkConversationTransport = jsonTransport<ConversationSummary>(forkConversationOperationContract);
+const getConversationConfigTransport = jsonTransport<ConversationConfig>(getConversationConfigOperationContract);
+const getConversationTransport = jsonTransport<ConversationSummary>(getConversationOperationContract);
+const listConversationsTransport = jsonTransport<ConversationSummary[]>(listConversationsOperationContract);
+const listMessagesTransport = jsonTransport<ConversationMessage[]>(listMessagesOperationContract);
+const listModelsTransport = jsonTransport<ModelOption[]>(listModelsOperationContract);
+const listPersonasTransport = jsonTransport<RawPersonaSummary[]>(listPersonasOperationContract);
+const sendMessageTransport = jsonTransport<ConversationMessage[]>(sendMessageOperationContract);
+const updateConversationConfigTransport = jsonTransport<ConversationConfig>(updateConversationConfigOperationContract);
+const updateConversationTransport = jsonTransport<ConversationSummary>(updateConversationOperationContract);
+const updateMessageTransport = jsonTransport<ConversationMessage>(updateMessageOperationContract);
+const updatePersonaTransport = jsonTransport<RawPersonaSummary>(updatePersonaOperationContract);
+
 const exportConversationMarkdownTransport: OperationTransportContract<string> = {
   operation: exportConversationMarkdownOperationContract,
   requestEncoder: noneRequestEncoder(exportConversationMarkdownOperationContract),
   responseDecoder: textResponseDecoder(exportConversationMarkdownOperationContract, 200)
+};
+
+const streamMessageTransport: OperationTransportContract<Response> = {
+  operation: streamMessageOperationContract,
+  requestEncoder: jsonRequestEncoder(streamMessageOperationContract),
+  responseDecoder: rawResponseDecoder(streamMessageOperationContract, 200)
 };
 
 function websocketURL(path: string) {
@@ -212,30 +276,43 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
   });
 
   return {
-    createConversation: (payload) => client.post<ConversationSummary>('/api/v1/app/conversations', payload),
-    createPersona: async (payload) => normalizePersona(await client.post<RawPersonaSummary>('/api/v1/app/personas', payload)),
+    createConversation: (payload) =>
+      client.post<ConversationSummary>('/api/v1/app/conversations', payload, undefined, createConversationTransport),
+    createPersona: async (payload) =>
+      normalizePersona(await client.post<RawPersonaSummary>('/api/v1/app/personas', payload, undefined, createPersonaTransport)),
     createConversationShare: async (conversationId, options) => {
       const path = `/api/v1/app/conversations/${conversationId}/share`;
       const share =
         options === undefined
-          ? await client.post<ConversationShareResponse>(path)
-          : await client.post<ConversationShareResponse>(path, options);
+          ? await client.post<ConversationShareResponse>(path, undefined, undefined, createConversationShareTransport)
+          : await client.post<ConversationShareResponse>(path, options, undefined, createConversationShareTransport);
       return normalizeConversationShare(share);
     },
     createMessageShare: async (conversationId, messageId, options) => {
       const path = `${messagePath(conversationId, messageId)}/share`;
       const share =
         options === undefined
-          ? await client.post<MessageShareResponse>(path)
-          : await client.post<MessageShareResponse>(path, options);
+          ? await client.post<MessageShareResponse>(path, undefined, undefined, createMessageShareTransport)
+          : await client.post<MessageShareResponse>(path, options, undefined, createMessageShareTransport);
       return normalizeMessageShare(share);
     },
     convertConversationToTask: (conversationId) =>
-      client.post<ConvertConversationToTaskResponse>(`/api/v1/app/conversations/${conversationId}/convert-to-task`),
-    deleteConversation: (conversationId) => client.delete<void>(`/api/v1/app/conversations/${conversationId}`),
-    deleteMessage: (conversationId, messageId) => client.delete<void>(messagePath(conversationId, messageId)),
+      client.post<ConvertConversationToTaskResponse>(
+        `/api/v1/app/conversations/${conversationId}/convert-to-task`,
+        undefined,
+        undefined,
+        convertConversationToTaskTransport
+      ),
+    deleteConversation: (conversationId) =>
+      client.delete<void>(`/api/v1/app/conversations/${conversationId}`, undefined, deleteConversationTransport),
+    deleteMessage: (conversationId, messageId) =>
+      client.delete<void>(messagePath(conversationId, messageId), undefined, deleteMessageTransport),
     deletePersona: async (personaId) => {
-      await client.delete<unknown>(`/api/v1/app/personas/${encodeURIComponent(personaId)}`);
+      await client.delete<unknown>(
+        `/api/v1/app/personas/${encodeURIComponent(personaId)}`,
+        undefined,
+        deletePersonaTransport
+      );
     },
     exportConversationMarkdown: (conversationId) =>
       client.get<string>(
@@ -246,28 +323,62 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
     forkConversation: async (conversationId, payload) => {
       const { branchFromMessageId, messageId, ...rest } = payload;
       return normalizeConversationSummary(
-        await client.post<ConversationSummary>(`/api/v1/app/conversations/${conversationId}/fork`, {
-          ...rest,
-          branchFromMessageId: branchFromMessageId ?? messageId
-        })
+        await client.post<ConversationSummary>(
+          `/api/v1/app/conversations/${conversationId}/fork`,
+          {
+            ...rest,
+            branchFromMessageId: branchFromMessageId ?? messageId
+          },
+          undefined,
+          forkConversationTransport
+        )
       );
     },
     bookmarkMessage: (conversationId, messageId, payload) =>
-      client.post<ConversationMessage>(`${messagePath(conversationId, messageId)}/bookmark`, payload),
+      client.post<ConversationMessage>(
+        `${messagePath(conversationId, messageId)}/bookmark`,
+        payload,
+        undefined,
+        bookmarkMessageTransport
+      ),
     getConversation: async (conversationId) =>
-      normalizeConversationSummary(await client.get<ConversationSummary>(`/api/v1/app/conversations/${conversationId}`)),
+      normalizeConversationSummary(
+        await client.get<ConversationSummary>(
+          `/api/v1/app/conversations/${conversationId}`,
+          undefined,
+          getConversationTransport
+        )
+      ),
     getConversationConfig: (conversationId) =>
-      client.get<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`),
-    listConversations: () => client.get<ConversationSummary[]>('/api/v1/app/conversations'),
-    listMessages: (conversationId) => client.get<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`),
-    listModels: () => client.get<ModelOption[]>('/api/v1/app/models'),
-    listPersonas: async () => (await client.get<RawPersonaSummary[]>('/api/v1/app/personas')).map(normalizePersona),
+      client.get<ConversationConfig>(
+        `/api/v1/app/conversations/${conversationId}/config`,
+        undefined,
+        getConversationConfigTransport
+      ),
+    listConversations: () =>
+      client.get<ConversationSummary[]>('/api/v1/app/conversations', undefined, listConversationsTransport),
+    listMessages: (conversationId) =>
+      client.get<ConversationMessage[]>(
+        `/api/v1/app/conversations/${conversationId}/messages`,
+        undefined,
+        listMessagesTransport
+      ),
+    listModels: () => client.get<ModelOption[]>('/api/v1/app/models', undefined, listModelsTransport),
+    listPersonas: async () =>
+      (await client.get<RawPersonaSummary[]>('/api/v1/app/personas', undefined, listPersonasTransport)).map(normalizePersona),
     sendMessage: (conversationId, payload) =>
-      client.post<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`, payload),
+      client.post<ConversationMessage[]>(
+        `/api/v1/app/conversations/${conversationId}/messages`,
+        payload,
+        undefined,
+        sendMessageTransport
+      ),
     sendMessageStream: (conversationId, payload, handlers) =>
       streamText(
         `/api/v1/app/conversations/${conversationId}/messages/stream`,
         handlers.onChunk,
+        streamMessageOperationContract,
+        streamMessageTransport,
         fetchFn,
         {
           body: JSON.stringify(payload),
@@ -279,12 +390,32 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
           signal: handlers.signal
         }
       ),
-    updateMessage: (conversationId, messageId, payload) => client.put<ConversationMessage>(messagePath(conversationId, messageId), payload),
+    updateMessage: (conversationId, messageId, payload) =>
+      client.put<ConversationMessage>(messagePath(conversationId, messageId), payload, undefined, updateMessageTransport),
     updateConversation: async (conversationId, payload) =>
-      normalizeConversationSummary(await client.put<ConversationSummary>(`/api/v1/app/conversations/${conversationId}`, payload)),
+      normalizeConversationSummary(
+        await client.put<ConversationSummary>(
+          `/api/v1/app/conversations/${conversationId}`,
+          payload,
+          undefined,
+          updateConversationTransport
+        )
+      ),
     updateConversationConfig: (conversationId, payload) =>
-      client.put<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`, payload),
+      client.put<ConversationConfig>(
+        `/api/v1/app/conversations/${conversationId}/config`,
+        payload,
+        undefined,
+        updateConversationConfigTransport
+      ),
     updatePersona: async (personaId, payload) =>
-      normalizePersona(await client.put<RawPersonaSummary>(`/api/v1/app/personas/${encodeURIComponent(personaId)}`, payload))
+      normalizePersona(
+        await client.put<RawPersonaSummary>(
+          `/api/v1/app/personas/${encodeURIComponent(personaId)}`,
+          payload,
+          undefined,
+          updatePersonaTransport
+        )
+      )
   };
 }

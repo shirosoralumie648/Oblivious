@@ -236,19 +236,23 @@ function validateResponseDecoder<T>(operation: OperationContractMetadataV1, deco
   }
 }
 
-function validateTransportContract<T>(
+export function validateOperationTransportContract<T>(
   path: string,
   method: string,
+  operation: OperationContractMetadataV1,
   contract: OperationTransportContract<T>
 ): void {
-  if (contract.operation.method !== method.toUpperCase()) {
-    throw new TypeError(`Operation ${contract.operation.operationId} does not match request method ${method}.`);
+  if (contract.operation !== operation) {
+    throw new TypeError('Transport contract does not reference the caller-supplied operation metadata.');
   }
-  if (!normalizedPathMatches(path, contract.operation.normalizedPath)) {
-    throw new TypeError(`Operation ${contract.operation.operationId} does not match request path.`);
+  if (operation.method !== method.toUpperCase()) {
+    throw new TypeError(`Operation ${operation.operationId} does not match request method ${method}.`);
   }
-  validateRequestEncoder(contract.operation, contract.requestEncoder);
-  validateResponseDecoder(contract.operation, contract.responseDecoder);
+  if (!normalizedPathMatches(path, operation.normalizedPath)) {
+    throw new TypeError(`Operation ${operation.operationId} does not match request path.`);
+  }
+  validateRequestEncoder(operation, contract.requestEncoder);
+  validateResponseDecoder(operation, contract.responseDecoder);
 }
 
 function requestHeaders(
@@ -289,7 +293,7 @@ function requestHeaders(
   return result;
 }
 
-function encodeBody(body: unknown, encoder: RequestEncoder | null): BodyInit | null | undefined {
+function encodeBody(body: unknown, encoder: RequestEncoder | null, alreadyEncoded: boolean): BodyInit | null | undefined {
   if (body === undefined) {
     return undefined;
   }
@@ -307,6 +311,12 @@ function encodeBody(body: unknown, encoder: RequestEncoder | null): BodyInit | n
   }
   if (encoder?.id === 'raw') {
     return body as BodyInit;
+  }
+  if (encoder?.id === 'json' && alreadyEncoded) {
+    if (typeof body !== 'string') {
+      throw new TypeError('An encoded JSON RequestInit body must be a string.');
+    }
+    return body;
   }
   if (encoder?.id === 'json' || encoder === null) {
     return typeof body === 'string' && encoder === null ? body : JSON.stringify(body);
@@ -350,13 +360,14 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     path: string,
     init: RequestInit,
     body: unknown,
-    contract?: OperationTransportContract<T>
+    contract?: OperationTransportContract<T>,
+    bodyAlreadyEncoded = false
   ): Promise<T> => {
     const method = (init.method ?? 'GET').toUpperCase();
     if (contract) {
-      validateTransportContract(path, method, contract);
+      validateOperationTransportContract(path, method, contract.operation, contract);
     }
-    const encodedBody = encodeBody(body, contract?.requestEncoder ?? null);
+    const encodedBody = encodeBody(body, contract?.requestEncoder ?? null, bodyAlreadyEncoded);
     const accept = contract ? contract.responseDecoder.mediaType : 'application/json';
     const response = await fetchFn(`${baseUrl}${path}`, {
       ...init,
@@ -388,7 +399,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   };
 
   const request = <T>(path: string, init: RequestInit = {}, contract?: OperationTransportContract<T>) =>
-    dispatch<T>(path, init, init.body, contract);
+    dispatch<T>(path, init, init.body, contract, true);
 
   return {
     request,
