@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-01-PLAN.md
-last_updated: "2026-07-21T10:45:40.150Z"
+stopped_at: Completed 31.2-06-PLAN.md
+last_updated: "2026-07-21T11:39:30.810Z"
 last_activity: 2026-07-21
 last_activity_desc: Phase 31.2 execution started
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 30
+  completed_plans: 31
   percent: 18
 ---
 
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 2 of 15
+Plan: 3 of 15
 Status: Ready to execute
 Last activity: 2026-07-21 — Phase 31.2 execution started
 
-Progress: [███████░░░] 68%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
@@ -104,6 +104,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.1]: Both readiness gate stages run the real BuildRuntime exact-join selector before deployment or identity-bearing harness work.
 - [Phase 31.2]: OpenAPI remains the sole HTTP schema authority; manifest and TypeScript artifacts are deterministic compare-only projections.
 - [Phase 31.2]: Runtime parity and complete frontend caller discovery remain owned by Plans 02 and 03; Plan 01 evidence is repository-local E1 only.
+- [Phase 31.2]: The protobuf manifest is the only tool and disposition authority and pins exact versions, integrity values, inventories, and the canonical manifest digest. — Prevents host tools, partial ownership, or caller observations from becoming release authority.
+- [Phase 31.2]: Protobuf generation is verification-only in a fresh temporary tree and never repairs tracked source or generated output bytes. — Any missing, extra, or byte-drifted generated consumer remains a blocking contract failure.
+- [Phase 31.2]: The protobuf report accepts only the validator's closed observation while release identity, committed profile, evidence class, and outcome remain trusted-producer owned. — Keeps protobuf evidence repository-local, no-skip, and resistant to identity or claim injection.
 
 ### Pending Todos
 
@@ -136,6 +139,7 @@ None yet.
 | Phase 31.1 P19 | 39 min | 3 tasks | 8 files |
 | Phase 31.1 P22 | 16 min | 2 tasks | 3 files |
 | Phase 31.2 P01 | 27 min | 3 tasks | 9 files |
+| Phase 31.2 P06 | 42 min | 3 tasks | 10 files |
 
 ### Roadmap Evolution
 
@@ -148,8 +152,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T10:41:33.969Z
-Stopped at: Completed 31.2-01-PLAN.md
+Last session: 2026-07-21T11:35:26.824Z
+Stopped at: Completed 31.2-06-PLAN.md
 Resume file: None
 
 ## Performance Metrics
