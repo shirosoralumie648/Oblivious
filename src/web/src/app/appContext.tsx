@@ -3,7 +3,13 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from 're
 import { createAuthApi, type AuthApi } from '../features/auth/api';
 import { createAuthStore, type AuthState } from '../features/auth/store';
 import { createAuthBootstrapController } from '../features/auth/useAuthBootstrap';
-import { createHttpClient } from '../services/http/client';
+import { updatePreferencesOperationContract } from '@/generated/operation-contracts.generated';
+import {
+  createHttpClient,
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  type OperationTransportContract
+} from '../services/http/client';
 import type { UserPreferences } from '../types/api';
 
 export type UpdatePreferencesRequest = (preferences: UserPreferences) => Promise<UserPreferences>;
@@ -31,10 +37,22 @@ const fallbackAppContextValue: AppContextValue = {
   updatePreferences: async (preferences) => preferences
 };
 
+const updatePreferencesTransport: OperationTransportContract<UserPreferences> = {
+  operation: updatePreferencesOperationContract,
+  requestEncoder: jsonRequestEncoder(updatePreferencesOperationContract),
+  responseDecoder: jsonEnvelopeDecoder<UserPreferences>(updatePreferencesOperationContract, 200)
+};
+
 export function AppContextProvider({
   children,
   authApi = createAuthApi(createHttpClient()),
-  updatePreferencesRequest = (preferences) => createHttpClient().put<UserPreferences>('/api/v1/app/me/preferences', preferences)
+  updatePreferencesRequest = (preferences) =>
+    createHttpClient().put<UserPreferences>(
+      '/api/v1/app/me/preferences',
+      preferences,
+      undefined,
+      updatePreferencesTransport
+    )
 }: AppContextProviderProps) {
   const storeRef = useRef(createAuthStore({ status: 'loading', user: null, preferences: null }));
   const bootstrapControllerRef = useRef(createAuthBootstrapController(authApi, storeRef.current));

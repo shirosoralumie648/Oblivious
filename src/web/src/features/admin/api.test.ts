@@ -5,26 +5,38 @@ import { createAdminApi } from './api';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
   const client: HttpClient = {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-    request: vi.fn(),
-    ...overrides,
+    get: overrides.get
+      ? ((path, init) => init === undefined ? overrides.get!(path) : overrides.get!(path, init)) as HttpClient['get']
+      : vi.fn(),
+    post: overrides.post
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.post!(path) : overrides.post!(path, body)
+          : overrides.post!(path, body, init)) as HttpClient['post']
+      : vi.fn(),
+    put: overrides.put
+      ? ((path, body, init) => init === undefined
+          ? body === undefined ? overrides.put!(path) : overrides.put!(path, body)
+          : overrides.put!(path, body, init)) as HttpClient['put']
+      : vi.fn(),
+    delete: overrides.delete
+      ? ((path, init) => init === undefined ? overrides.delete!(path) : overrides.delete!(path, init)) as HttpClient['delete']
+      : vi.fn(),
+    request: overrides.request
+      ? ((path, init) => init === undefined ? overrides.request!(path) : overrides.request!(path, init)) as HttpClient['request']
+      : vi.fn(),
   };
   return client;
 }
 
 describe('createAdminApi', () => {
   it('normalizes list responses from backend collection keys', async () => {
-    const client = createClient({
-      get: vi
-        .fn()
-        .mockResolvedValueOnce({ channels: [{ id: 'ch_1', name: 'OpenAI' }], total: 1 })
-        .mockResolvedValueOnce({ routes: [{ id: 'rt_1', model: 'gpt-4o' }], total: 1 })
-        .mockResolvedValueOnce({ entries: [{ id: 'aud_1', action: 'channel.create' }], total: 1 })
-        .mockResolvedValueOnce({ entries: [], total: 0 }),
-    });
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ channels: [{ id: 'ch_1', name: 'OpenAI' }], total: 1 })
+      .mockResolvedValueOnce({ routes: [{ id: 'rt_1', model: 'gpt-4o' }], total: 1 })
+      .mockResolvedValueOnce({ entries: [{ id: 'aud_1', action: 'channel.create' }], total: 1 })
+      .mockResolvedValueOnce({ entries: [], total: 0 });
+    const client = createClient({ get });
 
     const api = createAdminApi(client);
 
@@ -42,10 +54,10 @@ describe('createAdminApi', () => {
       total: 0,
     });
 
-    expect(client.get).toHaveBeenNthCalledWith(1, '/api/v1/admin/channels?provider=openai&limit=10');
-    expect(client.get).toHaveBeenNthCalledWith(2, '/api/v1/admin/routes');
-    expect(client.get).toHaveBeenNthCalledWith(3, '/api/v1/admin/audit-logs?action=channel.create');
-    expect(client.get).toHaveBeenNthCalledWith(4, '/api/v1/admin/audit-logs?organizationID=org_audit&action=channel.create');
+    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/admin/channels?provider=openai&limit=10');
+    expect(get).toHaveBeenNthCalledWith(2, '/api/v1/admin/routes');
+    expect(get).toHaveBeenNthCalledWith(3, '/api/v1/admin/audit-logs?action=channel.create');
+    expect(get).toHaveBeenNthCalledWith(4, '/api/v1/admin/audit-logs?organizationID=org_audit&action=channel.create');
   });
 
   it('preserves marketplace review SLA metadata from the admin review list', async () => {
