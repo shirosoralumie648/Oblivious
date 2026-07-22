@@ -103,6 +103,7 @@ type RouteSurfaceRegistrar struct {
 	policies    RouteSurfacePolicies
 	descriptors map[string]RouteSurfaceDescriptor
 	mounts      map[string]string
+	fallbacks   map[string]string
 }
 
 func NewRouteSurfaceRegistrar(mux *stdhttp.ServeMux, policies RouteSurfacePolicies) (*RouteSurfaceRegistrar, error) {
@@ -117,6 +118,7 @@ func NewRouteSurfaceRegistrar(mux *stdhttp.ServeMux, policies RouteSurfacePolici
 		policies:    cloneRouteSurfacePolicies(policies),
 		descriptors: make(map[string]RouteSurfaceDescriptor),
 		mounts:      make(map[string]string),
+		fallbacks:   make(map[string]string),
 	}, nil
 }
 
@@ -133,7 +135,18 @@ func (r *RouteSurfaceRegistrar) Register(reg RouteSurfaceRegistration) error {
 		return routeSurfaceError("route_surface_duplicate", key)
 	}
 
-	handler := reg.Handler
+	handler := r.composeHandler(descriptor, reg.Handler)
+
+	pattern := descriptor.Method + " " + descriptor.Path
+	if err := handleRouteSurfacePattern(r.mux, pattern, handler); err != nil {
+		return err
+	}
+	r.descriptors[key] = descriptor
+	r.mounts[key] = pattern
+	return nil
+}
+
+func (r *RouteSurfaceRegistrar) composeHandler(descriptor RouteSurfaceDescriptor, handler stdhttp.Handler) stdhttp.Handler {
 	if descriptor.GuardEffectID != "" {
 		handler = r.policies.Guard(descriptor.GuardEffectID, descriptor.CapabilityID, handler)
 	}
@@ -146,14 +159,7 @@ func (r *RouteSurfaceRegistrar) Register(reg RouteSurfaceRegistration) error {
 	if descriptor.Auth != RouteSurfaceAuthPublic {
 		handler = r.policies.Auth[descriptor.Auth](handler)
 	}
-
-	pattern := descriptor.Method + " " + descriptor.Path
-	if err := handleRouteSurfacePattern(r.mux, pattern, handler); err != nil {
-		return err
-	}
-	r.descriptors[key] = descriptor
-	r.mounts[key] = pattern
-	return nil
+	return handler
 }
 
 func (r *RouteSurfaceRegistrar) Snapshot() []RouteSurfaceDescriptor {
@@ -193,6 +199,12 @@ func (r *RouteSurfaceRegistrar) validateSnapshot() error {
 	for key := range r.mounts {
 		if _, ok := r.descriptors[key]; !ok {
 			return routeSurfaceError("route_surface_mount_descriptor_mismatch", key)
+		}
+	}
+	for pattern, key := range r.fallbacks {
+		descriptor, ok := r.descriptors[key]
+		if !ok || !routeSurfaceFallbackBelongsToDescriptor(pattern, descriptor) {
+			return routeSurfaceError("route_surface_mount_descriptor_mismatch", pattern)
 		}
 	}
 	return nil
@@ -396,6 +408,116 @@ func handleRouteSurfacePattern(mux *stdhttp.ServeMux, pattern string, handler st
 	return nil
 }
 
+var routeSurfaceFallbackMethods = []string{
+	stdhttp.MethodConnect,
+	stdhttp.MethodDelete,
+	stdhttp.MethodGet,
+	stdhttp.MethodOptions,
+	stdhttp.MethodPatch,
+	stdhttp.MethodPost,
+	stdhttp.MethodPut,
+	stdhttp.MethodTrace,
+}
+
+func (r *RouteSurfaceRegistrar) registerRoutingFallbacks() error {
+	paths := make(map[string]map[string]string)
+	for key, descriptor := range r.descriptors {
+		if paths[descriptor.Path] == nil {
+			paths[descriptor.Path] = make(map[string]string)
+		}
+		paths[descriptor.Path][descriptor.Method] = key
+	}
+	orderedPaths := make([]string, 0, len(paths))
+	for path := range paths {
+		orderedPaths = append(orderedPaths, path)
+	}
+	sort.Strings(orderedPaths)
+
+	for _, path := range orderedPaths {
+		methods := paths[path]
+		ownerKey := routeSurfaceFallbackOwnerKey(methods)
+		owner := r.descriptors[ownerKey]
+		for _, method := range routeSurfaceFallbackMethods {
+			if routeSurfacePathAllowsMethod(methods, method) {
+				continue
+			}
+			pattern := method + " " + path
+			if err := r.registerRoutingFallback(pattern, ownerKey, owner, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed"); err != nil {
+				return err
+			}
+		}
+
+		wildcardPath := routeSurfaceWildcardFallback(path)
+		if wildcardPath == "" {
+			continue
+		}
+		for _, method := range routeSurfaceFallbackMethods {
+			pattern := method + " " + wildcardPath
+			if err := r.registerRoutingFallback(pattern, ownerKey, owner, stdhttp.StatusNotFound, "not_found", "route not found"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *RouteSurfaceRegistrar) registerRoutingFallback(pattern, ownerKey string, owner RouteSurfaceDescriptor, status int, code, message string) error {
+	if _, exists := r.fallbacks[pattern]; exists {
+		return nil
+	}
+	handler := stdhttp.Handler(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		writeError(w, status, code, message)
+	}))
+	if owner.Auth != RouteSurfaceAuthPublic {
+		handler = r.policies.Auth[owner.Auth](handler)
+	}
+	if err := handleRouteSurfacePattern(r.mux, pattern, handler); err != nil {
+		return err
+	}
+	r.fallbacks[pattern] = ownerKey
+	return nil
+}
+
+func routeSurfaceFallbackOwnerKey(methods map[string]string) string {
+	keys := make([]string, 0, len(methods))
+	for _, key := range methods {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys[0]
+}
+
+func routeSurfacePathAllowsMethod(methods map[string]string, method string) bool {
+	if _, ok := methods[method]; ok {
+		return true
+	}
+	_, getAllowed := methods[stdhttp.MethodGet]
+	return method == stdhttp.MethodHead && getAllowed
+}
+
+func routeSurfaceFallbackBelongsToDescriptor(pattern string, descriptor RouteSurfaceDescriptor) bool {
+	separator := strings.IndexByte(pattern, ' ')
+	if separator <= 0 || separator == len(pattern)-1 {
+		return false
+	}
+	path := pattern[separator+1:]
+	return path == descriptor.Path || path == routeSurfaceWildcardFallback(descriptor.Path)
+}
+
+func routeSurfaceWildcardFallback(path string) string {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	for index, segment := range segments {
+		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") || strings.Contains(segment, "...") {
+			continue
+		}
+		if index == 0 {
+			return ""
+		}
+		return "/" + strings.Join(segments[:index], "/") + "/{routeSurfaceRemainder...}"
+	}
+	return ""
+}
+
 func cloneRouteSurfaceDescriptor(descriptor RouteSurfaceDescriptor) RouteSurfaceDescriptor {
 	descriptor.MiddlewareIDs = append([]string(nil), descriptor.MiddlewareIDs...)
 	descriptor.SuccessResponses = append([]StatusMediaSchemaIdentityV1(nil), descriptor.SuccessResponses...)
@@ -531,15 +653,23 @@ func normalizeRouteSurfaceResponses(responses []StatusMediaSchemaIdentityV1) ([]
 		if len(response.Status) != 3 || response.Status < "100" || response.Status > "599" {
 			return nil, routeSurfaceError("route_surface_response_invalid", response.Status)
 		}
-		if _, exists := seen[response.Status]; exists {
-			return nil, routeSurfaceError("route_surface_duplicate", response.Status)
-		}
-		seen[response.Status] = struct{}{}
 		if err := validateMediaSchemaIdentity(MediaSchemaIdentityV1{MediaType: response.MediaType, SchemaIdentity: response.SchemaIdentity}); err != nil {
 			return nil, err
 		}
+		mediaType, _ := routeSurfaceBaseMedia(response.MediaType)
+		key := response.Status + "\x00" + mediaType + "\x00" + response.SchemaIdentity.Kind + "\x00" + response.SchemaIdentity.Value
+		if _, exists := seen[key]; exists {
+			return nil, routeSurfaceError("route_surface_duplicate", response.Status)
+		}
+		seen[key] = struct{}{}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Status < result[j].Status })
+	sort.Slice(result, func(i, j int) bool {
+		leftMedia, _ := routeSurfaceBaseMedia(result[i].MediaType)
+		rightMedia, _ := routeSurfaceBaseMedia(result[j].MediaType)
+		left := result[i].Status + "\x00" + leftMedia + "\x00" + result[i].SchemaIdentity.Kind + "\x00" + result[i].SchemaIdentity.Value
+		right := result[j].Status + "\x00" + rightMedia + "\x00" + result[j].SchemaIdentity.Kind + "\x00" + result[j].SchemaIdentity.Value
+		return left < right
+	})
 	return result, nil
 }
 

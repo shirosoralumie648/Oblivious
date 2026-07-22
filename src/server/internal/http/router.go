@@ -58,7 +58,9 @@ func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	chatHandler := newChatHandler(chatService)
 
 	registerChatRoutes(mux, authMiddleware, chatHandler)
-	registerConversationAliasRoutes(mux, authMiddleware, chatHandler)
+	if err := registerConversationAliasRouteSurfaces(mustRouteSurfaceAdapterRegistrar(mux, authMiddleware), chatHandler); err != nil {
+		panic(err)
+	}
 	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
 }
 
@@ -178,11 +180,8 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			RouteSurfaceAuthSession: authMiddleware.requireSession,
 			RouteSurfaceAuthAdmin:   authMiddleware.requireAdmin,
 		},
-		CSRF: authMiddleware.securityGuard,
-		AllowedCapabilities: map[string]struct{}{
-			"gateway.request_admission":  {},
-			"release.contract_reporting": {},
-		},
+		CSRF:                authMiddleware.securityGuard,
+		AllowedCapabilities: routeSurfaceGroupAAllowedCapabilities(),
 	}
 	if options.Guard != nil {
 		routeSurfacePolicies.Guard = func(_ string, capabilityID string, next stdhttp.Handler) stdhttp.Handler {
@@ -504,21 +503,37 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	observabilityAlertHandler := newObservabilityAlertHandlerWithStores(alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
 
-	registerAuthRoutes(mux, authMiddleware, authHandler)
+	if err := registerAuthRouteSurfaces(routeSurfaceRegistrar, authHandler); err != nil {
+		return nil, err
+	}
 	registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)
 	registerKnowledgeAliasRoutes(mux, authMiddleware, knowledgeHandler)
-	registerAgentMemoryRoutes(mux, authMiddleware, agentMemoryHandler)
-	registerAgentRunRoutes(mux, authMiddleware, agentRunsHandler)
+	if err := registerAgentMemoryRouteSurfaces(routeSurfaceRegistrar, agentMemoryHandler); err != nil {
+		return nil, err
+	}
+	if err := registerAgentRunRouteSurfaces(routeSurfaceRegistrar, agentRunsHandler); err != nil {
+		return nil, err
+	}
 	registerWorkflowRoutes(mux, authMiddleware, workflowHandler)
-	registerScheduleRoutes(mux, authMiddleware, scheduleHandler)
+	if err := registerScheduleRouteSurfaces(routeSurfaceRegistrar, scheduleHandler); err != nil {
+		return nil, err
+	}
 	registerPublishingChannelRoutes(mux, authMiddleware, channelHandler)
 	registerObservabilityAlertRoutes(mux, authMiddleware, observabilityAlertHandler)
 	registerConsoleRoutes(mux, authMiddleware, consoleHandler)
 	registerChatRoutes(mux, authMiddleware, chatHandler)
-	registerConversationAliasRoutes(mux, authMiddleware, chatHandler)
-	registerGatewayRoutes(mux, authMiddleware, newGatewayHandler(options.RelayPool, options.GatewayRelayHandler))
-	registerPreferenceRoutes(mux, authMiddleware, preferencesHandler)
-	registerTaskRoutes(mux, authMiddleware, taskHandler)
+	if err := registerConversationAliasRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
+		return nil, err
+	}
+	if err := registerGatewayRouteSurfaces(routeSurfaceRegistrar, newGatewayHandler(options.RelayPool, options.GatewayRelayHandler)); err != nil {
+		return nil, err
+	}
+	if err := registerPreferenceRouteSurfaces(routeSurfaceRegistrar, preferencesHandler); err != nil {
+		return nil, err
+	}
+	if err := registerTaskRouteSurfaces(routeSurfaceRegistrar, taskHandler); err != nil {
+		return nil, err
+	}
 
 	// Agent routes
 	mux.Handle("/api/v1/app/agents", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

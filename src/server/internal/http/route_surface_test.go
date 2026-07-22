@@ -111,8 +111,8 @@ func TestRouteSurfaceRegistersCanonicalChatRoutesThroughRegistrar(t *testing.T) 
 	if !called["registerChatRoutes"] {
 		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRoutes")
 	}
-	if !called["registerConversationAliasRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register Chat conversation alias routes through registerConversationAliasRoutes")
+	if !called["registerConversationAliasRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register Chat conversation alias routes through registerConversationAliasRouteSurfaces")
 	}
 }
 
@@ -2310,12 +2310,22 @@ func TestRouteSurfaceRuntimeDescriptorParityContract(t *testing.T) {
 	if err := productionRegistrar.validateSnapshot(); err != nil {
 		t.Fatalf("validate production route surface snapshot: %v", err)
 	}
-	actual := productionRegistrar.Snapshot()
+	allActual := productionRegistrar.Snapshot()
+	expectedIDs := make(map[string]struct{}, len(expected))
+	for _, operation := range expected {
+		expectedIDs[operation.OperationID] = struct{}{}
+	}
+	actual := make([]RouteSurfaceDescriptor, 0, len(expected))
+	for _, descriptor := range allActual {
+		if _, ok := expectedIDs[descriptor.OperationID]; ok {
+			actual = append(actual, descriptor)
+		}
+	}
 	if len(actual) != len(expected) || len(actual) == 0 {
 		t.Fatalf("expected nonempty router-owned descriptor parity, expected=%d actual=%d", len(expected), len(actual))
 	}
-	if len(productionRegistrar.mountedPatterns()) != len(actual) {
-		t.Fatalf("expected one exact mount per descriptor, mounts=%d descriptors=%d", len(productionRegistrar.mountedPatterns()), len(actual))
+	if len(productionRegistrar.mountedPatterns()) != len(allActual) {
+		t.Fatalf("expected one exact mount per descriptor, mounts=%d descriptors=%d", len(productionRegistrar.mountedPatterns()), len(allActual))
 	}
 	observation, err := CompareRouteSurfaceSnapshot(manifest.Scope, expected, actual)
 	if err != nil {
@@ -2997,7 +3007,7 @@ func routeSurfaceCalledRegistrars(t *testing.T, sourceFile string) map[string]bo
 		if !ok {
 			return true
 		}
-		if strings.HasPrefix(ident.Name, "register") && strings.HasSuffix(ident.Name, "Routes") {
+		if strings.HasPrefix(ident.Name, "register") && (strings.HasSuffix(ident.Name, "Routes") || strings.HasSuffix(ident.Name, "RouteSurfaces")) {
 			called[ident.Name] = true
 		}
 		return true
@@ -3090,9 +3100,14 @@ func TestRouteSurfaceDeclaredRouteRegistrarsAreMountedWithoutDatabase(t *testing
 			continue
 		}
 		for registrar := range routeSurfaceDeclaredRegistrars(t, sourceFile) {
-			if !calledRegistrars[registrar] {
-				missing = append(missing, fmt.Sprintf("%s declared in %s", registrar, sourceFile))
+			if calledRegistrars[registrar] {
+				continue
 			}
+			explicitRegistrar := strings.TrimSuffix(registrar, "Routes") + "RouteSurfaces"
+			if calledRegistrars[explicitRegistrar] {
+				continue
+			}
+			missing = append(missing, fmt.Sprintf("%s or %s declared in %s", registrar, explicitRegistrar, sourceFile))
 		}
 	}
 	sort.Strings(missing)
