@@ -1,0 +1,256 @@
+name: Reusable CI
+
+on:
+  workflow_call:
+    inputs:
+      run_full:
+        description: Run the complete repository-local validation tier.
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  quick-server:
+    name: quick-server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-go: "true"
+      - name: Compile server packages
+        run: bash scripts/check.sh server
+      - name: Run server unit tests
+        run: bash scripts/test.sh server
+
+  quick-web:
+    name: quick-web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-node: "true"
+          install-dependencies: "true"
+      - name: Build web app
+        run: bash scripts/check.sh web
+      - name: Run web unit tests
+        run: bash scripts/test.sh web
+
+  quick-compose:
+    name: quick-compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate default Compose profile
+        run: docker compose config --quiet
+      - name: Validate microservices Compose profile
+        run: docker compose --profile microservices config --quiet
+      - name: Verify CI structure
+        run: bash scripts/verify-quality-gates.sh --ci-contract-only
+      - name: Check shell entrypoint syntax
+        run: bash -n scripts/check.sh scripts/test.sh scripts/verify-quality-gates.sh
+
+  quick-gate:
+    name: quick-gate
+    if: ${{ always() }}
+    needs:
+      - quick-server
+      - quick-web
+      - quick-compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every quick-tier job
+        env:
+          QUICK_SERVER_RESULT: ${{ needs.quick-server.result }}
+          QUICK_WEB_RESULT: ${{ needs.quick-web.result }}
+          QUICK_COMPOSE_RESULT: ${{ needs.quick-compose.result }}
+        run: |
+          set -euo pipefail
+          for result in "$QUICK_SERVER_RESULT" "$QUICK_WEB_RESULT" "$QUICK_COMPOSE_RESULT"; do
+            if [[ "$result" != "success" ]]; then
+              echo "Quick-tier dependency did not succeed: $result" >&2
+              exit 1
+            fi
+          done
+
+  release-gates:
+    name: release-gates
+    if: ${{ inputs.run_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-go: "true"
+          setup-node: "true"
+          install-dependencies: "true"
+      - name: Install shell gate tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Resolve protobuf toolchain manifest digest
+        id: protobuf-toolchain
+        run: |
+          bash scripts/verify-protobuf-contract.sh --manifest config/release/protobuf-toolchain.v1.json --manifest-only
+          manifest_digest=$(python3 -c 'import json; print(json.load(open("config/release/protobuf-toolchain.v1.json"))["manifestDigest"])')
+          case "$manifest_digest" in sha256:????????????????????????????????????????????????????????????????) ;; *) exit 1 ;; esac
+          echo "digest=${manifest_digest#sha256:}" >> "$GITHUB_OUTPUT"
+      - name: Cache pinned protobuf tools
+        uses: actions/cache@v4
+        with:
+          path: .tmp/protobuf-tools/bin
+          key: protobuf-tools-${{ runner.os }}-${{ runner.arch }}-${{ steps.protobuf-toolchain.outputs.digest }}
+      - name: Bootstrap and verify exact protobuf tool versions
+        run: bash scripts/bootstrap-protobuf-tools.sh --manifest config/release/protobuf-toolchain.v1.json
+      - name: Verify release assets
+        run: bash scripts/check.sh docs
+      - name: Verify Relay security boundary
+        run: bash scripts/check.sh relay-security
+
+  target-release-evidence:
+    name: target-release-evidence
+    if: ${{ inputs.run_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify target release evidence verifier fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/verify-target-release-evidence-fixtures.sh
+      - name: Verify target release evidence assembler fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/assemble-target-release-evidence-fixtures.sh
+      - name: Verify target release artifact collector fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/collect-target-release-artifacts-fixtures.sh
+      - name: Verify target release digest fixtures
+        env:
+          PYTHON: python3
+        run: bash scripts/compute-target-release-digests-fixtures.sh
+
+  security:
+    name: security
+    if: ${{ inputs.run_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-go: "true"
+          setup-node: "true"
+          install-dependencies: "true"
+      - name: Install shell gate tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Verify dependency security
+        run: bash scripts/check.sh security
+
+  server-database:
+    name: server-database
+    if: ${{ inputs.run_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oblivious
+          POSTGRES_PASSWORD: oblivious
+          POSTGRES_DB: oblivious_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oblivious -d oblivious_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://oblivious:oblivious@127.0.0.1:5432/oblivious_test?sslmode=disable
+      OBLIVIOUS_REQUIRE_TEST_DATABASE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-go: "true"
+      - name: Compile server packages
+        run: bash scripts/check.sh server
+      - name: Run database-backed server tests
+        run: bash scripts/test.sh server
+
+  e2e:
+    name: e2e
+    if: ${{ inputs.run_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: .tmp/ms-playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          setup-node: "true"
+          install-dependencies: "true"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: .tmp/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Chromium for Playwright
+        run: pnpm --dir src/web exec playwright install --with-deps chromium
+      - name: Run browser E2E
+        run: bash scripts/test.sh e2e
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-${{ github.run_id }}
+          path: |
+            src/web/playwright-report/
+            src/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  full-gate:
+    name: full-gate
+    if: ${{ always() && inputs.run_full }}
+    needs:
+      - quick-gate
+      - release-gates
+      - target-release-evidence
+      - security
+      - server-database
+      - e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every full-tier job
+        env:
+          QUICK_GATE_RESULT: ${{ needs.quick-gate.result }}
+          RELEASE_GATES_RESULT: ${{ needs.release-gates.result }}
+          TARGET_RELEASE_EVIDENCE_RESULT: ${{ needs.target-release-evidence.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          SERVER_DATABASE_RESULT: ${{ needs.server-database.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          for result in \
+            "$QUICK_GATE_RESULT" \
+            "$RELEASE_GATES_RESULT" \
+            "$TARGET_RELEASE_EVIDENCE_RESULT" \
+            "$SECURITY_RESULT" \
+            "$SERVER_DATABASE_RESULT" \
+            "$E2E_RESULT"; do
+            if [[ "$result" != "success" ]]; then
+              echo "Full-tier dependency did not succeed: $result" >&2
+              exit 1
+            fi
+          done
