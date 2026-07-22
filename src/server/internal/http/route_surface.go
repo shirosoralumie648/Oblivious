@@ -419,6 +419,13 @@ func routeSurfaceError(code, field string) error {
 	return &RouteSurfaceContractError{Code: code, Field: field}
 }
 
+func routeSurfaceErrorCode(err error) string {
+	if contractErr, ok := err.(*RouteSurfaceContractError); ok {
+		return contractErr.Code
+	}
+	return ""
+}
+
 func cloneRouteSurfacePolicies(policies RouteSurfacePolicies) RouteSurfacePolicies {
 	cloned := policies
 	cloned.Auth = make(map[RouteSurfaceAuth]RouteSurfaceMiddleware, len(policies.Auth))
