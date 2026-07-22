@@ -175,8 +175,8 @@ Cross-cutting constraints:
   4. numbered SQL/checksum、runtime ledger 与 committed monolith replay 分别产生 typed evidence；无 DB/Docker 不能被计为通过。
   5. verify-quality-gates.sh 是唯一 direct aggregate owner，聚合 trusted build/readiness/surface reports，拒绝 identity splice、drift、skip、重复 surface 和敏感公开输出。
 
-**Plans**: 13/15 plans executed
-**Progress**: 13/15 plans complete
+**Plans**: 14/15 plans executed
+**Progress**: 14/15 plans complete
 
 Plans:
 **Wave 1** *(blocked on Phase 31.1 Plan 31.1-08 completion; file-disjoint foundations may run in parallel)*
@@ -212,7 +212,7 @@ Plans:
 
 **Wave 7** *(blocked on the full sidecar plus exposure/runtime/protobuf foundations)*
 
-- [ ] 31.2-05-PLAN.md - Exact-join one sidecar across transport/exposure and emit two reports over Plan 10 wiring.
+- [x] 31.2-05-PLAN.md - Exact-join one sidecar across transport/exposure and emit two reports over Plan 10 wiring.
 
 **Wave 8** *(blocked on all surface producers)*
 
@@ -359,7 +359,7 @@ Cross-cutting constraints:
 |-------|----------------|--------|-----------|
 | 31. 发布合同与可信构建身份 | 7/7 | Complete   | 2026-07-17 |
 | 31.1 动态 Readiness 与持续 Fail-Closed | 22/22 | Complete    | 2026-07-21 |
-| 31.2 契约表面一致性与聚合门禁 | 13/15 | In Progress|  |
+| 31.2 契约表面一致性与聚合门禁 | 14/15 | In Progress|  |
 | 32. 身份、租户与共享出站安全 | 0/TBD | Not started | - |
 | 33. 耐久执行、RAG Worker 与共享对象 | 0/TBD | Not started | - |
 | 34. Relay、Chat 与证据主链 | 0/TBD | Not started | - |
