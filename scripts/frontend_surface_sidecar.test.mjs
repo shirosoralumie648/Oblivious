@@ -55,7 +55,7 @@ describe('frontend surface sidecar', () => {
       counts[counter] += kindCounts.get(kind);
     }
     assert.equal(result.unresolved.length, 0);
-    assert.equal(result.operations.length, 11);
+    assert.equal(result.operations.length, 12);
     const stream = result.operations.find((entry) => entry.transport.kind === 'sse-stream');
     const eventSource = result.operations.find((entry) => entry.transport.kind === 'event-source');
     const websocket = result.operations.find((entry) => entry.transport.kind === 'websocket');
@@ -76,6 +76,21 @@ describe('frontend surface sidecar', () => {
     assert.ok(result.sourceScope.filesScanned > 0);
     assert.ok(result.exposures.length > 0);
     assert.ok(result.generatedConsumers > 0);
+    assert.equal(result.releaseProjection.digest, 'sha256:825ba0c66537132811fa280a62f761fb2b95eda35d69975d6df715f8e8bb1c38');
+    assert.deepEqual(
+      result.exposures
+        .filter((entry) => entry.kind === 'selector')
+        .map((entry) => entry.catalogSubject)
+        .filter(Boolean)
+        .sort(),
+      ['AgentToolDefinition.capabilityId', 'ModelOption.capabilityId']
+    );
+    assert.deepEqual(
+      result.mutationContracts.map((entry) => entry.id).sort(),
+      ['agent-mutation', 'agent-tool-catalog-projection', 'chat-model-mutation']
+    );
+    assert.deepEqual(result.projectionProvider.props, ['children']);
+    assert.equal(result.projectionProvider.authenticatedStatus, 'authenticated');
     assert.match(result.sourceScope.sourceDigest, /^sha256:[0-9a-f]{64}$/);
     counts.exposure += 1;
     counts.generatedConsumer += 1;
@@ -95,7 +110,7 @@ describe('frontend surface sidecar', () => {
       generatedFile: fixtureGenerated
     });
     assert.equal(result.sourceScope.filesScanned, 1);
-    assert.equal(result.operations.length, 11);
+    assert.equal(result.operations.length, 12);
     assert.equal(result.operations.some((entry) => entry.source.file.includes('excluded.test')), false);
     assert.equal(result.operations.some((entry) => entry.source.file.includes('.generated.')), false);
     counts.exclusion += 1;

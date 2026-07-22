@@ -18,6 +18,10 @@ export const listUsersOperationContract: OperationContractMetadataV1 = {
   method: 'GET', normalizedPath: '/fixture/users', operationId: 'listUsers', capabilityId: 'fixture.users',
   request: { mediaType: null, schemaIdentity: { kind: 'none', value: null } }, successResponses: [{ status: '200', mediaType: 'application/json', schemaIdentity: { kind: 'none', value: null } }]
 };
+export const getAppReadinessCapabilitiesOperationContract: OperationContractMetadataV1 = {
+  method: 'GET', normalizedPath: '/fixture/app-projection', operationId: 'getAppReadinessCapabilities', capabilityId: 'fixture.users',
+  request: { mediaType: null, schemaIdentity: { kind: 'none', value: null } }, successResponses: [{ status: '200', mediaType: 'application/json', schemaIdentity: { kind: 'none', value: null } }]
+};
 export const uploadOperationContract: OperationContractMetadataV1 = {
   method: 'POST', normalizedPath: '/fixture/upload', operationId: 'uploadFixture', capabilityId: 'fixture.upload',
   request: { mediaType: 'multipart/form-data', schemaIdentity: { kind: 'none', value: null } }, successResponses: [{ status: '200', mediaType: 'application/json', schemaIdentity: { kind: 'none', value: null } }]
