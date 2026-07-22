@@ -66,6 +66,9 @@ func registerFoundationDetails(registry *DetailsRegistry) {
 	if err := RegisterHTTPRuntimeDetails(registry); err != nil {
 		panic("register http runtime details: " + err.Error())
 	}
+	if err := RegisterFrontendDetails(registry); err != nil {
+		panic("register frontend details: " + err.Error())
+	}
 }
 
 func NewBuildIdentityReport(
@@ -185,6 +188,12 @@ func validateBuildIdentityDetailsAgainst(details BuildIdentityDetails, expected 
 func validateDetailsAgainstRelease(report SurfaceReportV1) error {
 	if report.SurfaceIdentity.Surface == HTTPRuntimeSurfaceID {
 		return validateHTTPRuntimeReport(report)
+	}
+	if report.SurfaceIdentity.Surface == FrontendTransportSurfaceID {
+		return validateFrontendTransportReport(report)
+	}
+	if report.SurfaceIdentity.Surface == FrontendExposureSurfaceID {
+		return validateFrontendExposureReport(report)
 	}
 	if report.SurfaceIdentity.Surface == ProtobufSurfaceID {
 		return validateProtobufReport(report)
