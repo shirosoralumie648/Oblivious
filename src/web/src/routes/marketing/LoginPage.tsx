@@ -6,7 +6,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
 import { useAppContext } from '../../app/providers';
-import { createHttpClient } from '../../services/http/client';
+import { loginOperationContract } from '@/generated/operation-contracts.generated';
+import {
+  createHttpClient,
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  type OperationTransportContract
+} from '../../services/http/client';
+import type { SessionResponse } from '../../types/api';
 
 const loginFormSchema = z.object({
   email: z.string().email(),
@@ -14,6 +21,12 @@ const loginFormSchema = z.object({
 });
 
 type LoginFormData = z.infer<typeof loginFormSchema>;
+
+const loginTransport: OperationTransportContract<SessionResponse> = {
+  operation: loginOperationContract,
+  requestEncoder: jsonRequestEncoder(loginOperationContract),
+  responseDecoder: jsonEnvelopeDecoder<SessionResponse>(loginOperationContract, 200)
+};
 
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : 'Unable to sign in. Check the credentials and try again.';
@@ -32,7 +45,7 @@ export function LoginPage() {
     setError(null);
 
     try {
-      await client.post('/api/v1/auth/login', data);
+      await client.post<SessionResponse>('/api/v1/auth/login', data, undefined, loginTransport);
       await bootstrapAuth();
       navigate('/chat');
     } catch (caughtError) {
