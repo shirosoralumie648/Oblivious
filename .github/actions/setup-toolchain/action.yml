@@ -1,0 +1,47 @@
+name: Setup Oblivious Toolchain
+description: Install the pinned Go and/or Node toolchain used by repository checks.
+
+inputs:
+  setup-go:
+    description: Install Go from src/server/go.mod.
+    required: false
+    default: "false"
+  setup-node:
+    description: Install the pinned Node and pnpm toolchain.
+    required: false
+    default: "false"
+  install-dependencies:
+    description: Install the frozen pnpm workspace after Node setup.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      if: ${{ inputs.setup-go == 'true' }}
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: src/server/go.mod
+        cache: true
+        cache-dependency-path: src/server/go.sum
+
+    - name: Set up pnpm
+      if: ${{ inputs.setup-node == 'true' }}
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.6.0
+        run_install: false
+
+    - name: Set up Node.js
+      if: ${{ inputs.setup-node == 'true' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.19.0
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+
+    - name: Install workspace dependencies
+      if: ${{ inputs.install-dependencies == 'true' }}
+      shell: bash
+      run: pnpm install --frozen-lockfile

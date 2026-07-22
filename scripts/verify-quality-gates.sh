@@ -108,6 +108,96 @@ assert_git_tracked() {
 }
 
 workflow_file="$repo_root/.github/workflows/ci.yml"
+reusable_workflow_file="$repo_root/.github/workflows/_ci-reusable.yml"
+toolchain_action_file="$repo_root/.github/actions/setup-toolchain/action.yml"
+
+verify_ci_contract() {
+  assert_file_exists "$workflow_file"
+  assert_file_exists "$reusable_workflow_file"
+  assert_file_exists "$toolchain_action_file"
+
+  assert_file_not_contains "$workflow_file" "phase0-task1-contracts"
+  assert_file_not_contains "$workflow_file" "pull_request_target"
+  assert_file_not_contains "$workflow_file" "secrets: inherit"
+  assert_file_contains "$workflow_file" "push:"
+  assert_file_contains "$workflow_file" "pull_request:"
+  assert_file_contains "$workflow_file" "workflow_dispatch:"
+  assert_file_contains "$workflow_file" "permissions:"
+  assert_file_contains "$workflow_file" "contents: read"
+  assert_file_contains "$workflow_file" "concurrency:"
+  assert_file_contains "$workflow_file" "cancel-in-progress: true"
+  assert_file_contains "$workflow_file" 'group: ci-${{ github.event.pull_request.number || github.ref }}'
+  assert_file_contains "$workflow_file" "uses: ./.github/workflows/_ci-reusable.yml"
+  assert_file_contains "$workflow_file" "run_full:"
+  assert_file_contains "$workflow_file" "github.event_name == 'pull_request'"
+  assert_file_contains "$workflow_file" "github.event_name == 'workflow_dispatch'"
+  assert_file_contains "$workflow_file" "refs/heads/main"
+  assert_file_contains "$workflow_file" "refs/heads/master"
+
+  assert_file_not_contains "$reusable_workflow_file" "pull_request_target"
+  assert_file_contains "$reusable_workflow_file" "workflow_call:"
+  assert_file_contains "$reusable_workflow_file" "run_full:"
+  assert_file_contains "$reusable_workflow_file" "required: true"
+  assert_file_contains "$reusable_workflow_file" "type: boolean"
+  assert_file_contains "$reusable_workflow_file" "permissions:"
+  assert_file_contains "$reusable_workflow_file" "contents: read"
+  assert_file_contains "$reusable_workflow_file" "quick-server:"
+  assert_file_contains "$reusable_workflow_file" "quick-web:"
+  assert_file_contains "$reusable_workflow_file" "quick-compose:"
+  assert_file_contains "$reusable_workflow_file" "quick-gate:"
+  assert_file_contains "$reusable_workflow_file" "release-gates:"
+  assert_file_contains "$reusable_workflow_file" "target-release-evidence:"
+  assert_file_contains "$reusable_workflow_file" "security:"
+  assert_file_contains "$reusable_workflow_file" "server-database:"
+  assert_file_contains "$reusable_workflow_file" "e2e:"
+  assert_file_contains "$reusable_workflow_file" "full-gate:"
+  assert_file_count_at_least "$reusable_workflow_file" 'if: ${{ inputs.run_full }}' 5
+  assert_file_contains "$reusable_workflow_file" 'if: ${{ always() && inputs.run_full }}'
+  assert_file_contains "$reusable_workflow_file" "docker compose config --quiet"
+  assert_file_contains "$reusable_workflow_file" "docker compose --profile microservices config --quiet"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/verify-quality-gates.sh --ci-contract-only"
+  assert_file_contains "$reusable_workflow_file" "pgvector/pgvector:pg16"
+  assert_file_contains "$reusable_workflow_file" "TEST_DATABASE_URL"
+  assert_file_contains "$reusable_workflow_file" "OBLIVIOUS_REQUIRE_TEST_DATABASE"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/check.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/check.sh relay-security"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/check.sh security"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/verify-target-release-evidence-fixtures.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/assemble-target-release-evidence-fixtures.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/collect-target-release-artifacts-fixtures.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/compute-target-release-digests-fixtures.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh server"
+  assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh e2e"
+  assert_file_contains "$reusable_workflow_file" "actions/upload-artifact@v4"
+  assert_file_contains "$reusable_workflow_file" "if: failure()"
+  assert_file_contains "$reusable_workflow_file" "src/web/playwright-report/"
+  assert_file_contains "$reusable_workflow_file" "src/web/test-results/"
+
+  assert_file_contains "$toolchain_action_file" "using: composite"
+  assert_file_contains "$toolchain_action_file" "actions/setup-go@v5"
+  assert_file_contains "$toolchain_action_file" "go-version-file: src/server/go.mod"
+  assert_file_contains "$toolchain_action_file" "cache-dependency-path: src/server/go.sum"
+  assert_file_contains "$toolchain_action_file" "pnpm/action-setup@v4"
+  assert_file_contains "$toolchain_action_file" "version: 10.6.0"
+  assert_file_contains "$toolchain_action_file" "actions/setup-node@v4"
+  assert_file_contains "$toolchain_action_file" "node-version: 20.19.0"
+  assert_file_contains "$toolchain_action_file" "pnpm install --frozen-lockfile"
+}
+
+if [[ "${1:-}" == "--ci-contract-only" ]]; then
+  verify_ci_contract
+  echo "[quality-gates] CI contract verified."
+  exit 0
+fi
+
+if [[ $# -gt 0 ]]; then
+  echo "Usage: bash scripts/verify-quality-gates.sh [--ci-contract-only]" >&2
+  exit 2
+fi
+
+verify_ci_contract
+
 workspace_file="$repo_root/pnpm-workspace.yaml"
 gitignore_file="$repo_root/.gitignore"
 package_file="$repo_root/package.json"
@@ -613,27 +703,6 @@ for release_owned_file in \
   "$pkg_config_service_database_test_file"; do
   assert_git_tracked "$release_owned_file"
 done
-
-assert_file_not_contains "$workflow_file" "phase0-task1-contracts"
-assert_file_contains "$workflow_file" "web:"
-assert_file_contains "$workflow_file" "server:"
-assert_file_contains "$workflow_file" "target-release-evidence:"
-assert_file_contains "$workflow_file" "pgvector/pgvector:pg16"
-assert_file_contains "$workflow_file" "TEST_DATABASE_URL"
-assert_file_contains "$workflow_file" "OBLIVIOUS_REQUIRE_TEST_DATABASE"
-assert_file_contains "$workflow_file" "actions/setup-go@v5"
-assert_file_contains "$workflow_file" "node-version: 20.19.0"
-assert_file_contains "$workflow_file" "pnpm install --frozen-lockfile"
-assert_file_contains "$workflow_file" "bash scripts/check.sh"
-assert_file_contains "$workflow_file" "bash scripts/check.sh relay-security"
-assert_file_contains "$workflow_file" "bash scripts/check.sh security"
-assert_file_contains "$workflow_file" "bash scripts/verify-target-release-evidence-fixtures.sh"
-assert_file_contains "$workflow_file" "bash scripts/assemble-target-release-evidence-fixtures.sh"
-assert_file_contains "$workflow_file" "bash scripts/collect-target-release-artifacts-fixtures.sh"
-assert_file_contains "$workflow_file" "bash scripts/compute-target-release-digests-fixtures.sh"
-assert_file_contains "$workflow_file" "bash scripts/test.sh"
-assert_file_contains "$workflow_file" "bash scripts/test.sh server"
-assert_file_contains "$workflow_file" "bash scripts/test.sh e2e"
 
 assert_file_contains "$package_file" '"dev": "bash scripts/dev.sh"'
 assert_file_contains "$package_file" '"check": "bash scripts/check.sh"'
