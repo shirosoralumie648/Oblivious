@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode
 } from 'react';
+import { Outlet } from 'react-router-dom';
 
 import { useAppContext } from '@/app/providers';
 import { getAppReadinessCapabilitiesOperationContract } from '@/generated/operation-contracts.generated';
@@ -327,6 +328,40 @@ export function ReleaseProjectionProvider({ children }: { children: ReactNode })
   }, [authState.status, authState.user?.id]);
 
   return <ReleaseProjectionContext.Provider value={state}>{children}</ReleaseProjectionContext.Provider>;
+}
+
+export function ReleaseProjectionBoundary() {
+  return (
+    <ReleaseProjectionProvider>
+      <Outlet />
+    </ReleaseProjectionProvider>
+  );
+}
+
+export function ReleaseProjectionRoute({
+  capabilityId,
+  children
+}: {
+  capabilityId?: string;
+  children: ReactNode;
+}) {
+  const projection = useReleaseProjection();
+  const generated = capabilityId === undefined ? null : getGeneratedReleaseCapability(capabilityId);
+
+  if (capabilityId === undefined) {
+    return <>{children}</>;
+  }
+  if (generated === null || generated.navigationDisposition === 'hidden') {
+    return <main role="status">This surface is currently unavailable.</main>;
+  }
+  if (generated.disposition === 'conditional' && (projection.status !== 'ready' || !projection.isCapabilityEnabled(capabilityId))) {
+    return <main role="status">This surface is currently unavailable.</main>;
+  }
+  return <>{children}</>;
+}
+
+export function isGeneratedNavigationVisible(capabilityId: string) {
+  return getGeneratedReleaseCapability(capabilityId)?.navigationDisposition === 'visible';
 }
 
 export function useReleaseProjection() {

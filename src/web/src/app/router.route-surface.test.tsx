@@ -142,6 +142,7 @@ vi.mock('../routes/admin/AdminReviewsPage', () => ({
 }));
 
 import { appRouteEntries, createAppRouter } from './router';
+import { getGeneratedReleaseCapability } from '../features/releaseProjection/releaseProjection';
 
 const expectedPageBySamplePath: Record<string, string> = {
   '/': 'HomePage',
@@ -206,7 +207,13 @@ describe('app route surface', () => {
 
     render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(await screen.findByTestId('route-page')).toHaveTextContent(expectedPageBySamplePath[entry.samplePath]);
+    const generated = entry.capabilityId === undefined ? null : getGeneratedReleaseCapability(entry.capabilityId);
+    if (generated?.disposition === 'conditional') {
+      expect(await screen.findByRole('status')).toHaveTextContent('currently unavailable');
+      expect(screen.queryByTestId('route-page')).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByTestId('route-page')).toHaveTextContent(expectedPageBySamplePath[entry.samplePath]);
+    }
     if (entry.area === 'workspace') {
       expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     }

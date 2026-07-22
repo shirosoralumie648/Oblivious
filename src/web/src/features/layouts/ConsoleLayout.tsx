@@ -2,18 +2,25 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { RiArrowLeftLine, RiBillLine, RiKey2Line, RiLineChartLine, RiNotification3Line, RiRobot2Line, RiSettings3Line } from '@remixicon/react';
 
 import { useAppContext } from '../../app/providers';
+import { getGeneratedReleaseCapability, useReleaseProjection } from '../releaseProjection/releaseProjection';
 
 const consoleLinks = [
-  { label: 'Overview', to: '/console', icon: <RiLineChartLine className="size-4" aria-hidden="true" /> },
-  { label: 'Billing', to: '/console/billing', icon: <RiBillLine className="size-4" aria-hidden="true" /> },
-  { label: 'Usage', to: '/console/usage', icon: <RiLineChartLine className="size-4" aria-hidden="true" /> },
-  { label: 'Models', to: '/console/models', icon: <RiRobot2Line className="size-4" aria-hidden="true" /> },
-  { label: 'Access', to: '/console/access', icon: <RiKey2Line className="size-4" aria-hidden="true" /> },
-  { label: 'Notifications', to: '/console/notifications', icon: <RiNotification3Line className="size-4" aria-hidden="true" /> },
+  { label: 'Overview', to: '/console', capabilityId: 'billing.ledger_lifecycle', icon: <RiLineChartLine className="size-4" aria-hidden="true" /> },
+  { label: 'Billing', to: '/console/billing', capabilityId: 'billing.payment_lifecycle', icon: <RiBillLine className="size-4" aria-hidden="true" /> },
+  { label: 'Usage', to: '/console/usage', capabilityId: 'observability.slo', icon: <RiLineChartLine className="size-4" aria-hidden="true" /> },
+  { label: 'Models', to: '/console/models', capabilityId: 'relay.provider_inference', icon: <RiRobot2Line className="size-4" aria-hidden="true" /> },
+  { label: 'Access', to: '/console/access', capabilityId: 'identity.organization_membership', icon: <RiKey2Line className="size-4" aria-hidden="true" /> },
+  { label: 'Notifications', to: '/console/notifications', capabilityId: 'observability.audit', icon: <RiNotification3Line className="size-4" aria-hidden="true" /> },
 ];
 
 export function ConsoleLayout() {
   const { authState } = useAppContext();
+  const projection = useReleaseProjection();
+  const visibleConsoleLinks = consoleLinks.filter((item) => {
+    const generated = getGeneratedReleaseCapability(item.capabilityId);
+    return generated?.navigationDisposition === 'visible'
+      || (generated?.navigationDisposition === 'conditional' && projection.isCapabilityEnabled(item.capabilityId));
+  });
   const consoleLinkClassName = ({ isActive }: { isActive: boolean }) =>
     [
       'inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-lg border border-[#d7d2c4] bg-white px-3 text-sm transition hover:border-[#1a614f]/40 hover:bg-[#e9f2ee]',
@@ -46,7 +53,7 @@ export function ConsoleLayout() {
       </header>
       <div className="mx-auto grid max-w-7xl gap-6 px-5 py-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-8" data-gsap-item>
         <nav aria-label="Console navigation" className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible" data-gsap-item>
-          {consoleLinks.map((item) => (
+          {visibleConsoleLinks.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

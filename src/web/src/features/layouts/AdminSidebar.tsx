@@ -21,12 +21,14 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { getGeneratedReleaseCapability, useReleaseProjection } from '../releaseProjection/releaseProjection';
 
 type SidebarItem = {
   label: string;
   path: string;
   icon: React.ReactNode;
   keywords: string[];
+  capabilityId: string;
 };
 
 type SidebarGroup = {
@@ -37,51 +39,51 @@ type SidebarGroup = {
 const sidebarGroups: SidebarGroup[] = [
   {
     label: 'Overview',
-    items: [{ label: 'Dashboard', path: '/admin', icon: <RiDashboardLine />, keywords: ['home', 'stats'] }],
+    items: [{ label: 'Dashboard', path: '/admin', icon: <RiDashboardLine />, keywords: ['home', 'stats'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Channels',
-    items: [{ label: 'Channels', path: '/admin/channels', icon: <RiRouterLine />, keywords: ['provider', 'llm', 'api'] }],
+    items: [{ label: 'Channels', path: '/admin/channels', icon: <RiRouterLine />, keywords: ['provider', 'llm', 'api'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Models',
-    items: [{ label: 'Models', path: '/admin/models', icon: <RiFileListLine />, keywords: ['model', 'provider', 'channel', 'cost', 'inventory'] }],
+    items: [{ label: 'Models', path: '/admin/models', icon: <RiFileListLine />, keywords: ['model', 'provider', 'channel', 'cost', 'inventory'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Routes',
-    items: [{ label: 'Model Routes', path: '/admin/routes', icon: <RiGitBranchLine />, keywords: ['routing', 'model'] }],
+    items: [{ label: 'Model Routes', path: '/admin/routes', icon: <RiGitBranchLine />, keywords: ['routing', 'model'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Plans',
-    items: [{ label: 'Plans', path: '/admin/plans', icon: <RiMoneyDollarCircleLine />, keywords: ['pricing', 'subscription', 'tier'] }],
+    items: [{ label: 'Plans', path: '/admin/plans', icon: <RiMoneyDollarCircleLine />, keywords: ['pricing', 'subscription', 'tier'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Billing',
-    items: [{ label: 'Billing', path: '/admin/billing', icon: <RiMoneyDollarCircleLine />, keywords: ['billing', 'payment', 'invoice', 'refund', 'stripe', 'settlement', 'payout'] }],
+    items: [{ label: 'Billing', path: '/admin/billing', icon: <RiMoneyDollarCircleLine />, keywords: ['billing', 'payment', 'invoice', 'refund', 'stripe', 'settlement', 'payout'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Logs',
     items: [
-      { label: 'API Tokens', path: '/admin/api-tokens', icon: <RiKey2Line />, keywords: ['token', 'key', 'access', 'quota', 'relay'] },
-      { label: 'Usage Logs', path: '/admin/usage-logs', icon: <RiFileListLine />, keywords: ['usage', 'request', 'logs', 'latency', 'cost', 'relay'] },
-      { label: 'Alerts', path: '/admin/alerts', icon: <RiAlarmWarningLine />, keywords: ['alert', 'observability', 'incident', 'health'] },
+      { label: 'API Tokens', path: '/admin/api-tokens', icon: <RiKey2Line />, keywords: ['token', 'key', 'access', 'quota', 'relay'], capabilityId: 'admin.governance' },
+      { label: 'Usage Logs', path: '/admin/usage-logs', icon: <RiFileListLine />, keywords: ['usage', 'request', 'logs', 'latency', 'cost', 'relay'], capabilityId: 'admin.governance' },
+      { label: 'Alerts', path: '/admin/alerts', icon: <RiAlarmWarningLine />, keywords: ['alert', 'observability', 'incident', 'health'], capabilityId: 'admin.governance' },
     ],
   },
   {
     label: 'Settings',
-    items: [{ label: 'Settings', path: '/admin/settings', icon: <RiSettings3Line />, keywords: ['settings', 'pricing', 'ratio', 'multiplier'] }],
+    items: [{ label: 'Settings', path: '/admin/settings', icon: <RiSettings3Line />, keywords: ['settings', 'pricing', 'ratio', 'multiplier'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Users',
-    items: [{ label: 'Users', path: '/admin/users', icon: <RiUserLine />, keywords: ['member', 'account'] }],
+    items: [{ label: 'Users', path: '/admin/users', icon: <RiUserLine />, keywords: ['member', 'account'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Audit',
-    items: [{ label: 'Audit Log', path: '/admin/audit-log', icon: <RiFileListLine />, keywords: ['history', 'activity'] }],
+    items: [{ label: 'Audit Log', path: '/admin/audit-log', icon: <RiFileListLine />, keywords: ['history', 'activity'], capabilityId: 'admin.governance' }],
   },
   {
     label: 'Reviews',
-    items: [{ label: 'Review Queue', path: '/admin/reviews', icon: <RiShieldCheckLine />, keywords: ['agent', 'approval', 'moderation'] }],
+    items: [{ label: 'Review Queue', path: '/admin/reviews', icon: <RiShieldCheckLine />, keywords: ['agent', 'approval', 'moderation'], capabilityId: 'admin.governance' }],
   },
 ];
 
@@ -101,6 +103,7 @@ function defaultCollapsed() {
 
 export function AdminSidebar() {
   const location = useLocation();
+  const projection = useReleaseProjection();
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -109,10 +112,15 @@ export function AdminSidebar() {
       sidebarGroups
         .map((group) => ({
           ...group,
-          items: group.items.filter((item) => matchesItem(item, searchQuery)),
+          items: group.items.filter((item) => {
+            const generated = getGeneratedReleaseCapability(item.capabilityId);
+            const exposed = generated?.navigationDisposition === 'visible'
+              || (generated?.navigationDisposition === 'conditional' && projection.isCapabilityEnabled(item.capabilityId));
+            return exposed && matchesItem(item, searchQuery);
+          }),
         }))
         .filter((group) => group.items.length > 0),
-    [searchQuery]
+    [projection, searchQuery]
   );
 
   const noResults = filteredGroups.length === 0;

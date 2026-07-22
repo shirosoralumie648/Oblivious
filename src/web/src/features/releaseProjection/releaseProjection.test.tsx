@@ -2,10 +2,12 @@
 import { createHash } from 'node:crypto';
 import type { ComponentProps, ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { getAppReadinessCapabilitiesOperationContract } from '@/generated/operation-contracts.generated';
 import type { HttpClient } from '@/services/http/client';
+import { routerFuture } from '@/app/routerFuture';
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -26,6 +28,11 @@ import {
   useReleaseProjection,
   type AppCapabilityProjectionResponse
 } from './releaseProjection';
+import { createAppRouter } from '@/app/router';
+import { AdminSidebar } from '@/features/layouts/AdminSidebar';
+import { ConsoleLayout } from '@/features/layouts/ConsoleLayout';
+import { WorkspaceLayout } from '@/features/layouts/WorkspaceLayout';
+import { HomePage } from '@/routes/marketing/HomePage';
 
 const baseIdentity = {
   sourceTree: 'a'.repeat(40),
@@ -258,6 +265,114 @@ describe('ReleaseProjectionProvider', () => {
     );
     await waitFor(() => expect(screen.getByTestId('projection-status')).toHaveTextContent('unavailable'));
     expect(screen.getByTestId('capability-enabled')).toHaveTextContent('false');
+  });
+});
+
+describe('release projection product exposure', () => {
+  beforeEach(() => {
+    appContext.authState = {
+      status: 'authenticated',
+      user: { id: 'user_1' }
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('hides disabled conditional workspace navigation and restores it only when the current response enables it', async () => {
+    const disabled = projectionResponse((response) => {
+      const capability = response.capabilities.find((item) => item.capabilityId === 'mcp.custom_execution')!;
+      capability.availability = 'disabled';
+      capability.enabled = false;
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(disabled));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = render(
+      <ReleaseProjectionProvider>
+        <MemoryRouter initialEntries={['/chat']} future={routerFuture}>
+          <Routes>
+            <Route element={<WorkspaceLayout />}>
+              <Route path="/chat" element={<main>Chat route</main>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ReleaseProjectionProvider>
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('link', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'MCP Servers' })).not.toBeInTheDocument();
+    first.unmount();
+
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectionResponse())));
+    render(
+      <ReleaseProjectionProvider>
+        <MemoryRouter initialEntries={['/chat']} future={routerFuture}>
+          <Routes>
+            <Route element={<WorkspaceLayout />}>
+              <Route path="/chat" element={<main>Chat route</main>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ReleaseProjectionProvider>
+    );
+    await waitFor(() => expect(screen.getByRole('link', { name: 'MCP Servers' })).toBeInTheDocument());
+  });
+
+  it('rejects a disabled conditional direct URL at the router boundary before mounting page content', async () => {
+    const disabled = projectionResponse((response) => {
+      const capability = response.capabilities.find((item) => item.capabilityId === 'mcp.custom_execution')!;
+      capability.availability = 'blocked';
+      capability.enabled = false;
+    });
+    const fetchMock = vi.fn(async () => jsonResponse(disabled));
+    vi.stubGlobal('fetch', fetchMock);
+    const router = createAppRouter(['/mcp-servers']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/app/readiness/capabilities', expect.any(Object)));
+    expect(screen.getByRole('status')).toHaveTextContent('currently unavailable');
+    expect(screen.queryByRole('heading', { name: /mcp/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps committed console and admin navigation visible through generated dispositions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectionResponse())));
+    const consoleRender = render(
+      <ReleaseProjectionProvider>
+        <MemoryRouter initialEntries={['/console']} future={routerFuture}>
+          <ConsoleLayout />
+        </MemoryRouter>
+      </ReleaseProjectionProvider>
+    );
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Billing' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument();
+    consoleRender.unmount();
+
+    render(
+      <ReleaseProjectionProvider>
+        <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+          <AdminSidebar />
+        </MemoryRouter>
+      </ReleaseProjectionProvider>
+    );
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Billing' })).toBeInTheDocument();
+  });
+
+  it('renders only generated committed public marketing links without authenticated or Admin inventory input', () => {
+    appContext.authState = { status: 'unauthenticated', user: null };
+    render(
+      <MemoryRouter future={routerFuture}>
+        <HomePage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    expect(screen.getByText('Relay chat').closest('a')).toHaveAttribute('href', '/chat');
+    expect(screen.getByText('Marketplace').closest('a')).toHaveAttribute('href', '/marketplace');
   });
 });
 
