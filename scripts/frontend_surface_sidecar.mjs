@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(new URL('../src/web/package.json', import.meta.url));
 const ts = require('typescript');
 
 export const SCHEMA_VERSION = 'frontend-surface-sidecar/v1';
