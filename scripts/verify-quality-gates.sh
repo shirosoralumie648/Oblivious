@@ -2442,7 +2442,7 @@ assert_file_contains "$test_script" "test:e2e"
 
 assert_file_contains "$migration_contract_file" "src/server/migrations"
 assert_file_contains "$migration_contract_file" "NNNN_description.sql"
-assert_file_contains "$migration_contract_file" "accepted historical duplicate prefix"
+assert_file_contains "$migration_contract_file" "migration_identity_duplicate: historical set changed for prefix="
 assert_file_contains "$migration_schema_coverage_file" "Part 3 core schema family"
 assert_file_contains "$migration_schema_coverage_file" "src/server/migrations/clickhouse"
 assert_file_contains "$migration_replay_file" "migrations applied: 0, skipped:"
