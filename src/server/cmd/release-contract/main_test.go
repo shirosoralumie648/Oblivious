@@ -412,6 +412,106 @@ func TestRunProtobufSurfaceReportContract(t *testing.T) {
 	})
 }
 
+func TestRunFrontendSurfaceReportsContract(t *testing.T) {
+	repoRoot := commandSourceRoot(t)
+	identity := commandTestIdentity()
+	sidecarDigest := "sha256:" + strings.Repeat("1", 64)
+	sourceDigest := "sha256:" + strings.Repeat("2", 64)
+	configDigest := "sha256:" + strings.Repeat("3", 64)
+	transport := surfacereport.FrontendTransportDetails{
+		SchemaVersion: "frontend-transport-observation/v1",
+		SidecarDigest: sidecarDigest, SourceDigest: sourceDigest, ConfigDigest: configDigest,
+		OperationCount: 12, CoreCount: 12, CompatibleCount: 12,
+		TaxonomyDigest: "sha256:" + strings.Repeat("4", 64), UnresolvedCount: 0,
+		ErrorCodes: []string{}, SkippedChecks: []string{},
+	}
+	exposure := surfacereport.FrontendExposureDetails{
+		SchemaVersion: "frontend-exposure-observation/v1",
+		SidecarDigest: sidecarDigest, SourceDigest: sourceDigest, ConfigDigest: configDigest,
+		ExposureCount: 80, CatalogCount: 14, NavigationCount: 67, GeneratedConsumerCount: 264,
+		ProjectionDigest: "sha256:" + strings.Repeat("5", 64), UnresolvedCount: 0,
+		ErrorCodes: []string{}, SkippedChecks: []string{},
+	}
+	tempRoot := t.TempDir()
+	transportObservation := writeFrontendObservation(t, tempRoot, "transport-observation.json", transport)
+	exposureObservation := writeFrontendObservation(t, tempRoot, "exposure-observation.json", exposure)
+	commands := []struct {
+		name, observation, output, surface string
+	}{
+		{"report-frontend-transport", transportObservation, filepath.Join(tempRoot, "reports", "frontend-transport.json"), surfacereport.FrontendTransportSurfaceID},
+		{"report-frontend-exposure", exposureObservation, filepath.Join(tempRoot, "reports", "frontend-exposure.json"), surfacereport.FrontendExposureSurfaceID},
+	}
+
+	for _, command := range commands {
+		t.Run(command.name, func(t *testing.T) {
+			args := frontendReportCommandArgs(command.name, repoRoot, command.observation, sidecarDigest, command.output)
+			var stdout, stderr bytes.Buffer
+			exitCode := runWithDependencies(context.Background(), args, &stdout, &stderr, dependencies{
+				gitProvider:     &commandIdentityProvider{identity: identity},
+				profileResolver: &reportProfileResolver{profile: commandCommittedProfile()},
+				reportWriter:    surfacereport.NewAtomicWriter(),
+			})
+			if exitCode != 0 {
+				t.Fatalf("%s exit=%d stderr=%s", command.name, exitCode, stderr.String())
+			}
+			content, err := os.ReadFile(command.output)
+			if err != nil {
+				t.Fatalf("read %s report: %v", command.name, err)
+			}
+			report, err := surfacereport.Decode(content, surfacereport.NewDetailsRegistry())
+			if err != nil {
+				t.Fatalf("decode %s report: %v", command.name, err)
+			}
+			if report.SurfaceIdentity.Surface != command.surface || report.ReleaseIdentity.ReleaseCommit != identity.ReleaseCommit || report.ReleaseIdentity.SourceTree != identity.SourceTree || report.ReleaseIdentity.ContractDigest != identity.ContractDigest || report.ReleaseIdentity.DeploymentProfile != "monolith" || report.ReleaseIdentity.EvidenceClass != buildinfo.EvidenceRepositoryLocal {
+				t.Fatalf("unexpected %s authority: %#v %#v", command.name, report.SurfaceIdentity, report.ReleaseIdentity)
+			}
+			var details struct {
+				SidecarDigest string `json:"sidecarDigest"`
+			}
+			if err := json.Unmarshal(report.Evidence.Details, &details); err != nil || details.SidecarDigest != sidecarDigest {
+				t.Fatalf("unexpected %s sidecar digest: %#v err=%v", command.name, details, err)
+			}
+		})
+	}
+
+	for _, command := range commands {
+		t.Run(command.name+" rejects sidecar splice", func(t *testing.T) {
+			output := filepath.Join(tempRoot, command.name+"-splice.json")
+			args := frontendReportCommandArgs(command.name, repoRoot, command.observation, "sha256:"+strings.Repeat("f", 64), output)
+			var stdout, stderr bytes.Buffer
+			if exitCode := runWithDependencies(context.Background(), args, &stdout, &stderr, dependencies{
+				gitProvider:     &commandIdentityProvider{identity: identity},
+				profileResolver: &reportProfileResolver{profile: commandCommittedProfile()},
+				reportWriter:    surfacereport.NewAtomicWriter(),
+			}); exitCode == 0 {
+				t.Fatalf("%s accepted sidecar digest splice", command.name)
+			}
+			if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("%s wrote spliced report: %v", command.name, err)
+			}
+		})
+	}
+
+	for _, forbidden := range []string{"--release-commit", "--source-tree", "--contract-digest", "--evidence-class", "--skipped-checks"} {
+		t.Run("rejects caller claim "+forbidden, func(t *testing.T) {
+			output := filepath.Join(tempRoot, "forged-"+strings.TrimPrefix(forbidden, "--")+".json")
+			args := append(frontendReportCommandArgs("report-frontend-transport", repoRoot, transportObservation, sidecarDigest, output), forbidden, "forged")
+			var stdout, stderr bytes.Buffer
+			provider := &commandIdentityProvider{identity: identity}
+			if exitCode := runWithDependencies(context.Background(), args, &stdout, &stderr, dependencies{
+				gitProvider:     provider,
+				profileResolver: &reportProfileResolver{profile: commandCommittedProfile()},
+				reportWriter:    surfacereport.NewAtomicWriter(),
+			}); exitCode == 0 {
+				t.Fatalf("frontend report accepted caller claim flag %s", forbidden)
+			}
+			if provider.calls != 0 {
+				t.Fatalf("frontend report resolved identity for rejected flag %s", forbidden)
+			}
+		})
+	}
+}
+
 func TestReadinessOutputPathScansCommonFlags(t *testing.T) {
 	args := []string{"--repo", "/repo", "--contract", "contract.json", "--schema", "schema.json", "--profile", "monolith", "--snapshot", "snapshot.json", "--output", "/tmp/readiness.json"}
 	if got := readinessOutputPath(args); got != "/tmp/readiness.json" {
@@ -568,6 +668,29 @@ func protobufReportCommandArgs(repoRoot, observation, output string) []string {
 		"--schema", "config/release/contract.schema.json",
 		"--profile", "monolith", "--observation", observation, "--output", output,
 	}
+}
+
+func frontendReportCommandArgs(command, repoRoot, observation, sidecarDigest, output string) []string {
+	return []string{
+		command, "--repo", repoRoot,
+		"--contract", "config/release/contract.v1.json",
+		"--schema", "config/release/contract.schema.json",
+		"--profile", "monolith", "--observation", observation,
+		"--sidecar-digest", sidecarDigest, "--output", output,
+	}
+}
+
+func writeFrontendObservation(t *testing.T, root, name string, value any) string {
+	t.Helper()
+	content, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal frontend observation: %v", err)
+	}
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write frontend observation: %v", err)
+	}
+	return path
 }
 
 func writeProtobufObservation(t *testing.T, extra map[string]any) string {

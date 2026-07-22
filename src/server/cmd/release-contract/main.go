@@ -102,6 +102,10 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return runDeploymentReport(ctx, args[1:], stdout, stderr, deps)
 	case "report-protobuf":
 		return runProtobufReport(ctx, args[1:], stdout, stderr, deps)
+	case "report-frontend-transport":
+		return runFrontendTransportReport(ctx, args[1:], stdout, stderr, deps)
+	case "report-frontend-exposure":
+		return runFrontendExposureReport(ctx, args[1:], stdout, stderr, deps)
 	case "verify-report":
 		return runVerifyReport(args[1:], stdout, stderr)
 	default:
@@ -313,6 +317,85 @@ func runProtobufReport(ctx context.Context, args []string, stdout, stderr io.Wri
 		"profile":       report.ReleaseIdentity.DeploymentProfile,
 		"result":        report.Outcome.Result,
 		"output":        *outputPath,
+	})
+}
+
+type frontendReportOptions struct {
+	common        commonOptions
+	profileID     string
+	observation   string
+	sidecarDigest string
+	output        string
+}
+
+func parseFrontendReportOptions(name string, args []string, stderr io.Writer, deps dependencies) (frontendReportOptions, bool) {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options frontendReportOptions
+	bindCommonOptions(flags, &options.common)
+	flags.StringVar(&options.profileID, "profile", "", "explicit committed deployment profile")
+	flags.StringVar(&options.observation, "observation", "", "typed frontend observation")
+	flags.StringVar(&options.sidecarDigest, "sidecar-digest", "", "exact compiler sidecar digest")
+	flags.StringVar(&options.output, "output", "", "atomic report output path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !validCommonOptions(options.common) || strings.TrimSpace(options.profileID) == "" || strings.TrimSpace(options.observation) == "" || strings.TrimSpace(options.sidecarDigest) == "" || strings.TrimSpace(options.output) == "" || deps.gitProvider == nil || deps.profileResolver == nil || deps.reportWriter == nil {
+		writeCLIError(stderr, "invalid_arguments", name)
+		return frontendReportOptions{}, false
+	}
+	return options, true
+}
+
+func runFrontendTransportReport(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	options, ok := parseFrontendReportOptions("report-frontend-transport", args, stderr, deps)
+	if !ok {
+		return 2
+	}
+	var details surfacereport.FrontendTransportDetails
+	if err := decodeStrictBoundedFile(options.observation, &details); err != nil || details.SidecarDigest != options.sidecarDigest {
+		writeCLIError(stderr, string(surfacereport.ErrorSurfaceSchemaInvalid), "observation")
+		return 1
+	}
+	report, err := surfacereport.NewFrontendTransportReport(
+		ctx, deps.gitProvider, deps.profileResolver,
+		options.common.repoRoot, options.common.contractPath, options.common.schemaPath, options.profileID,
+		details, surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}},
+	)
+	if err != nil {
+		return writeReportProducerError(ctx, stderr, err, deps.reportWriter, options.output)
+	}
+	return writeFrontendReport(stdout, stderr, deps.reportWriter, ctx, options.output, report)
+}
+
+func runFrontendExposureReport(ctx context.Context, args []string, stdout, stderr io.Writer, deps dependencies) int {
+	options, ok := parseFrontendReportOptions("report-frontend-exposure", args, stderr, deps)
+	if !ok {
+		return 2
+	}
+	var details surfacereport.FrontendExposureDetails
+	if err := decodeStrictBoundedFile(options.observation, &details); err != nil || details.SidecarDigest != options.sidecarDigest {
+		writeCLIError(stderr, string(surfacereport.ErrorSurfaceSchemaInvalid), "observation")
+		return 1
+	}
+	report, err := surfacereport.NewFrontendExposureReport(
+		ctx, deps.gitProvider, deps.profileResolver,
+		options.common.repoRoot, options.common.contractPath, options.common.schemaPath, options.profileID,
+		details, surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}},
+	)
+	if err != nil {
+		return writeReportProducerError(ctx, stderr, err, deps.reportWriter, options.output)
+	}
+	return writeFrontendReport(stdout, stderr, deps.reportWriter, ctx, options.output, report)
+}
+
+func writeFrontendReport(stdout, stderr io.Writer, writer surfacereport.ReportWriter, ctx context.Context, output string, report surfacereport.SurfaceReportV1) int {
+	if err := writer.Write(ctx, output, report); err != nil {
+		return writeDomainError(stderr, err)
+	}
+	return writeSuccess(stdout, stderr, map[string]any{
+		"schemaVersion": report.SchemaVersion,
+		"surface":       report.SurfaceIdentity.Surface,
+		"profile":       report.ReleaseIdentity.DeploymentProfile,
+		"result":        report.Outcome.Result,
+		"output":        output,
 	})
 }
 

@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 mode=""
 source_root=""
+output=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,6 +16,11 @@ while [[ $# -gt 0 ]]; do
     --root)
       [[ $# -ge 2 && -n "$2" ]] || { printf 'frontend_sidecar_argument_invalid\n' >&2; exit 2; }
       source_root=$(cd "$2" && pwd -P)
+      shift 2
+      ;;
+    --output)
+      [[ $# -ge 2 && -n "$2" ]] || { printf 'frontend_sidecar_argument_invalid\n' >&2; exit 2; }
+      output="$2"
       shift 2
       ;;
     *)
@@ -31,6 +37,9 @@ if [[ -z "$source_root" ]]; then
   else
     source_root="$repo_root/src/web/src"
   fi
+fi
+if [[ -z "$output" && "$mode" == "--stage-a" ]]; then
+  output="$repo_root/.tmp/frontend-surface-sidecar.json"
 fi
 
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-frontend-sidecar.XXXXXX")
@@ -105,6 +114,13 @@ if root.endswith("/src/web/src"):
     if closure.get("expected") != 25 or closure.get("resolved") != 24 or closure.get("nonCallers") != 1:
         raise SystemExit("frontend_sidecar_owner_closure_invalid")
 PY
+
+if [[ -n "$output" ]]; then
+  mkdir -p "$(dirname "$output")"
+  sidecar_staging="$output.staging.$$"
+  cp "$tmp_root/first.json" "$sidecar_staging"
+  mv -f "$sidecar_staging" "$output"
+fi
 
 printf '[frontend-sidecar] %s verified: files=%s operations=%s exposures=%s\n' \
   "${mode#--}" "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceScope"]["filesScanned"])' "$tmp_root/first.json")" \

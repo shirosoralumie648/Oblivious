@@ -11,22 +11,24 @@ esac
   printf 'frontend_surface_fixture_argument_invalid\n' >&2
   exit 2
 }
-if [[ "$mode" == "exposure" ]]; then
-  tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-frontend-exposure-fixtures.XXXXXX")
-  cleanup() { rm -rf -- "$tmp_root"; }
-  trap cleanup EXIT
+tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-frontend-surface-fixtures.XXXXXX")
+cleanup() { rm -rf -- "$tmp_root"; }
+trap cleanup EXIT
 
-  sidecar="$tmp_root/sidecar.json"
+sidecar="$tmp_root/sidecar.json"
+extractor_invocations=0
+node "$repo_root/scripts/frontend_surface_sidecar.mjs" \
+  --root "$repo_root/scripts/testdata/frontend-surface/production" \
+  --tsconfig "$repo_root/scripts/testdata/frontend-surface/production/tsconfig.json" \
+  --generated-file "$repo_root/scripts/testdata/frontend-surface/production/generated/client.generated.ts" \
+  --output "$sidecar"
+extractor_invocations=$((extractor_invocations + 1))
+
+if [[ "$mode" == "exposure" || "$mode" == "all" ]]; then
   contract="$tmp_root/contract.json"
   app_projection="$tmp_root/app-projection.json"
   server_catalog="$tmp_root/server-catalog.json"
-  observation="$tmp_root/exposure-observation.json"
-
-  node "$repo_root/scripts/frontend_surface_sidecar.mjs" \
-    --root "$repo_root/scripts/testdata/frontend-surface/production" \
-    --tsconfig "$repo_root/scripts/testdata/frontend-surface/production/tsconfig.json" \
-    --generated-file "$repo_root/scripts/testdata/frontend-surface/production/generated/client.generated.ts" \
-    --output "$sidecar"
+  exposure_observation="$tmp_root/exposure-observation.json"
 
   python3 - "$contract" "$app_projection" "$server_catalog" <<'PY'
 import hashlib
@@ -94,19 +96,24 @@ PY
       --output "$5"
   }
 
-  run_exposure "$sidecar" "$contract" "$app_projection" "$server_catalog" "$observation"
+  run_exposure "$sidecar" "$contract" "$app_projection" "$server_catalog" "$exposure_observation"
 
-  python3 - "$observation" <<'PY'
+  python3 - "$exposure_observation" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert value["schemaVersion"] == "frontend-exposure-observation/v1"
+assert set(value) == {
+    "schemaVersion", "sidecarDigest", "sourceDigest", "configDigest",
+    "exposureCount", "catalogCount", "navigationCount", "generatedConsumerCount",
+    "projectionDigest", "unresolvedCount", "errorCodes", "skippedChecks",
+}
 assert value["navigationCount"] > 0
-assert value["selectorCount"] >= 2
-assert value["mutationContractCount"] == 3
-assert value["selectableCatalogSubjectCount"] == 2
+assert value["catalogCount"] == 2
+assert value["generatedConsumerCount"] > 0
+assert value["projectionDigest"].startswith("sha256:")
 assert value["errorCodes"] == []
 assert value["skippedChecks"] == []
 PY
@@ -239,24 +246,13 @@ PY
   expect_exposure_failure generated-consumer-drift frontend_generated_consumer_mismatch
 
   printf '[frontend-surface-fixtures] exposure baseline and 20 rejected mutations verified\n'
-  exit 0
+  [[ "$mode" == "all" ]] || exit 0
 fi
 
 [[ "$mode" == "transport" || "$mode" == "all" ]] || exit 0
 
-tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-frontend-surface-fixtures.XXXXXX")
-cleanup() { rm -rf -- "$tmp_root"; }
-trap cleanup EXIT
-
-sidecar="$tmp_root/sidecar.json"
 manifest="$tmp_root/manifest.json"
-observation="$tmp_root/transport-observation.json"
-
-node "$repo_root/scripts/frontend_surface_sidecar.mjs" \
-  --root "$repo_root/scripts/testdata/frontend-surface/production" \
-  --tsconfig "$repo_root/scripts/testdata/frontend-surface/production/tsconfig.json" \
-  --generated-file "$repo_root/scripts/testdata/frontend-surface/production/generated/client.generated.ts" \
-  --output "$sidecar"
+transport_observation="$tmp_root/transport-observation.json"
 
 python3 - "$sidecar" "$manifest" <<'PY'
 import hashlib
@@ -313,9 +309,9 @@ run_transport() {
     --output "$3"
 }
 
-run_transport "$sidecar" "$manifest" "$observation"
+run_transport "$sidecar" "$manifest" "$transport_observation"
 
-python3 - "$observation" <<'PY'
+python3 - "$transport_observation" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -425,3 +421,102 @@ expect_failure generated-consumer-drift frontend_generated_consumer_mismatch
 expect_failure manifest-digest frontend_manifest_digest_mismatch
 
 printf '[frontend-surface-fixtures] transport baseline and 20 rejected mutations verified\n'
+
+if [[ "$mode" == "all" ]]; then
+  [[ "$extractor_invocations" -eq 1 ]] || {
+    printf 'frontend_surface_fixture_failed: extractor invoked %s times\n' "$extractor_invocations" >&2
+    exit 1
+  }
+  identity_repo="$tmp_root/repository"
+  git clone --quiet --no-hardlinks "$repo_root" "$identity_repo"
+  [[ "$(git -C "$identity_repo" rev-parse 'HEAD^{tree}')" == "$(git -C "$repo_root" rev-parse 'HEAD^{tree}')" ]] || {
+    printf 'frontend_surface_fixture_failed: identity tree splice\n' >&2
+    exit 1
+  }
+  sidecar_digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sidecarDigest"])' "$transport_observation")
+  exposure_sidecar_digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sidecarDigest"])' "$exposure_observation")
+  [[ "$sidecar_digest" == "$exposure_sidecar_digest" ]] || {
+    printf 'frontend_surface_fixture_failed: observation sidecar splice\n' >&2
+    exit 1
+  }
+
+  run_report() {
+    local command="$1"
+    local observation_path="$2"
+    local digest="$3"
+    local report_path="$4"
+    shift 4
+    (
+      cd "$repo_root/src/server"
+      go run ./cmd/release-contract "$command" \
+        --repo "$identity_repo" \
+        --contract config/release/contract.v1.json \
+        --schema config/release/contract.schema.json \
+        --profile monolith \
+        --observation "$observation_path" \
+        --sidecar-digest "$digest" \
+        --output "$report_path" \
+        "$@"
+    )
+  }
+
+  transport_report="$tmp_root/frontend-transport-report.json"
+  exposure_report="$tmp_root/frontend-exposure-report.json"
+  run_report report-frontend-transport "$transport_observation" "$sidecar_digest" "$transport_report"
+  run_report report-frontend-exposure "$exposure_observation" "$sidecar_digest" "$exposure_report"
+
+  python3 - "$sidecar" "$transport_report" "$exposure_report" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+sidecar_path, transport_path, exposure_path = map(Path, sys.argv[1:])
+transport = json.loads(transport_path.read_text(encoding="utf-8"))
+exposure = json.loads(exposure_path.read_text(encoding="utf-8"))
+digest = "sha256:" + hashlib.sha256(sidecar_path.read_bytes()).hexdigest()
+assert transport["surfaceIdentity"]["surface"] == "frontend-transport"
+assert exposure["surfaceIdentity"]["surface"] == "frontend-exposure"
+assert transport["surfaceIdentity"] != exposure["surfaceIdentity"]
+assert transport["releaseIdentity"] == exposure["releaseIdentity"]
+assert transport["evidence"]["details"]["sidecarDigest"] == digest
+assert exposure["evidence"]["details"]["sidecarDigest"] == digest
+PY
+
+  expect_report_failure() {
+    local label="$1"
+    shift
+    local output
+    if output=$("$@" 2>&1); then
+      printf 'frontend_surface_fixture_failed: %s unexpectedly passed\n' "$label" >&2
+      exit 1
+    fi
+  }
+  expect_report_failure sidecar-digest-splice run_report report-frontend-transport "$transport_observation" "sha256:$(printf 'f%.0s' {1..64})" "$tmp_root/spliced-report.json"
+  expect_report_failure identity-override run_report report-frontend-transport "$transport_observation" "$sidecar_digest" "$tmp_root/identity-report.json" --source-tree "$(printf 'f%.0s' {1..40})"
+  mkdir "$tmp_root/unwritable-report"
+  expect_report_failure output-failure run_report report-frontend-transport "$transport_observation" "$sidecar_digest" "$tmp_root/unwritable-report"
+
+  python3 - "$transport_report" "$tmp_root/folded-report.json" "$tmp_root/drift-report.json" "$tmp_root/skip-report.json" <<'PY'
+import copy
+import json
+from pathlib import Path
+import sys
+
+source, folded_path, drift_path, skip_path = map(Path, sys.argv[1:])
+report = json.loads(source.read_text(encoding="utf-8"))
+folded = copy.deepcopy(report)
+folded["surfaceIdentity"]["surface"] = "frontend-exposure"
+drift = copy.deepcopy(report)
+drift["drift"]["missing"] = ["frontend.fixture"]
+skipped = copy.deepcopy(report)
+skipped["outcome"]["skippedChecks"] = ["frontend.fixture"]
+for path, value in ((folded_path, folded), (drift_path, drift), (skip_path, skipped)):
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  for mutation in folded drift skip; do
+    expect_report_failure "report-$mutation" bash -c "cd '$repo_root/src/server' && go run ./cmd/release-contract verify-report --input '$tmp_root/${mutation}-report.json'"
+  done
+
+  printf '[frontend-surface-fixtures] combined one-sidecar report pair and report mutations verified\n'
+fi

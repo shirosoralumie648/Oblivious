@@ -8,6 +8,7 @@ schema="$repo_root/config/release/contract.schema.json"
 app_projection=""
 server_catalog=""
 output="$repo_root/.tmp/frontend-exposure-observation.json"
+report_output="$repo_root/.tmp/frontend-exposure-report.json"
 stage_a=false
 
 while [[ $# -gt 0 ]]; do
@@ -18,6 +19,7 @@ while [[ $# -gt 0 ]]; do
     --app-projection) app_projection="${2:-}"; shift 2 ;;
     --server-catalog) server_catalog="${2:-}"; shift 2 ;;
     --output) output="${2:-}"; shift 2 ;;
+    --report-output) report_output="${2:-}"; shift 2 ;;
     --stage-a) stage_a=true; shift ;;
     *) printf 'frontend_exposure_argument_invalid: %s\n' "$1" >&2; exit 2 ;;
   esac
@@ -45,16 +47,26 @@ if [[ "$stage_a" == true ]]; then
   trap cleanup EXIT
   app_projection="$tmp_root/app-projection.json"
   server_catalog="$tmp_root/server-catalog.json"
+  identity_repo="$tmp_root/repository"
+  git clone --quiet --no-hardlinks "$repo_root" "$identity_repo"
 
   source_tree=$(git -C "$repo_root" rev-parse 'HEAD^{tree}')
   [[ "$source_tree" =~ ^[0-9a-f]{40}$ ]] || {
     printf 'frontend_exposure_stage_a_identity_invalid: source-tree\n' >&2
     exit 1
   }
-  digest_json=$(cd "$repo_root/src/server" && go run ./cmd/release-contract digest \
-    --repo "$repo_root" \
-    --contract "$contract" \
-    --schema "$schema")
+  [[ "$(git -C "$identity_repo" rev-parse 'HEAD^{tree}')" == "$source_tree" ]] || {
+    printf 'frontend_exposure_stage_a_identity_invalid: snapshot-tree\n' >&2
+    exit 1
+  }
+  digest_stderr="$tmp_root/digest.stderr"
+  if ! digest_json=$(cd "$repo_root/src/server" && go run ./cmd/release-contract digest \
+    --repo "$identity_repo" \
+    --contract config/release/contract.v1.json \
+    --schema config/release/contract.schema.json 2>"$digest_stderr"); then
+    cat "$digest_stderr" >&2
+    exit 1
+  fi
   contract_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("contractDigest", ""))' <<<"$digest_json")
   [[ "$contract_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
     printf 'frontend_exposure_stage_a_identity_invalid: contract-digest\n' >&2
@@ -138,9 +150,24 @@ else
   }
 fi
 
-exec python3 "$repo_root/scripts/verify_frontend_surface.py" exposure \
+python3 "$repo_root/scripts/verify_frontend_surface.py" exposure \
   --sidecar "$sidecar" \
   --contract "$contract" \
   --app-projection "$app_projection" \
   --server-catalog "$server_catalog" \
   --output "$output"
+
+if [[ "$stage_a" == true ]]; then
+  sidecar_digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sidecarDigest"])' "$output")
+  (
+    cd "$repo_root/src/server"
+    go run ./cmd/release-contract report-frontend-exposure \
+      --repo "$identity_repo" \
+      --contract config/release/contract.v1.json \
+      --schema config/release/contract.schema.json \
+      --profile monolith \
+      --observation "$output" \
+      --sidecar-digest "$sidecar_digest" \
+      --output "$report_output"
+  )
+fi
