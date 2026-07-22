@@ -289,12 +289,6 @@ run_docs_checks() {
   echo "[check] Verifying deployment operations contract."
   bash "$repo_root/scripts/verify-deployment-operations-contract.sh"
 
-  echo "[check] Verifying OpenAPI contract coverage."
-  bash "$repo_root/scripts/verify-openapi-contract.sh"
-
-  echo "[check] Verifying migration contract coverage."
-  bash "$repo_root/scripts/verify-migration-contract.sh"
-
   echo "[check] Verifying schema coverage."
   bash "$repo_root/scripts/verify-schema-coverage.sh"
 

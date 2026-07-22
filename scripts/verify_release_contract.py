@@ -340,8 +340,66 @@ def write_fixture_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
 
+def validate_call_graph_contract(repo_root: Path) -> None:
+    aggregate = (repo_root / "scripts" / "verify-release-contract.sh").read_text(encoding="utf-8")
+    quality = (repo_root / "scripts" / "verify-quality-gates.sh").read_text(encoding="utf-8")
+    check = (repo_root / "scripts" / "check.sh").read_text(encoding="utf-8")
+    commercial = (repo_root / "scripts" / "verify-commercial-completion.sh").read_text(encoding="utf-8")
+    ci = (repo_root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    direct_aggregate = re.compile(
+        r'^\s*bash\s+"?\$repo_root/scripts/verify-release-contract\.sh"?\s+--clean-head\b',
+        re.MULTILINE,
+    )
+    parent_counts = {
+        "quality": len(direct_aggregate.findall(quality)),
+        "check": len(direct_aggregate.findall(check)),
+        "commercial": len(direct_aggregate.findall(commercial)),
+        "ci": len(direct_aggregate.findall(ci)),
+    }
+    if parent_counts != {"quality": 1, "check": 0, "commercial": 0, "ci": 0}:
+        raise ContractValidationError("aggregate_parent_graph_invalid")
+
+    if check.count('bash "$repo_root/scripts/verify-quality-gates.sh"') != 1:
+        raise ContractValidationError("aggregate_check_parent_invalid")
+    forbidden_check_children = (
+        'bash "$repo_root/scripts/verify-openapi-contract.sh"',
+        'bash "$repo_root/scripts/verify-migration-contract.sh"',
+        'bash "$repo_root/scripts/verify-protobuf-contract.sh"',
+        'bash "$repo_root/scripts/verify-frontend-surface-sidecar.sh"',
+    )
+    if any(child in check for child in forbidden_check_children):
+        raise ContractValidationError("aggregate_check_duplicate_producer")
+    if commercial.count('bash "$repo_root/scripts/check.sh" docs') != 1:
+        raise ContractValidationError("aggregate_commercial_parent_invalid")
+    if ci.count("bash scripts/check.sh docs") != 1 or "verify-release-contract.sh" in ci:
+        raise ContractValidationError("aggregate_ci_parent_invalid")
+
+    forbidden_ancestors = (
+        'bash "$repo_root/scripts/check.sh"',
+        'bash "$repo_root/scripts/test.sh"',
+        'bash "$repo_root/scripts/verify-quality-gates.sh"',
+        'bash "$repo_root/scripts/verify-commercial-completion.sh"',
+    )
+    if any(parent in aggregate for parent in forbidden_ancestors):
+        raise ContractValidationError("aggregate_ancestor_recursion")
+    if aggregate.count('aggregate_validator_cmd=(python3 "$repo_root/scripts/verify_release_contract.py")') != 1:
+        raise ContractValidationError("aggregate_validator_owner_invalid")
+
+    ci_requirements = (
+        "protobuf-toolchain.v1.json",
+        "manifestDigest",
+        "actions/cache@v4",
+        "steps.protobuf-toolchain.outputs.digest",
+        "bash scripts/bootstrap-protobuf-tools.sh --manifest config/release/protobuf-toolchain.v1.json",
+        "bash scripts/verify-protobuf-contract.sh --manifest config/release/protobuf-toolchain.v1.json --manifest-only",
+    )
+    if any(requirement not in ci for requirement in ci_requirements):
+        raise ContractValidationError("aggregate_ci_protobuf_cache_invalid")
+
+
 def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: bool) -> None:
-    del include_call_graph, include_redaction
+    del include_redaction
     with tempfile.TemporaryDirectory(prefix="oblivious-release-aggregate-") as temporary:
         root = Path(temporary)
         go_env = dict(os.environ)
@@ -496,6 +554,8 @@ def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: b
         expect_failure("zero-reports", lambda reports, paths, identity, status: [])
         if mutation_count != 12:
             raise ContractValidationError("aggregate_fixture_count_invalid")
+        if include_call_graph:
+            validate_call_graph_contract(repo_root)
         print(f"[release-contract-fixtures] exact ten-report aggregate and {mutation_count} rejected mutations verified")
 
 
