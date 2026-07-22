@@ -9,6 +9,8 @@ image_tag=""
 output_dir=""
 fixture_repo=""
 release_cli=""
+fixture_identity=false
+fixture_stage_a=false
 
 readonly contract_path="config/release/contract.v1.json"
 readonly schema_path="config/release/contract.schema.json"
@@ -38,9 +40,22 @@ fail() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --stage-a | --clean-head | --fixtures)
+    --clean-head | --fixtures)
       [[ -z "$mode" ]] || fail invalid_arguments
       mode="$1"
+      shift
+      ;;
+    --stage-a)
+      if [[ "$mode" == "--fixtures" ]]; then
+        fixture_stage_a=true
+      else
+        [[ -z "$mode" ]] || fail invalid_arguments
+        mode="$1"
+      fi
+      shift
+      ;;
+    --identity)
+      fixture_identity=true
       shift
       ;;
     --profile)
@@ -70,6 +85,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$mode" ]] || fail invalid_arguments
+if [[ "$mode" != "--fixtures" && ( "$fixture_identity" == true || "$fixture_stage_a" == true ) ]]; then
+  fail invalid_arguments
+fi
 
 configure_commands() {
   build_script="$repo_root/scripts/build-release-image.sh"
@@ -541,6 +559,7 @@ case "$command_name" in
     repo=$(option --repo "$@")
     commit=$(git -C "$repo" rev-parse 'HEAD^{commit}')
     tree=$(git -C "$repo" rev-parse 'HEAD^{tree}')
+    [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "identity-substitution" ]] || commit=$(printf '%040d' 9)
     printf '{"schemaVersion":"build-identity/v1","releaseCommit":"%s","sourceTree":"%s","contractDigest":"sha256:%064d","dirty":false,"evidenceClass":"repository-local"}\n' "$commit" "$tree" 2
     ;;
   verify-report) printf '{"schemaVersion":"surface-report/v1","surface":"fixture","result":"pass","evidenceClass":"repository-local"}\n' ;;
@@ -594,7 +613,11 @@ case "$id" in
     printf '{"surface":"deployment"}\n' >"$output/deployment-report.json"
     count=0
     [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "rebuild" ]] || count=1
-    printf '{"mode":"aggregate-consume","result":"pass","imageTag":"%s","imageDigest":"%s","buildInvocationCount":%s,"skippedChecks":[]}\n' "$tag" "$digest" "$count" >"$output/harness-result.json"
+    result_tag="$tag"
+    result_digest="$digest"
+    [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "image-tag-mismatch" ]] || result_tag="oblivious-fixture:substituted"
+    [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "image-digest-mismatch" ]] || result_digest=$(printf 'sha256:%064d' 8)
+    printf '{"mode":"aggregate-consume","result":"pass","imageTag":"%s","imageDigest":"%s","buildInvocationCount":%s,"skippedChecks":[]}\n' "$result_tag" "$result_digest" "$count" >"$output/harness-result.json"
     [[ -s "$bundle" ]]
     ;;
   verify-http-runtime-contract.sh)
@@ -625,6 +648,8 @@ case "$id" in
     log report-migration-static
     log report-migration-ledger
     log report-migration-replay
+    [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "duplicate-migration-session" ]] || log verify-migration-replay.sh
+    [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" != "duplicate-migration-static" ]] || log verify-migration-static
     printf '{"surface":"migration-static"}\n' >"$output/migration-static.json"
     printf '{"surface":"migration-ledger"}\n' >"$output/migration-ledger.json"
     printf '{"surface":"migration-replay"}\n' >"$output/migration-replay.json"
@@ -632,6 +657,10 @@ case "$id" in
     ;;
   verify-release-contract-aggregate)
     output=$(option --output "$@")
+    if [[ "${OBLIVIOUS_FIXTURE_MUTATION:-}" == "partial-output" ]]; then
+      printf '{"schemaVersion":' >"$output"
+      exit 22
+    fi
     printf '{"schemaVersion":"release-contract-aggregate/v1"}\n' >"$output"
     ;;
   *) exit 2 ;;
@@ -702,6 +731,32 @@ run_fixture_session_case() (
   frontend_exposure_cmd=("$fixture_checkout/scripts/frontend-exposure-projection")
   aggregate_validator_cmd=("$fixture_checkout/scripts/verify-release-contract-aggregate")
 
+  local tracked_source="$fixture_checkout/config/release/contract.v1.json"
+  local tracked_backup="$fixture_checkout/.tmp/identity-source.backup"
+  local untracked_source="$fixture_checkout/identity-untracked.txt"
+  cleanup_identity_mutation() {
+    if [[ -f "$tracked_backup" ]]; then
+      cp -- "$tracked_backup" "$tracked_source"
+      if [[ "$mutation" == "staged-source" ]]; then
+        git -C "$fixture_checkout" add -- "config/release/contract.v1.json"
+      fi
+      rm -f -- "$tracked_backup"
+    fi
+    rm -f -- "$untracked_source"
+  }
+  trap cleanup_identity_mutation EXIT
+
+  if [[ "$mutation" == "dirty-source" || "$mutation" == "staged-source" ]]; then
+    mkdir -p "$fixture_checkout/.tmp"
+    cp -- "$tracked_source" "$tracked_backup"
+    printf '\n' >>"$tracked_source"
+    if [[ "$mutation" == "staged-source" ]]; then
+      git -C "$fixture_checkout" add -- "config/release/contract.v1.json"
+    fi
+  elif [[ "$mutation" == "untracked-source" ]]; then
+    printf 'fixture\n' >"$untracked_source"
+  fi
+
   if [[ "$mutation" == "stale-output" ]]; then
     mkdir -p "$output_dir"
     printf stale >"$output_dir/stale.json"
@@ -716,7 +771,7 @@ run_fixture_session_case() (
 
 run_call_graph_fixtures() {
   [[ -z "$profile" && -z "$image_tag" && -z "$output_dir" && -z "$fixture_repo" ]] || fail invalid_arguments
-  local fixture_root fixture_checkout mutation rejected
+  local fixture_root fixture_checkout mutation rejected identity_rejected
   fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-release-call-graph.XXXXXX")
   fixture_checkout="$fixture_root/repository"
   mkdir -p "$fixture_checkout"
@@ -728,14 +783,31 @@ run_call_graph_fixtures() {
 
   run_fixture_session_case "$fixture_checkout" "$fixture_root" ""
   rejected=0
-  for mutation in duplicate producer-failure missing-report rebuild bundle-mismatch cleanup-failure stale-output unwritable-output; do
+  local -a mutations=(duplicate producer-failure missing-report rebuild bundle-mismatch cleanup-failure stale-output unwritable-output)
+  if [[ "$fixture_stage_a" == true ]]; then
+    mutations+=(image-tag-mismatch image-digest-mismatch duplicate-migration-session duplicate-migration-static partial-output)
+  fi
+  for mutation in "${mutations[@]}"; do
     if run_fixture_session_case "$fixture_checkout" "$fixture_root" "$mutation" >/dev/null 2>&1; then
       fail call_graph_fixture_false_pass
     fi
     rejected=$((rejected + 1))
   done
-  [[ "$rejected" -eq 8 ]] || fail call_graph_fixture_count_invalid
+  [[ "$rejected" -eq "${#mutations[@]}" ]] || fail call_graph_fixture_count_invalid
   printf '[release-contract-call-graph] Stage A fixed DAG and %s rejected mutations verified\n' "$rejected"
+
+  if [[ "$fixture_identity" == true ]]; then
+    identity_rejected=0
+    for mutation in dirty-source staged-source untracked-source identity-substitution; do
+      if run_fixture_session_case "$fixture_checkout" "$fixture_root" "$mutation" >/dev/null 2>&1; then
+        fail identity_fixture_false_pass
+      fi
+      identity_rejected=$((identity_rejected + 1))
+      [[ -z "$(git -C "$fixture_checkout" status --porcelain=v1 --untracked-files=all)" ]] || fail identity_fixture_cleanup_failed
+    done
+    [[ "$identity_rejected" -eq 4 ]] || fail identity_fixture_count_invalid
+    printf '[release-contract-identity-fixtures] clean identity and %s rejected mutations verified\n' "$identity_rejected"
+  fi
 }
 
 case "$mode" in
