@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 mode=""
-source_root="$repo_root/scripts/testdata/frontend-surface/production"
+source_root=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +25,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$mode" ]] || { printf 'frontend_sidecar_argument_invalid: mode\n' >&2; exit 2; }
+if [[ -z "$source_root" ]]; then
+  if [[ "$mode" == "--self-check" ]]; then
+    source_root="$repo_root/scripts/testdata/frontend-surface/production"
+  else
+    source_root="$repo_root/src/web/src"
+  fi
+fi
 
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-frontend-sidecar.XXXXXX")
 cleanup() { rm -rf -- "$tmp_root"; }
