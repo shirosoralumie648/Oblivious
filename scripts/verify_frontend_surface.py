@@ -728,20 +728,26 @@ def verify_exposure(
     ]
     if not selectable:
         fail("frontend_catalog_selectable_inventory_empty")
+    projection_digest = canonical_digest(
+        {
+            "generatedProjectionDigest": release_projection["digest"],
+            "appProjectionDigest": app_projection["projectionDigest"],
+            "catalogDigest": canonical_digest(catalog),
+            "selectorSubjects": sorted(selector_subjects),
+            "mutationContractCount": mutation_count,
+            "selectableCatalogSubjectCount": len(selectable),
+        }
+    )
     return {
         "schemaVersion": EXPOSURE_SCHEMA,
         "sidecarDigest": digest_bytes(sidecar_bytes),
         "sourceDigest": source_digest,
         "configDigest": config_digest,
-        "generatedProjectionDigest": release_projection["digest"],
-        "appProjectionDigest": app_projection["projectionDigest"],
-        "catalogDigest": canonical_digest(catalog),
         "exposureCount": len(exposures),
+        "catalogCount": len(catalog),
         "navigationCount": navigation_count,
-        "selectorCount": selector_count,
-        "mutationContractCount": mutation_count,
-        "catalogSubjectCount": len(catalog),
-        "selectableCatalogSubjectCount": len(selectable),
+        "generatedConsumerCount": generated_consumers,
+        "projectionDigest": projection_digest,
         "unresolvedCount": 0,
         "errorCodes": [],
         "skippedChecks": [],
