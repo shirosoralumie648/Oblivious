@@ -228,8 +228,17 @@ docker exec "$redis_name" redis-cli ping 2>/dev/null | grep -Fqx PONG || fail re
 qdrant_host_port=$(docker port "$qdrant_name" 6333/tcp | awk -F: 'NR==1 {print $NF}')
 for _ in $(seq 1 90); do curl -fsS "http://127.0.0.1:${qdrant_host_port}/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS "http://127.0.0.1:${qdrant_host_port}/healthz" >/dev/null 2>&1 || fail qdrant_unavailable
-for _ in $(seq 1 90); do docker exec "$clickhouse_name" clickhouse-client --user oblivious --password oblivious --query 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
-docker exec "$clickhouse_name" clickhouse-client --user oblivious --password oblivious --query 'SELECT 1' >/dev/null 2>&1 || fail clickhouse_unavailable
+clickhouse_ready_count=0
+for _ in $(seq 1 90); do
+  if docker exec "$clickhouse_name" clickhouse-client --user oblivious --password oblivious --query 'SELECT 1' >/dev/null 2>&1; then
+    clickhouse_ready_count=$((clickhouse_ready_count + 1))
+    if [[ "$clickhouse_ready_count" -ge 2 ]]; then break; fi
+  else
+    clickhouse_ready_count=0
+  fi
+  sleep 1
+done
+[[ "$clickhouse_ready_count" -ge 2 ]] || fail clickhouse_unavailable
 for _ in $(seq 1 120); do docker exec "$kafka_name" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 && break; sleep 1; done
 docker exec "$kafka_name" /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || fail kafka_unavailable
 
