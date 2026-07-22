@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-13-PLAN.md
-last_updated: "2026-07-22T04:04:40.586Z"
+stopped_at: Completed 31.2-10-PLAN.md
+last_updated: "2026-07-22T05:43:57.421Z"
 last_activity: 2026-07-22
-last_activity_desc: Plan 31.2-13 Group A same-source route registration closure
+last_activity_desc: Plan 31.2-10 authenticated frontend release projection closure
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 38
-  percent: 86
+  completed_plans: 39
+  percent: 89
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 10 of 15
+Plan: 14 of 15
 Status: Ready to execute
-Last activity: 2026-07-22 — Plan 31.2-13 Group A same-source route registration closure
+Last activity: 2026-07-22 — Plan 31.2-10 authenticated frontend release projection closure
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -45,7 +45,7 @@ Progress: [█████████░] 86%
 
 **By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 19 plans in 619 minutes.
 
-**Recent Trend:** Plan 31.1-21 closed the strict single-document Chat JSON boundary and zero-business-call trailing-input proof in 5 minutes.
+**Recent Trend:** Plan 31.2-10 wired authenticated release projection state into routes, navigation, marketing, Chat models, and Agent tools with 127/127 focused tests passing.
 
 ## Accumulated Context
 
@@ -133,6 +133,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Production Group A composition calls only explicit registrar entrypoints; legacy mux helpers remain test-only delegating adapters. — Keeps all 58 Group A dispatch and descriptor identities on one runtime registration value.
 - [Phase 31.2]: Routing fallbacks apply auth only and remain outside capability, guard, mount, and descriptor parity; HEAD stays implicit through Go ServeMux GET behavior. — Preserves structured 404/405 behavior without manufacturing release authority or conflicting patterns.
 - [Phase 31.2]: Same-status responses are unique by status plus normalized media/schema identity. — Preserves the canonical Gateway JSON and SSE status-200 response contracts while still rejecting exact duplicates.
+- [Phase 31.2]: Runtime projectionDigest and generated releaseProjectionDigest remain separate digest classes — The frontend recomputes the authenticated runtime digest and independently exact-joins generated capability IDs and dispositions
 
 ### Pending Todos
 
@@ -173,6 +174,7 @@ None yet.
 | Phase 31.2 P11 | 46m | 3 tasks | 19 files |
 | Phase 31.2 P12 | 22 min | 3 tasks | 16 files |
 | Phase 31.2 P13 | 40 min | 2 tasks | 12 files |
+| Phase 31.2 P10 | 1h 12m | 3 tasks | 13 files |
 
 ### Roadmap Evolution
 
@@ -185,8 +187,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-22T04:03:56.337Z
-Stopped at: Completed 31.2-13-PLAN.md
+Last session: 2026-07-22T05:43:57.409Z
+Stopped at: Completed 31.2-10-PLAN.md
 Resume file: None
 
 ## Performance Metrics
