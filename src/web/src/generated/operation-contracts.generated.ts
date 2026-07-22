@@ -16,6 +16,12 @@ export type OperationContractMetadataV1 = {
   readonly successResponses: readonly { readonly status: string; readonly mediaType: string | null; readonly schemaIdentity: SchemaIdentityV1 }[];
 };
 
+export type BrowserEventIdentityV1 = {
+  readonly direction: 'client' | 'server';
+  readonly kind: 'message' | 'event';
+  readonly schemaIdentity: SchemaIdentityV1;
+};
+
 export type PublicOperationDispositionV1 = {
   readonly method: string;
   readonly normalizedPath: string;
@@ -24,6 +30,8 @@ export type PublicOperationDispositionV1 = {
 };
 
 export const operationContractDigest = "sha256:ea30976f776600c5e24c0fe71966cb77097b46ca87a135fec305596219576afc" as const;
+
+export const browserEventContractDigest = "sha256:836b931f8b251c3379c11d258abe3ddeb41010b9fe36f496b7f9db9c96ce891d" as const;
 
 export const publicOperationScope = {
   "dispositions": [
@@ -3183,6 +3191,14 @@ export const schemaIdentities = [
   {
     "kind": "ref",
     "value": "#/components/schemas/ChannelStatusRequest"
+  },
+  {
+    "kind": "ref",
+    "value": "#/components/schemas/ChatRealtimeClientMessage"
+  },
+  {
+    "kind": "ref",
+    "value": "#/components/schemas/ChatRealtimeEvent"
   },
   {
     "kind": "ref",
@@ -12914,6 +12930,87 @@ export const operationContracts = [
     ]
   }
 ] as const satisfies readonly OperationContractMetadataV1[];
+
+export const browserEventContracts = [
+  {
+    "events": [
+      {
+        "direction": "client",
+        "kind": "message",
+        "schemaIdentity": {
+          "kind": "ref",
+          "value": "#/components/schemas/ChatRealtimeClientMessage"
+        }
+      },
+      {
+        "direction": "server",
+        "kind": "message",
+        "schemaIdentity": {
+          "kind": "ref",
+          "value": "#/components/schemas/ChatRealtimeEvent"
+        }
+      }
+    ],
+    "operationId": "connectWorkspaceWebSocket",
+    "transport": "websocket"
+  },
+  {
+    "events": [
+      {
+        "direction": "server",
+        "kind": "event",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+        }
+      }
+    ],
+    "operationId": "gatewayProxyCreateChatCompletion",
+    "transport": "sse"
+  },
+  {
+    "events": [
+      {
+        "direction": "server",
+        "kind": "event",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+        }
+      }
+    ],
+    "operationId": "relayCreateChatCompletion",
+    "transport": "sse"
+  },
+  {
+    "events": [
+      {
+        "direction": "server",
+        "kind": "event",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+        }
+      }
+    ],
+    "operationId": "relayCreateResponse",
+    "transport": "sse"
+  },
+  {
+    "events": [
+      {
+        "direction": "server",
+        "kind": "event",
+        "schemaIdentity": {
+          "kind": "inline",
+          "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+        }
+      }
+    ],
+    "operationId": "streamMessage",
+    "transport": "sse"
+  }
+] as const satisfies readonly { readonly operationId: string; readonly transport: 'sse' | 'websocket'; readonly events: readonly BrowserEventIdentityV1[] }[];
 
 export const listAdminAPITokensOperationContract: OperationContractMetadataV1 = operationContracts[0];
 export const revokeAdminAPITokenOperationContract: OperationContractMetadataV1 = operationContracts[1];

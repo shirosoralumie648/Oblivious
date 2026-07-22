@@ -1,4 +1,85 @@
 {
+  "browserEventDigest": "sha256:836b931f8b251c3379c11d258abe3ddeb41010b9fe36f496b7f9db9c96ce891d",
+  "browserEvents": [
+    {
+      "events": [
+        {
+          "direction": "client",
+          "kind": "message",
+          "schemaIdentity": {
+            "kind": "ref",
+            "value": "#/components/schemas/ChatRealtimeClientMessage"
+          }
+        },
+        {
+          "direction": "server",
+          "kind": "message",
+          "schemaIdentity": {
+            "kind": "ref",
+            "value": "#/components/schemas/ChatRealtimeEvent"
+          }
+        }
+      ],
+      "operationId": "connectWorkspaceWebSocket",
+      "transport": "websocket"
+    },
+    {
+      "events": [
+        {
+          "direction": "server",
+          "kind": "event",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+          }
+        }
+      ],
+      "operationId": "gatewayProxyCreateChatCompletion",
+      "transport": "sse"
+    },
+    {
+      "events": [
+        {
+          "direction": "server",
+          "kind": "event",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+          }
+        }
+      ],
+      "operationId": "relayCreateChatCompletion",
+      "transport": "sse"
+    },
+    {
+      "events": [
+        {
+          "direction": "server",
+          "kind": "event",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+          }
+        }
+      ],
+      "operationId": "relayCreateResponse",
+      "transport": "sse"
+    },
+    {
+      "events": [
+        {
+          "direction": "server",
+          "kind": "event",
+          "schemaIdentity": {
+            "kind": "inline",
+            "value": "sha256:00404e686415370f1711c4d7acfa2905444d3cf23cef2e10c47d445ebe690f96"
+          }
+        }
+      ],
+      "operationId": "streamMessage",
+      "transport": "sse"
+    }
+  ],
   "generatedFrom": "docs/api/openapi.yaml",
   "operations": [
     {

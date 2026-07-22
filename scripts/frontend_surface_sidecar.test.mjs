@@ -55,7 +55,20 @@ describe('frontend surface sidecar', () => {
       counts[counter] += kindCounts.get(kind);
     }
     assert.equal(result.unresolved.length, 0);
-    assert.equal(result.operations.length, 8);
+    assert.equal(result.operations.length, 11);
+    const stream = result.operations.find((entry) => entry.transport.kind === 'sse-stream');
+    const eventSource = result.operations.find((entry) => entry.transport.kind === 'event-source');
+    const websocket = result.operations.find((entry) => entry.transport.kind === 'websocket');
+    assert.deepEqual(stream?.events, [
+      { direction: 'server', kind: 'event', schemaIdentity: { kind: 'none', value: null } }
+    ]);
+    assert.deepEqual(eventSource?.events, [
+      { direction: 'server', kind: 'event', schemaIdentity: { kind: 'none', value: null } }
+    ]);
+    assert.deepEqual(websocket?.events, [
+      { direction: 'client', kind: 'message', schemaIdentity: { kind: 'none', value: null } },
+      { direction: 'server', kind: 'message', schemaIdentity: { kind: 'none', value: null } }
+    ]);
   });
 
   it('records product exposure and generated consumer evidence in the same program', () => {
@@ -82,7 +95,7 @@ describe('frontend surface sidecar', () => {
       generatedFile: fixtureGenerated
     });
     assert.equal(result.sourceScope.filesScanned, 1);
-    assert.equal(result.operations.length, 8);
+    assert.equal(result.operations.length, 11);
     assert.equal(result.operations.some((entry) => entry.source.file.includes('excluded.test')), false);
     assert.equal(result.operations.some((entry) => entry.source.file.includes('.generated.')), false);
     counts.exclusion += 1;

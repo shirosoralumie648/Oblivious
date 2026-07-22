@@ -1,18 +1,25 @@
 import {
+  eventSourceOperationContract,
   listUsersOperationContract,
+  noContentOperationContract,
+  rawOperationContract,
   socketOperationContract,
   streamOperationContract,
+  textOperationContract,
   uploadOperationContract
 } from './generated/client.generated';
 
 type Transport = { operation: unknown; requestEncoder: unknown; responseDecoder: unknown };
-type HttpClient = { get: (...args: unknown[]) => Promise<unknown>; post: (...args: unknown[]) => Promise<unknown> };
+type HttpClient = { get: (...args: unknown[]) => Promise<unknown>; post: (...args: unknown[]) => Promise<unknown>; delete: (...args: unknown[]) => Promise<unknown> };
 declare const client: HttpClient;
 declare function noneRequestEncoder(operation: unknown): unknown;
 declare function jsonRequestEncoder(operation: unknown): unknown;
 declare function formDataRequestEncoder(operation: unknown): unknown;
+declare function rawRequestEncoder(operation: unknown): unknown;
 declare function jsonEnvelopeDecoder<T>(operation: unknown, status: number): unknown;
 declare function rawResponseDecoder(operation: unknown, status: number): unknown;
+declare function textResponseDecoder(operation: unknown, status: number): unknown;
+declare function noneResponseDecoder(operation: unknown, status: number): unknown;
 declare function streamText(path: string, onChunk: (chunk: string) => void, operation: unknown, contract: Transport): Promise<void>;
 declare function uploadFile(path: string, file: File, operation: unknown, contract: Transport): Promise<Response>;
 declare function useSWR<T>(key: readonly unknown[], fetcher: unknown): unknown;
@@ -30,6 +37,21 @@ const uploadTransport: Transport = {
   requestEncoder: formDataRequestEncoder(uploadOperationContract),
   responseDecoder: jsonEnvelopeDecoder(uploadOperationContract, 200)
 };
+const rawTransport: Transport = {
+  operation: rawOperationContract,
+  requestEncoder: rawRequestEncoder(rawOperationContract),
+  responseDecoder: rawResponseDecoder(rawOperationContract, 200)
+};
+const textTransport: Transport = {
+  operation: textOperationContract,
+  requestEncoder: noneRequestEncoder(textOperationContract),
+  responseDecoder: textResponseDecoder(textOperationContract, 200)
+};
+const noContentTransport: Transport = {
+  operation: noContentOperationContract,
+  requestEncoder: noneRequestEncoder(noContentOperationContract),
+  responseDecoder: noneResponseDecoder(noContentOperationContract, 204)
+};
 const streamTransport: Transport = {
   operation: streamOperationContract,
   requestEncoder: jsonRequestEncoder(streamOperationContract),
@@ -45,9 +67,12 @@ client.get('/fixture/users', undefined, listTransport);
 client.get('/fixture/users', undefined, listTransport);
 streamText('/fixture/stream', () => undefined, streamOperationContract, streamTransport);
 uploadFile('/fixture/upload', new File([], 'fixture.txt'), uploadOperationContract, uploadTransport);
+client.post('/fixture/raw', new Uint8Array(), undefined, rawTransport);
+client.get('/fixture/text', undefined, textTransport);
+client.delete('/fixture/items/item_1', undefined, noContentTransport);
 fetchFn('/fixture/users', { method: 'GET' }, listTransport);
 useSWR([' /fixture/users', listUsersOperationContract, listTransport], () => undefined);
-new EventSource(socketOperationContract.normalizedPath);
+new EventSource(eventSourceOperationContract.normalizedPath);
 new WebSocket(socketOperationContract.normalizedPath);
 
 export const fixtureExposure = { path: '/fixture/users', capabilityId: 'fixture.users' };

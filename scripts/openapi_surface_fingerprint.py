@@ -35,6 +35,8 @@ DISPOSITION_EXTENSION = "x-oblivious-public-operation"
 CAPABILITY_EXTENSION = "x-oblivious-capability-id"
 TERMINAL_SUCCESS_EXTENSION = "x-oblivious-terminal-success-statuses"
 OPERATION_ID_OVERRIDES_EXTENSION = "x-oblivious-operation-id-overrides"
+WEBSOCKET_CLIENT_MESSAGE_EXTENSION = "x-websocket-client-message"
+WEBSOCKET_SERVER_MESSAGE_EXTENSION = "x-websocket-server-message"
 SCHEMA_VERSION = "route-surface-manifest/v2"
 SCOPE_VERSION = "public-operation-scope/v1"
 FIXTURE_VERSION = "operation-surface-fixtures/v1"
@@ -312,6 +314,77 @@ def project_success_responses(
     )
 
 
+def project_browser_events(
+    spec: dict[str, Any],
+    operation: dict[str, Any],
+    *,
+    operation_id: str,
+    success_responses: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    client_message = operation.get(WEBSOCKET_CLIENT_MESSAGE_EXTENSION)
+    server_message = operation.get(WEBSOCKET_SERVER_MESSAGE_EXTENSION)
+    if (client_message is None) != (server_message is None):
+        raise ProjectionError(
+            "websocket_event_identity_incomplete", operation_id, "browserEvents"
+        )
+    sse_identities = {
+        canonical_json(response["schemaIdentity"]): response["schemaIdentity"]
+        for response in success_responses
+        if response["mediaType"] == "text/event-stream"
+    }
+    if client_message is not None:
+        if sse_identities:
+            raise ProjectionError(
+                "browser_event_transport_ambiguous", operation_id, "browserEvents"
+            )
+        return {
+            "operationId": operation_id,
+            "transport": "websocket",
+            "events": [
+                {
+                    "direction": "client",
+                    "kind": "message",
+                    "schemaIdentity": schema_identity(
+                        spec,
+                        client_message,
+                        operation_id=operation_id,
+                        field=WEBSOCKET_CLIENT_MESSAGE_EXTENSION,
+                    ),
+                },
+                {
+                    "direction": "server",
+                    "kind": "message",
+                    "schemaIdentity": schema_identity(
+                        spec,
+                        server_message,
+                        operation_id=operation_id,
+                        field=WEBSOCKET_SERVER_MESSAGE_EXTENSION,
+                    ),
+                },
+            ],
+        }
+    if sse_identities:
+        if len(sse_identities) != 1:
+            raise ProjectionError(
+                "sse_event_identity_ambiguous",
+                operation_id,
+                "browserEvents",
+                len(sse_identities),
+            )
+        return {
+            "operationId": operation_id,
+            "transport": "sse",
+            "events": [
+                {
+                    "direction": "server",
+                    "kind": "event",
+                    "schemaIdentity": next(iter(sse_identities.values())),
+                }
+            ],
+        }
+    return None
+
+
 def _default_sample_path(path: str) -> str:
     def sample_value(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -371,6 +444,7 @@ def project_openapi(
 
     dispositions: list[dict[str, Any]] = []
     operations: list[dict[str, Any]] = []
+    browser_events: list[dict[str, Any]] = []
     route_samples: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str]] = set()
     operation_ids: set[str] = set()
@@ -429,6 +503,9 @@ def project_openapi(
         if not isinstance(capability_id, str) or capability_id not in capabilities:
             raise ProjectionError("unknown_capability", operation_id, CAPABILITY_EXTENSION)
         security, csrf = security_kind(operation, spec, operation_id=operation_id)
+        success_responses = project_success_responses(
+            spec, operation, operation_id=operation_id
+        )
         operations.append(
             {
                 "method": method,
@@ -438,12 +515,21 @@ def project_openapi(
                 "csrf": csrf,
                 "capabilityId": capability_id,
                 "request": project_request(spec, operation, operation_id=operation_id),
-                "successResponses": project_success_responses(spec, operation, operation_id=operation_id),
+                "successResponses": success_responses,
             }
         )
+        browser_event = project_browser_events(
+            spec,
+            operation,
+            operation_id=operation_id,
+            success_responses=success_responses,
+        )
+        if browser_event is not None:
+            browser_events.append(browser_event)
 
     dispositions.sort(key=lambda item: (item["normalizedPath"], item["method"]))
     operations.sort(key=lambda item: (item["normalizedPath"], item["method"], item["operationId"]))
+    browser_events.sort(key=lambda item: item["operationId"])
     route_samples.sort(key=lambda item: (item["normalizedPath"], item["method"]))
     if not operations:
         raise ProjectionError("included_operation_inventory_empty", field="operations", count=0)
@@ -457,8 +543,10 @@ def project_openapi(
         "schemaVersion": SCHEMA_VERSION,
         "generatedFrom": "docs/api/openapi.yaml",
         "projectionDigest": projection_digest,
+        "browserEventDigest": canonical_digest(browser_events),
         "scope": scope,
         "operations": operations,
+        "browserEvents": browser_events,
         "routeSamples": route_samples,
     }
 
@@ -473,6 +561,7 @@ def validate_manifest(manifest: dict[str, Any], schema: dict[str, Any]) -> None:
     operations = manifest.get("operations", [])
     dispositions = manifest.get("scope", {}).get("dispositions", [])
     route_samples = manifest.get("routeSamples", [])
+    browser_events = manifest.get("browserEvents", [])
     operation_ids = [row.get("operationId") for row in operations]
     operation_keys = [(row.get("method"), row.get("normalizedPath")) for row in operations]
     disposition_keys = [(row.get("method"), row.get("normalizedPath")) for row in dispositions]
@@ -491,6 +580,11 @@ def validate_manifest(manifest: dict[str, Any], schema: dict[str, Any]) -> None:
             field="routeSamples",
             count=len(set(sample_keys).symmetric_difference(set(disposition_keys))),
         )
+    browser_operation_ids = [row.get("operationId") for row in browser_events]
+    if len(set(browser_operation_ids)) != len(browser_operation_ids):
+        raise ProjectionError("manifest_browser_event_duplicate", field="browserEvents")
+    if not set(browser_operation_ids).issubset(set(operation_ids)):
+        raise ProjectionError("manifest_browser_event_orphan", field="browserEvents")
     included_keys = {
         (row["method"], row["normalizedPath"])
         for row in dispositions
@@ -520,6 +614,8 @@ def validate_manifest(manifest: dict[str, Any], schema: dict[str, Any]) -> None:
     digest = canonical_digest({"scope": manifest["scope"], "operations": operations})
     if manifest.get("projectionDigest") != digest:
         raise ProjectionError("manifest_digest_mismatch", field="projectionDigest")
+    if manifest.get("browserEventDigest") != canonical_digest(browser_events):
+        raise ProjectionError("manifest_digest_mismatch", field="browserEventDigest")
 
 
 def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
@@ -569,6 +665,32 @@ def projection_differences(expected: dict[str, Any], actual: dict[str, Any]) -> 
                 differences.append(
                     {"kind": "incompatible", "operationId": f"{key[0]} {key[1]}", "field": field}
                 )
+    expected_events = {
+        row["operationId"]: row for row in expected.get("browserEvents", [])
+    }
+    actual_events = {
+        row["operationId"]: row for row in actual.get("browserEvents", [])
+    }
+    for operation_id in sorted(expected_events.keys() - actual_events.keys()):
+        differences.append(
+            {"kind": "missing", "operationId": operation_id, "field": "browserEvents"}
+        )
+    for operation_id in sorted(actual_events.keys() - expected_events.keys()):
+        differences.append(
+            {"kind": "extra", "operationId": operation_id, "field": "browserEvents"}
+        )
+    for operation_id in sorted(expected_events.keys() & actual_events.keys()):
+        expected_flat = _flatten(expected_events[operation_id])
+        actual_flat = _flatten(actual_events[operation_id])
+        for field in sorted(set(expected_flat) | set(actual_flat)):
+            if expected_flat.get(field) != actual_flat.get(field):
+                differences.append(
+                    {
+                        "kind": "incompatible",
+                        "operationId": operation_id,
+                        "field": f"browserEvents.{field}",
+                    }
+                )
     return differences
 
 
@@ -579,6 +701,12 @@ def operation_contracts_typescript(manifest: dict[str, Any]) -> bytes:
         for identity in [
             operation["request"]["schemaIdentity"],
             *(response["schemaIdentity"] for response in operation["successResponses"]),
+            *(
+                event["schemaIdentity"]
+                for browser_event in manifest["browserEvents"]
+                if browser_event["operationId"] == operation["operationId"]
+                for event in browser_event["events"]
+            ),
         ]
     }
     lines = [
@@ -600,6 +728,12 @@ def operation_contracts_typescript(manifest: dict[str, Any]) -> bytes:
         "  readonly successResponses: readonly { readonly status: string; readonly mediaType: string | null; readonly schemaIdentity: SchemaIdentityV1 }[];",
         "};",
         "",
+        "export type BrowserEventIdentityV1 = {",
+        "  readonly direction: 'client' | 'server';",
+        "  readonly kind: 'message' | 'event';",
+        "  readonly schemaIdentity: SchemaIdentityV1;",
+        "};",
+        "",
         "export type PublicOperationDispositionV1 = {",
         "  readonly method: string;",
         "  readonly normalizedPath: string;",
@@ -608,6 +742,8 @@ def operation_contracts_typescript(manifest: dict[str, Any]) -> bytes:
         "};",
         "",
         f"export const operationContractDigest = {json.dumps(manifest['projectionDigest'])} as const;",
+        "",
+        f"export const browserEventContractDigest = {json.dumps(manifest['browserEventDigest'])} as const;",
         "",
         "export const publicOperationScope = "
         + json.dumps(manifest["scope"], ensure_ascii=False, indent=2, sort_keys=True)
@@ -620,6 +756,10 @@ def operation_contracts_typescript(manifest: dict[str, Any]) -> bytes:
         "export const operationContracts = "
         + json.dumps(manifest["operations"], ensure_ascii=False, indent=2, sort_keys=True)
         + " as const satisfies readonly OperationContractMetadataV1[];",
+        "",
+        "export const browserEventContracts = "
+        + json.dumps(manifest["browserEvents"], ensure_ascii=False, indent=2, sort_keys=True)
+        + " as const satisfies readonly { readonly operationId: string; readonly transport: 'sse' | 'websocket'; readonly events: readonly BrowserEventIdentityV1[] }[];",
         "",
     ]
     exported_names: set[str] = set()
@@ -821,9 +961,27 @@ def run_fixture_suite(args: argparse.Namespace, suite: str) -> dict[str, Any]:
                     for row in baseline_manifest["scope"]["dispositions"]
                 ),
                 "metadata": len(baseline_manifest["operations"]),
+                "browserEvents": len(baseline_manifest.get("browserEvents", [])),
+                "sseEvents": sum(
+                    row.get("transport") == "sse"
+                    for row in baseline_manifest.get("browserEvents", [])
+                ),
+                "websocketEvents": sum(
+                    row.get("transport") == "websocket"
+                    for row in baseline_manifest.get("browserEvents", [])
+                ),
             }
         )
-        if counts["apiOperations"] <= 0 or counts["otherExcluded"] <= 0 or counts["metadata"] <= 0:
+        if (
+            counts["apiOperations"] <= 0
+            or counts["otherExcluded"] <= 0
+            or counts["metadata"] <= 0
+            or counts["browserEvents"] <= 0
+            or counts["sseEvents"] <= 0
+            or counts["websocketEvents"] <= 0
+            or not isinstance(baseline_manifest.get("browserEventDigest"), str)
+            or "export const browserEventContracts" not in baseline_files["operation-contracts.generated.ts"].decode()
+        ):
             raise ProjectionError("fixture_count_zero", field="baseline", count=0)
 
         def expect_failure(name: str, mutate: Callable[[dict[str, Any]], None], code: str) -> None:
@@ -904,6 +1062,25 @@ def run_fixture_suite(args: argparse.Namespace, suite: str) -> dict[str, Any]:
             "capabilityMutations",
             mutate_operation(lambda _p, _m, operation, _s: operation.__setitem__(CAPABILITY_EXTENSION, "unknown.fixture")),
             "unknown_capability",
+        )
+
+        def websocket_operation(spec: dict[str, Any]) -> dict[str, Any]:
+            return _find_operation(
+                spec,
+                lambda _p, _m, operation: operation.get("x-websocket-client-message") is not None,
+            )[2]
+
+        expect_failure(
+            "websocketEventMissing",
+            lambda spec: websocket_operation(spec).pop("x-websocket-server-message"),
+            "websocket_event_identity_incomplete",
+        )
+        expect_failure(
+            "websocketEventSchemaMutations",
+            lambda spec: websocket_operation(spec).__setitem__(
+                "x-websocket-server-message", {"type": "string"}
+            ),
+            "manifest_incompatible",
         )
 
         def mutate_request_media(_p: str, _m: str, operation: dict[str, Any], _s: dict[str, Any]) -> None:
@@ -1105,6 +1282,8 @@ def run_fixture_suite(args: argparse.Namespace, suite: str) -> dict[str, Any]:
             "successStatusMutations",
             "successMediaMutations",
             "successSchemaMutations",
+            "websocketEventMissing",
+            "websocketEventSchemaMutations",
         ]
         if any(counts.get(name, 0) <= 0 for name in required_families):
             raise ProjectionError("fixture_count_zero", field="mutationFamilies", count=0)

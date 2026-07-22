@@ -96,12 +96,12 @@ import sys
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
 mutated, count = re.subn(
-    r"^(?:client\.(?:get|post)|streamText|uploadFile|fetchFn|useSWR|new EventSource|new WebSocket)\([^;]+;\n",
+    r"^(?:client\.(?:get|post|delete)|streamText|uploadFile|fetchFn|useSWR|new EventSource|new WebSocket)\([^;]+;\n",
     "",
     source,
     flags=re.MULTILINE,
 )
-if count != 8:
+if count != 11:
     raise SystemExit(f"zero operation mutation count invalid: {count}")
 path.write_text(mutated, encoding="utf-8")
 PY

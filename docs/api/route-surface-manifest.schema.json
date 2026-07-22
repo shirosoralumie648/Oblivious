@@ -8,19 +8,27 @@
     "schemaVersion",
     "generatedFrom",
     "projectionDigest",
+    "browserEventDigest",
     "scope",
     "operations",
+    "browserEvents",
     "routeSamples"
   ],
   "properties": {
     "schemaVersion": { "const": "route-surface-manifest/v2" },
     "generatedFrom": { "const": "docs/api/openapi.yaml" },
     "projectionDigest": { "$ref": "#/$defs/digest" },
+    "browserEventDigest": { "$ref": "#/$defs/digest" },
     "scope": { "$ref": "#/$defs/publicOperationScope" },
     "operations": {
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/operationContractMetadata" }
+    },
+    "browserEvents": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/browserEventContract" }
     },
     "routeSamples": {
       "type": "array",
@@ -91,6 +99,30 @@
           ]
         },
         "schemaIdentity": { "$ref": "#/$defs/schemaIdentity" }
+      }
+    },
+    "browserEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "kind", "schemaIdentity"],
+      "properties": {
+        "direction": { "type": "string", "enum": ["client", "server"] },
+        "kind": { "type": "string", "enum": ["message", "event"] },
+        "schemaIdentity": { "$ref": "#/$defs/schemaIdentity" }
+      }
+    },
+    "browserEventContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "transport", "events"],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "enum": ["sse", "websocket"] },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/browserEvent" }
+        }
       }
     },
     "operationContractMetadata": {
