@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-14-PLAN.md
-last_updated: "2026-07-22T07:04:30.789Z"
+stopped_at: Completed 31.2-15-PLAN.md
+last_updated: "2026-07-22T07:52:07.000Z"
 last_activity: 2026-07-22
-last_activity_desc: Plan 31.2-14 Group B runtime route registration closure
+last_activity_desc: Plan 31.2-15 complete HTTP runtime producer and frontend owner handoff
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 40
-  percent: 91
+  completed_plans: 41
+  percent: 93
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 15 of 15
+Plan: 03 of 15
 Status: Ready to execute
-Last activity: 2026-07-22 — Plan 31.2-14 Group B runtime route registration closure
+Last activity: 2026-07-22 — Plan 31.2-15 complete HTTP runtime producer and frontend owner handoff
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 20
+- Total plans completed: 21
 - Average duration: 35 min
-- Total execution time: 11.5 hours
+- Total execution time: 11.9 hours
 
 **By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 19 plans in 619 minutes.
 
-**Recent Trend:** Plan 31.2-14 migrated 136 Group B operations to the shared registrar with four media classes, nine dispatch probes, and 30 fail-closed mutation cases passing.
+**Recent Trend:** Plan 31.2-15 closed a trusted 197-operation HTTP runtime producer, two marketing auth callers, and the exact 25-disposition/267-call frontend handoff with 13 producer fixture cases passing.
 
 ## Accumulated Context
 
@@ -138,6 +138,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: ServeMux conflict bridges retain each logical registration composed handler and dispatch only on one unique logical path match. — Prevents a shared physical wildcard from sending later logical routes to the wrong handler.
 - [Phase 31.2]: Logical mount counts and descriptors remain the parity authority even when Go ServeMux requires a physical conflict bridge. — Keeps implementation mechanics from rewriting method and path contract identity.
 - [Phase 31.2]: The compare-only manifest is filtered by the closed 136-key Group B inventory and never participates in runtime registration construction. — Preserves Go declarations and handlers as runtime authority while detecting OpenAPI drift.
+- [Phase 31.2]: Build and validate the complete 197-descriptor runtime snapshot before loading compare-only manifest metadata or resolving report identity. — Prevents derived JSON from becoming runtime registration authority.
+- [Phase 31.2]: The HTTP runtime producer exposes no caller override for release identity, evidence class, skips, drift, or outcome. — Trusted resolvers and the typed report constructor remain the only report authority.
+- [Phase 31.2]: One explicit 25-disposition inventory owns the Plan 03 frontend handoff, with providers.tsx retained as the sole compiler-proven non-caller. — Keeps owner removal and exact-symbol call-count drift fail closed.
 
 ### Pending Todos
 
@@ -180,6 +183,7 @@ None yet.
 | Phase 31.2 P13 | 40 min | 2 tasks | 12 files |
 | Phase 31.2 P10 | 1h 12m | 3 tasks | 13 files |
 | Phase 31.2 P14 | 72 min | 2 tasks | 13 files |
+| Phase 31.2 P15 | 26 min | 3 tasks | 8 files |
 
 ### Roadmap Evolution
 
@@ -192,8 +196,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-22T07:04:30.777Z
-Stopped at: Completed 31.2-14-PLAN.md
+Last session: 2026-07-22T07:52:07.000Z
+Stopped at: Completed 31.2-15-PLAN.md
 Resume file: None
 
 ## Performance Metrics
