@@ -24,6 +24,36 @@ Final Relay evidence defaults to `relayRealtime.mode=commercial_lifecycle_enable
 
 Strict verifier proof JSON must carry `commit`, `runId`, `targetEvidenceSha256`, and `artifactBundleSha256`. After collecting artifact bodies, run `bash scripts/compute-target-release-digests.sh --manifest /path/outside/git/oblivious-release/target-release-evidence.json --artifact-dir /path/outside/git/oblivious-release/artifacts --write` or `npm run verify:target-release:digests -- --manifest /path/outside/git/oblivious-release/target-release-evidence.json --artifact-dir /path/outside/git/oblivious-release/artifacts --write` to compute the canonical normalized manifest and artifact-bundle digests, refresh the manifest, and refresh the strict-verifier artifact body. When `OBLIVIOUS_TARGET_ARTIFACT_DIR` is supplied, the verifier recomputes those canonical digest values and rejects hand-filled or stale strict verifier digest fields, then checks that the strict-verifier proof body repeats the manifest digest fields, so a strict-verifier log from a different release run cannot be reused as final proof.
 
+## Release Contract Aggregate
+
+Use the fixture commands during development; both operate through disposable committed repositories and do not create an identity-bearing pass for the dirty source checkout:
+
+```bash
+python3 scripts/verify_release_contract.py --fixtures --redaction
+bash scripts/verify-release-contract.sh --fixtures --identity --stage-a
+```
+
+After the implementation is committed, use a disposable clean clone of that exact commit and run the real repository gate once:
+
+```bash
+test -z "$(git status --porcelain=v1 --untracked-files=all)" && \
+  bash scripts/verify-quality-gates.sh
+```
+
+Checklist:
+
+- [ ] `scripts/verify-quality-gates.sh` is the only direct aggregate parent; docs checks, commercial verification, and CI reach it transitively.
+- [ ] The aggregate contains exactly one each of `build-identity`, `readiness`, `deployment`, `http-runtime`, `frontend-transport`, `frontend-exposure`, `protobuf`, `migration-static`, `migration-ledger`, and `migration-replay`.
+- [ ] One immutable image/artifact bundle is built once; readiness and deployment consume the same tag and digest without rebuilding.
+- [ ] The frontend sidecar, HTTP runtime session, protobuf session, and migration session each execute once. Migration static, ledger, and replay are emitted by that one migration session; an unavailable session or separate static pre-run fails.
+- [ ] CI's protobuf cache key uses the canonical tool-manifest digest, then exact bootstrap/version verification runs even on cache hit.
+- [ ] Dirty, staged, or untracked source; identity substitution; bundle/tag/digest mismatch; duplicate producer execution; partial/unwritable output; cleanup failure; and any skipped check remain nonzero.
+- [ ] Aggregate diagnostics contain no Authorization/Cookie values, secret/key/token material, credential or internal URLs, DSNs, raw bodies, or external evidence paths. Only repository-relative paths and stable non-secret references are retained.
+- [ ] The release record includes evidence class, environment, release commit, source tree, contract digest, exact command, migration state, pass/fail, empty skip list, residual risks, and remediation reference.
+- [ ] The result is labeled only as repository-local E1/E2 `RELS-02` contribution. E3/E4 target/live and commercial readiness remain owned by the final target evidence workflow.
+
+Do not commit the aggregate artifact or an exact-current-commit pass statement. Keep machine output under ignored `.tmp/` or CI artifact storage; a tracked repair creates a new commit and requires a complete clean rerun.
+
 ## Final Commercial Release Runbook
 
 Use one release working directory outside git, for example `/path/outside/git/oblivious-release`, with separate `raw/`, `artifacts/`, and `logs/` subdirectories. The final release claim is the last strict verifier run after every artifact body has been collected and the target manifest SHA-256 values have been refreshed.

@@ -23,6 +23,25 @@ The current fusion-spec completion matrix is stricter than this milestone gate h
 - DB-backed proof: SQL persistence, cross-tenant lifecycle, admin inspection, payout, settlement, and webhook idempotency claims require `TEST_DATABASE_URL`-backed tests in CI or a recorded target environment. Local skips are allowed only under the policy below and cannot upgrade persistence claims by themselves.
 - External deployment/payment proof: live payment-provider credentials, external payout rails, production telemetry, Kubernetes/runtime validation, and backup/restore proof remain environment-specific. They are not inferred from fake provider tests, local static checks, or an old strict-verifier run.
 
+## RELS-02 Repository-Local Aggregate Gate
+
+The release-contract aggregate is the repository-local E1/E2 contribution to `RELS-02`. It proves contract-surface parity for one clean commit; it does not prove target deployment, live commercial journeys, external provider rails, E3 target evidence, or E4 same-commit release readiness.
+
+`scripts/verify-quality-gates.sh` is the sole direct parent of `scripts/verify-release-contract.sh --clean-head --profile monolith`. `scripts/check.sh docs`, `scripts/verify-commercial-completion.sh`, and CI must reach the aggregate through that quality parent and must not invoke the aggregate or its producers directly. Run the real gate only from the exact clean implementation commit:
+
+```bash
+test -z "$(git status --porcelain=v1 --untracked-files=all)" && \
+  bash scripts/verify-quality-gates.sh
+```
+
+The aggregate requires these ten typed reports exactly once: `build-identity`, `readiness`, `deployment`, `http-runtime`, `frontend-transport`, `frontend-exposure`, `protobuf`, `migration-static`, `migration-ledger`, and `migration-replay`. Missing, extra, duplicate, folded, stale, skipped, identity-spliced, or non-passing reports fail the gate.
+
+One release session builds one immutable image and artifact bundle. Build identity inspects that bundle; readiness and deployment consume the same image tag and digest with rebuild count zero. The frontend sidecar is extracted once and projected into separate transport and exposure reports. Protobuf generation is verified once; CI keys its tool cache by the canonical protobuf manifest digest and still bootstraps and verifies exact tool versions after a cache hit. Migration evidence comes from one `verify-migration-replay.sh session` invocation that emits independent static, ledger, and replay reports; a separate static pre-run, a duplicate session, or an unavailable migration runtime is a failure, not a skip.
+
+Aggregate output is confined to ignored or CI artifact paths and recursively redacts Authorization/Cookie material, secret/key/token values, credential or internal URLs, DSNs, raw bodies, and repository-external paths. Claim text that promotes repository-local proof to commercial, target, E3/E4, or exact-current-commit release readiness fails closed. A release record may retain repository-relative paths, stable IDs, digests, counts, versions, error classes, and remediation references.
+
+For every aggregate run record the evidence class, environment class, release commit, source tree, contract digest, command, migration state, all ten surface IDs, pass/fail result, skipped checks, residual risks, and remediation reference. A passing record must have an empty skip list. Tracked docs must describe the protocol and evidence ceiling, not assert that the current exact commit passed.
+
 ## Claim Rules
 
 - A milestone may claim completion only for requirements whose current repository evidence, automated verification, and required runtime smoke are recorded.

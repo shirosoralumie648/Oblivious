@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 
 AGGREGATE_SCHEMA = "release-contract-aggregate/v1"
@@ -23,6 +25,25 @@ IDENTITY_SCHEMA = "build-identity/v1"
 MAX_INPUT_BYTES = 4 << 20
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+DSN_RE = re.compile(r"(?i)\b(?:postgres(?:ql)?|mysql|redis|rediss|mongodb(?:\+srv)?|amqp|clickhouse|kafka)://")
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)(?:\b(?:authorization|cookie|set-cookie)\s*[:=]|\bbearer\s+\S+|"
+    r"\b(?:secret|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|passwd|credential)\s*[:=]\s*\S+|"
+    r"\b(?:raw|request|response)?[_ -]?body\s*[:=])"
+)
+CLAIM_INFLATION_RE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:commercial(?:\s+readiness)?|production(?:\s+readiness)?|target(?:\s+evidence)?|final\s+release|release\s+readiness)\b"
+    r".{0,100}\b(?:pass(?:ed)?|ready|complete(?:d)?|verified)\b|"
+    r"\b(?:e3|e4|same[- ]commit|exact[- ]current[- ]commit|exact\s+current\s+commit)\b"
+    r".{0,100}\b(?:pass(?:ed)?|ready|complete(?:d)?|verified)\b"
+    r")"
+)
+
+REDACTED_VALUE = "[REDACTED]"
+REDACTED_URL = "[REDACTED_URL]"
+REDACTED_PATH = "[REDACTED_PATH]"
 
 REQUIRED_SURFACES = (
     "build-identity",
@@ -278,6 +299,102 @@ def write_atomic_json(path: Path, value: Any) -> None:
         raise ContractValidationError("aggregate_output_invalid") from exc
 
 
+def _key_tokens(key: str) -> set[str]:
+    expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key)
+    return {token for token in re.split(r"[^a-z0-9]+", expanded.lower()) if token}
+
+
+def _sensitive_key(key: str) -> bool:
+    tokens = _key_tokens(key)
+    if tokens & {"authorization", "cookie", "secret", "password", "passwd", "token", "credential", "credentials", "dsn"}:
+        return True
+    if "key" in tokens:
+        return True
+    return "body" in tokens and bool(tokens & {"raw", "request", "response"})
+
+
+def _network_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return True
+    host = parsed.hostname
+    if host is None:
+        return True
+    normalized = host.rstrip(".").lower()
+    if normalized in {"localhost", "0"} or normalized.endswith((".internal", ".local", ".localhost")):
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return True
+    return address.is_private or address.is_loopback or address.is_link_local or address.is_unspecified
+
+
+def _claim_inflation(value: str, current_commit: str) -> bool:
+    if CLAIM_INFLATION_RE.search(value):
+        return True
+    lowered = value.lower()
+    return current_commit in lowered and re.search(r"\bpass(?:ed)?\b", lowered) is not None
+
+
+def _path_redaction(value: str, repo_root: Path, key: str | None) -> str | None:
+    tokens = _key_tokens(key or "")
+    if "endpoint" in tokens and value.startswith("/") and ".." not in value:
+        return None
+    if value.startswith(("../", "./", "~/", "\\\\")) or WINDOWS_ABSOLUTE_PATH_RE.match(value):
+        return REDACTED_PATH
+    if not value.startswith("/"):
+        return None
+    candidate = Path(value)
+    try:
+        relative = candidate.resolve(strict=False).relative_to(repo_root.resolve(strict=True))
+    except (OSError, ValueError):
+        return REDACTED_PATH
+    return relative.as_posix()
+
+
+def redact_for_public_output(value: Any, repo_root: Path, current_commit: str) -> tuple[Any, int]:
+    """Return a recursively redacted copy without including rejected source values in errors."""
+
+    def redact(item: Any, key: str | None = None) -> tuple[Any, int]:
+        if key is not None and _sensitive_key(key):
+            return REDACTED_VALUE, 1
+        if isinstance(item, dict):
+            result: dict[str, Any] = {}
+            count = 0
+            for child_key, child in item.items():
+                result[child_key], child_count = redact(child, child_key)
+                count += child_count
+            return result, count
+        if isinstance(item, list):
+            result_list: list[Any] = []
+            count = 0
+            for child in item:
+                redacted_child, child_count = redact(child, key)
+                result_list.append(redacted_child)
+                count += child_count
+            return result_list, count
+        if not isinstance(item, str):
+            return item, 0
+        if _claim_inflation(item, current_commit):
+            raise ContractValidationError("aggregate_claim_inflation")
+        if DSN_RE.search(item) or SENSITIVE_VALUE_RE.search(item):
+            return REDACTED_VALUE, 1
+        if _network_url(item):
+            return REDACTED_URL, 1
+        path_replacement = _path_redaction(item, repo_root, key)
+        if path_replacement is not None and path_replacement != item:
+            return path_replacement, 1
+        return item, 0
+
+    return redact(copy.deepcopy(value))
+
+
 def validate_aggregate(
     *,
     report_dir: Path,
@@ -319,6 +436,12 @@ def validate_aggregate(
         "reports": [reports_by_surface[surface] for surface in REQUIRED_SURFACES],
         "producerStatus": producer_status,
         "outcome": {"result": "pass", "errorCodes": [], "skippedChecks": []},
+    }
+    aggregate, redacted_count = redact_for_public_output(aggregate, repo_root, identity["releaseCommit"])
+    aggregate["redaction"] = {
+        "schemaVersion": "release-contract-redaction/v1",
+        "policyVersion": "v1",
+        "redactedValueCount": redacted_count,
     }
     write_atomic_json(output_path, aggregate)
     return aggregate
@@ -399,7 +522,6 @@ def validate_call_graph_contract(repo_root: Path) -> None:
 
 
 def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: bool) -> None:
-    del include_redaction
     with tempfile.TemporaryDirectory(prefix="oblivious-release-aggregate-") as temporary:
         root = Path(temporary)
         go_env = dict(os.environ)
@@ -447,6 +569,16 @@ def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: b
             profile="monolith",
             output_path=valid_output,
         )
+
+        if include_redaction:
+            baseline = read_json(valid_output)
+            redaction = baseline.get("redaction")
+            if redaction != {
+                "schemaVersion": "release-contract-redaction/v1",
+                "policyVersion": "v1",
+                "redactedValueCount": 0,
+            }:
+                raise ContractValidationError("aggregate_redaction_metadata_invalid")
 
         mutation_count = 0
 
@@ -554,6 +686,140 @@ def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: b
         expect_failure("zero-reports", lambda reports, paths, identity, status: [])
         if mutation_count != 12:
             raise ContractValidationError("aggregate_fixture_count_invalid")
+
+        if include_redaction:
+            redacted_count = 0
+            rejected_claim_count = 0
+
+            def update_build_details(case_reports: Path, edit: Callable[[dict[str, Any]], None]) -> None:
+                build_path = case_reports / "build-identity.json"
+                report = read_json(build_path)
+                details = report["evidence"]["details"]
+                edit(details)
+                canonical = json.dumps(details, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                report["surfaceIdentity"]["consumerDigest"] = "sha256:" + hashlib.sha256(canonical).hexdigest()
+                write_fixture_json(build_path, report)
+
+            def expect_redacted(name: str, original: str, edit: Callable[[dict[str, Any]], None], marker: str) -> None:
+                nonlocal redacted_count
+                case_root = root / "redaction" / name
+                shutil.copytree(fixture_root, case_root, ignore=shutil.ignore_patterns("aggregate.json"))
+                case_reports = case_root / "reports"
+                update_build_details(case_reports, edit)
+                aggregate = validate_aggregate(
+                    report_dir=case_reports,
+                    report_paths=[case_reports / f"{surface}.json" for surface in REQUIRED_SURFACES],
+                    identity_path=case_root / "identity.json",
+                    producer_status_path=case_root / "producer-status.json",
+                    verifier=verifier,
+                    repo_root=repo_root,
+                    profile="monolith",
+                    output_path=case_root / "aggregate-output.json",
+                )
+                encoded = json.dumps(aggregate, sort_keys=True, separators=(",", ":"))
+                if original in encoded or marker not in encoded:
+                    raise ContractValidationError("aggregate_redaction_fixture_false_pass")
+                redacted_count += 1
+
+            authorization_value = "Bearer " + "fixture-authorization-value"
+            expect_redacted(
+                "authorization",
+                authorization_value,
+                lambda details: details.update({"residualRisks": ["Authorization: " + authorization_value]}),
+                "[REDACTED]",
+            )
+            credential_url = "https://fixture-user:fixture-password@127.0.0.1/private"
+            expect_redacted(
+                "credential-url",
+                credential_url,
+                lambda details: details["oci"].update({"image": credential_url}),
+                "[REDACTED_URL]",
+            )
+            dsn_value = "postgres://fixture-user:fixture-password@db.internal/oblivious"
+            expect_redacted(
+                "dsn",
+                dsn_value,
+                lambda details: details.update({"residualRisks": [dsn_value]}),
+                "[REDACTED]",
+            )
+            body_value = "responseBody=fixture-private-body"
+            expect_redacted(
+                "raw-body",
+                body_value,
+                lambda details: details.update({"residualRisks": [body_value]}),
+                "[REDACTED]",
+            )
+            external_path = "/var/tmp/private-release-evidence.json"
+            expect_redacted(
+                "external-path",
+                external_path,
+                lambda details: details["binaries"][0].update({"path": external_path}),
+                "[REDACTED_PATH]",
+            )
+
+            allowed = {
+                "path": "docs/release/commercial-gates.md",
+                "stableId": "RELS-02",
+                "digest": "sha256:" + "a" * 64,
+                "count": 10,
+                "version": "v1",
+                "errorClass": "aggregate_input_invalid",
+                "remediationRef": "docs/release/rc-checklist.md#release-contract-aggregate",
+            }
+            sanitized, count = redact_for_public_output(allowed, repo_root, "f" * 40)
+            if sanitized != allowed or count != 0:
+                raise ContractValidationError("aggregate_redaction_allowlist_invalid")
+
+            sensitive_fields = {
+                "Authorization": authorization_value,
+                "Cookie": "session=fixture-cookie-value",
+                "clientSecret": "fixture-client-secret",
+                "apiKey": "fixture-api-key",
+                "accessToken": "fixture-access-token",
+                "rawResponseBody": "fixture-private-body",
+            }
+            sanitized, count = redact_for_public_output(sensitive_fields, repo_root, "f" * 40)
+            encoded = json.dumps(sanitized, sort_keys=True, separators=(",", ":"))
+            if count != len(sensitive_fields) or any(value in encoded for value in sensitive_fields.values()):
+                raise ContractValidationError("aggregate_redaction_key_fixture_false_pass")
+            redacted_count += len(sensitive_fields)
+
+            def expect_claim_rejected(name: str, claim: str) -> None:
+                nonlocal rejected_claim_count
+                case_root = root / "redaction" / name
+                shutil.copytree(fixture_root, case_root, ignore=shutil.ignore_patterns("aggregate.json"))
+                case_reports = case_root / "reports"
+                update_build_details(case_reports, lambda details: details.update({"residualRisks": [claim]}))
+                try:
+                    validate_aggregate(
+                        report_dir=case_reports,
+                        report_paths=[case_reports / f"{surface}.json" for surface in REQUIRED_SURFACES],
+                        identity_path=case_root / "identity.json",
+                        producer_status_path=case_root / "producer-status.json",
+                        verifier=verifier,
+                        repo_root=repo_root,
+                        profile="monolith",
+                        output_path=case_root / "aggregate-output.json",
+                    )
+                except ContractValidationError as exc:
+                    if exc.code != "aggregate_claim_inflation":
+                        raise
+                    rejected_claim_count += 1
+                    return
+                raise ContractValidationError("aggregate_claim_fixture_false_pass")
+
+            fixture_identity = load_identity(identity_path)
+            expect_claim_rejected("claim-inflation", "commercial release passed for this release")
+            expect_claim_rejected(
+                "exact-current-commit-claim",
+                f"exact current commit {fixture_identity['releaseCommit']} passed all release gates",
+            )
+            if redacted_count != 11 or rejected_claim_count != 2:
+                raise ContractValidationError("aggregate_redaction_fixture_count_invalid")
+            print(
+                "[release-contract-redaction-fixtures] "
+                f"{redacted_count} redacted values and {rejected_claim_count} rejected claims verified"
+            )
         if include_call_graph:
             validate_call_graph_contract(repo_root)
         print(f"[release-contract-fixtures] exact ten-report aggregate and {mutation_count} rejected mutations verified")
