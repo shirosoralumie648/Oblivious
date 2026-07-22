@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-15-PLAN.md
-last_updated: "2026-07-22T07:52:07.000Z"
+stopped_at: Completed 31.2-03-PLAN.md
+last_updated: "2026-07-22T09:07:11.000Z"
 last_activity: 2026-07-22
-last_activity_desc: Plan 31.2-15 complete HTTP runtime producer and frontend owner handoff
+last_activity_desc: Plan 31.2-03 one-Program frontend sidecar and trusted report registrations
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 41
-  percent: 93
+  completed_plans: 42
+  percent: 95
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 03 of 15
+Plan: 05 of 15
 Status: Ready to execute
-Last activity: 2026-07-22 — Plan 31.2-15 complete HTTP runtime producer and frontend owner handoff
+Last activity: 2026-07-22 — Plan 31.2-03 one-Program frontend sidecar and trusted report registrations
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 21
-- Average duration: 35 min
-- Total execution time: 11.9 hours
+- Total plans completed: 22
+- Average duration: 37 min
+- Total execution time: 13.1 hours
 
 **By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 19 plans in 619 minutes.
 
-**Recent Trend:** Plan 31.2-15 closed a trusted 197-operation HTTP runtime producer, two marketing auth callers, and the exact 25-disposition/267-call frontend handoff with 13 producer fixture cases passing.
+**Recent Trend:** Plan 31.2-03 closed one 127-file compiler inventory with 264 operations, 91 exposures, exact 25-owner closure, fresh-clone mutations, and two trusted frontend report registrations.
 
 ## Accumulated Context
 
@@ -141,6 +141,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Build and validate the complete 197-descriptor runtime snapshot before loading compare-only manifest metadata or resolving report identity. — Prevents derived JSON from becoming runtime registration authority.
 - [Phase 31.2]: The HTTP runtime producer exposes no caller override for release identity, evidence class, skips, drift, or outcome. — Trusted resolvers and the typed report constructor remain the only report authority.
 - [Phase 31.2]: One explicit 25-disposition inventory owns the Plan 03 frontend handoff, with providers.tsx retained as the sole compiler-proven non-caller. — Keeps owner removal and exact-symbol call-count drift fail closed.
+- [Phase 31.2]: Generated operation symbols are the sole frontend transport identity authority; method/path checks validate but never select identity. — Prevents URL lookup, local metadata, or generic-only callers from becoming release evidence.
+- [Phase 31.2]: The production sidecar owns one exact 25-disposition closure with four shared transport owners and providers.tsx as one compiler-proven non-caller. — Missing, silent, new, or spoofed owners fail before report projection.
+- [Phase 31.2]: frontend-transport and frontend-exposure use separate closed details schemas and exact-match only their shared sidecar/source/config provenance. — Keeps transport taxonomy and product projection evidence distinct without allowing digest splice.
 
 ### Pending Todos
 
@@ -184,6 +187,7 @@ None yet.
 | Phase 31.2 P10 | 1h 12m | 3 tasks | 13 files |
 | Phase 31.2 P14 | 72 min | 2 tasks | 13 files |
 | Phase 31.2 P15 | 26 min | 3 tasks | 8 files |
+| Phase 31.2 P03 | 1h 10m | 3 tasks | 13 files |
 
 ### Roadmap Evolution
 
@@ -196,8 +200,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-22T07:52:07.000Z
-Stopped at: Completed 31.2-15-PLAN.md
+Last session: 2026-07-22T09:07:11.000Z
+Stopped at: Completed 31.2-03-PLAN.md
 Resume file: None
 
 ## Performance Metrics
