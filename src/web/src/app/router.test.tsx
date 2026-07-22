@@ -1,7 +1,61 @@
+// @ts-expect-error Vitest runs in Node, while the browser tsconfig intentionally omits Node types.
+import { createHash } from 'node:crypto';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentType, ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { releaseCapabilityProjection } from '@/generated/release-projection.generated';
+
+type RouterProjectionResponse = {
+  releaseIdentity: {
+    sourceTree: string;
+    contractDigest: string;
+    deploymentProfile: string;
+  };
+  generation: number;
+  projectionDigest: string;
+  capabilities: Array<{
+    capabilityId: string;
+    disposition: 'committed' | 'conditional';
+    availability: 'enabled';
+    enabled: true;
+  }>;
+};
+
+function routerProjectionResponse(): RouterProjectionResponse {
+  const response: RouterProjectionResponse = {
+    releaseIdentity: {
+      sourceTree: 'a'.repeat(40),
+      contractDigest: `sha256:${'b'.repeat(64)}`,
+      deploymentProfile: 'monolith'
+    },
+    generation: 7,
+    projectionDigest: '',
+    capabilities: releaseCapabilityProjection
+      .filter((capability) => capability.disposition !== 'excluded')
+      .map((capability) => ({
+        capabilityId: capability.capabilityId,
+        disposition: capability.disposition,
+        availability: 'enabled',
+        enabled: true
+      }))
+  };
+  const payload = {
+    identity: response.releaseIdentity,
+    generation: response.generation,
+    capabilities: response.capabilities
+  };
+  response.projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+  return response;
+}
+
+function jsonResponse(value: unknown, status = 200) {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
 
 const chatApiMocks = vi.hoisted(() => ({
   convertConversationToTask: vi.fn((conversationId = 'conversation_router') =>
@@ -637,6 +691,25 @@ const agentsApiMocks = vi.hoisted(() => ({
   updateAgent: vi.fn((agent: unknown) => Promise.resolve(agent))
 }));
 
+const swrApiMocks = vi.hoisted(() => ({
+  getAdminStats: vi.fn(() =>
+    Promise.resolve({
+      users: { totalUsers: 24, activeUsers: 12, newUsersToday: 2, newUsersWeek: 5 },
+      quotas: { totalBalance: 100, totalUsed: 25, activeTopups: 3 },
+      conversations: 8,
+      agents: 11,
+      tasks: 4,
+      mcpServers: 2,
+      channelsTotal: 4,
+      channelsOnline: 3,
+      activeAgents: 7,
+      apiCalls24h: 128,
+      dailyStats: [],
+      modelBreakdown: []
+    })
+  )
+}));
+
 vi.mock('@xyflow/react', () => {
   const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
 
@@ -869,6 +942,15 @@ vi.mock('../features/knowledge/api', () => ({
 vi.mock('../features/tasks/api', () => ({
   createTasksApi: () => taskApiMocks
 }));
+
+vi.mock('../lib/swr', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/swr')>();
+  return {
+    ...original,
+    fetcher: (key: Parameters<typeof original.fetcher>[0]) =>
+      key[0] === '/api/v1/admin/stats' ? swrApiMocks.getAdminStats() : original.fetcher(key)
+  };
+});
 
 vi.mock('../features/admin/api', () => ({
   createAdminApi: () => ({
@@ -2079,6 +2161,17 @@ import { createAppRouter } from './router';
 import { routerFuture } from './routerFuture';
 
 describe('app router', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const rawUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+      const pathname = new URL(rawUrl, 'http://localhost').pathname;
+      if (pathname === '/api/v1/app/readiness/capabilities') {
+        return jsonResponse(routerProjectionResponse());
+      }
+      return jsonResponse({ ok: false, data: null, error: { code: 'not_found', message: `Unhandled test request: ${pathname}` } }, 404);
+    }));
+  });
+
   afterEach(() => {
     Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
     Object.values(knowledgeApiMocks).forEach((mock) => mock.mockClear());
@@ -2087,6 +2180,8 @@ describe('app router', () => {
     Object.values(marketplaceApiMocks).forEach((mock) => mock.mockClear());
     Object.values(agentPlanStepsApiMocks).forEach((mock) => mock.mockClear());
     Object.values(agentsApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(swrApiMocks).forEach((mock) => mock.mockClear());
+    vi.unstubAllGlobals();
     window.history.replaceState({}, '', '/');
   });
 
@@ -2128,6 +2223,10 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'Chat workspace' })).toBeInTheDocument();
     expect(await screen.findByText('Router parameter message.')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/chat/conversation_router');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save conversation settings' })).toBeEnabled();
+    });
 
     fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.6' } });
     fireEvent.change(screen.getByLabelText('Max output tokens'), { target: { value: '1200' } });

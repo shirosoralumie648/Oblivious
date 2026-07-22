@@ -24,6 +24,10 @@ function okResponse(data: unknown) {
   };
 }
 
+function createdResponse(data: unknown) {
+  return { ...okResponse(data), status: 201 };
+}
+
 type FetchRoute = {
   path: string;
   method?: string;
@@ -154,7 +158,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_slack',
           kind: 'slack_webhook',
           channel: 'im',
@@ -232,7 +236,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_smtp',
           kind: 'smtp',
           channel: 'email',
@@ -296,7 +300,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_pagerduty',
           kind: 'pagerduty',
           channel: 'third_party',
@@ -348,7 +352,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_opsgenie',
           kind: 'opsgenie',
           channel: 'third_party',
@@ -400,7 +404,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_aliyun_monitor',
           kind: 'aliyun_monitor',
           channel: 'third_party',
@@ -449,7 +453,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_twilio_sms',
           kind: 'twilio_sms',
           channel: 'sms',
@@ -510,7 +514,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_aliyun_sms',
           kind: 'aliyun_sms',
           channel: 'sms',
@@ -574,7 +578,7 @@ describe('AdminAlertsPage', () => {
       {
         path: alertProvidersPath,
         method: 'POST',
-        response: okResponse({
+        response: createdResponse({
           id: 'alert_provider_phone',
           kind: 'phone',
           channel: 'phone',

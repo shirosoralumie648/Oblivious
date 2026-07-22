@@ -11,7 +11,7 @@ import { uploadFile } from './upload';
 const uploadContract = {
   operation: uploadKnowledgeDocumentOperationContract,
   requestEncoder: formDataRequestEncoder(uploadKnowledgeDocumentOperationContract),
-  responseDecoder: rawResponseDecoder(uploadKnowledgeDocumentOperationContract, 200)
+  responseDecoder: rawResponseDecoder(uploadKnowledgeDocumentOperationContract, 202)
 };
 
 describe('uploadFile', () => {
@@ -19,7 +19,7 @@ describe('uploadFile', () => {
 
   it('uploads FormData with exact operation metadata and no manual multipart boundary', async () => {
     const response = new Response(JSON.stringify({ ok: true, data: { id: 'doc_1' }, error: null }), {
-      status: 200,
+      status: 202,
       headers: { 'Content-Type': 'application/json' }
     });
     const fetchFn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response);
