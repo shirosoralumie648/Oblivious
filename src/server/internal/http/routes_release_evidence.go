@@ -391,16 +391,39 @@ func newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg config.Config, data
 	}
 }
 
+func releaseEvidenceRouteSurfaceOperations() []OperationContractMetadataV1 {
+	return routeSurfaceOperationsFromSpecs([]routeSurfaceOperationSpec{
+		{"GET", "/api/v1/admin/release-evidence/marketplace-governance", "getAdminReleaseEvidenceMarketplaceGovernanceProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/marketplace-payout", "getAdminReleaseEvidenceMarketplacePayoutProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/microservice-database", "getAdminReleaseEvidenceMicroserviceDatabaseProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/provider-runtime-config", "getAdminReleaseEvidenceProviderRuntimeConfigProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/rag-indexing", "getAdminReleaseEvidenceRAGIndexingProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/relay-batch", "getAdminReleaseEvidenceRelayBatchProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+		{"GET", "/api/v1/admin/release-evidence/relay-realtime", "getAdminReleaseEvidenceRelayRealtimeProof", "cookie", false, "release.contract_reporting", "", "none", "", "200", "application/json", "ref", "#/components/schemas/ReleaseEvidenceProofEnvelope"},
+	})
+}
+
+func registerReleaseEvidenceRouteSurfaces(registrar *RouteSurfaceRegistrar, handler releaseEvidenceHandler) error {
+	operations := releaseEvidenceRouteSurfaceOperations()
+	return registerRouteSurfaceBindings(registrar, routeSurfaceBindingsForHandler(operations, RouteSurfaceAuthAdmin, releaseEvidenceRouteHandler(handler)))
+}
+
 func registerReleaseEvidenceRoutes(mux *stdhttp.ServeMux, authMiddleware interface {
 	requireAdmin(stdhttp.Handler) stdhttp.Handler
 }, handler releaseEvidenceHandler) {
-	mux.Handle(releaseEvidenceRoutePrefix, newReleaseEvidenceRouter(authMiddleware, handler))
+	if err := registerReleaseEvidenceRouteSurfaces(mustRouteSurfaceAdminAdapterRegistrar(mux, authMiddleware), handler); err != nil {
+		panic(err)
+	}
 }
 
 func newReleaseEvidenceRouter(authMiddleware interface {
 	requireAdmin(stdhttp.Handler) stdhttp.Handler
 }, handler releaseEvidenceHandler) stdhttp.Handler {
-	return authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	return authMiddleware.requireAdmin(releaseEvidenceRouteHandler(handler))
+}
+
+func releaseEvidenceRouteHandler(handler releaseEvidenceHandler) stdhttp.Handler {
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
@@ -424,7 +447,7 @@ func newReleaseEvidenceRouter(authMiddleware interface {
 			return
 		}
 		writeSuccess(w, stdhttp.StatusOK, proof)
-	}))
+	})
 }
 
 func (h releaseEvidenceHandler) proof(ctx context.Context, proofType string) (map[string]any, bool) {

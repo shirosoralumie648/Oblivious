@@ -97,19 +97,19 @@ func TestRouteSurfaceWebSocketRejectsUnsupportedMethodsWithoutDatabase(t *testin
 func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testing.T) {
 	called := routeSurfaceCalledRegistrars(t, "router.go")
 
-	if !called["registerKnowledgeRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register canonical app knowledge routes through registerKnowledgeRoutes")
+	if !called["registerKnowledgeRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register canonical app knowledge routes through registerKnowledgeRouteSurfaces")
 	}
-	if !called["registerKnowledgeAliasRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register Knowledge compatibility alias routes through registerKnowledgeAliasRoutes")
+	if !called["registerKnowledgeAliasRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register Knowledge compatibility alias routes through registerKnowledgeAliasRouteSurfaces")
 	}
 }
 
 func TestRouteSurfaceRegistersCanonicalChatRoutesThroughRegistrar(t *testing.T) {
 	called := routeSurfaceCalledRegistrars(t, "router.go")
 
-	if !called["registerChatRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRoutes")
+	if !called["registerChatRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRouteSurfaces")
 	}
 	if !called["registerConversationAliasRouteSurfaces"] {
 		t.Fatal("expected NewRouterWithOptions to register Chat conversation alias routes through registerConversationAliasRouteSurfaces")
@@ -328,34 +328,41 @@ func routeSurfaceKnowledgeAliasMutationCases() []routeSurfaceCase {
 }
 
 func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
-	routesSource := routeSurfaceReadSourceFile(t, "routes_console.go")
-
-	if !routeSurfaceCalledRegistrars(t, "router.go")["registerConsoleRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
+	if !routeSurfaceCalledRegistrars(t, "router.go")["registerConsoleRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRouteSurfaces")
 	}
-	if !strings.Contains(string(routesSource), `mux.Handle("/api/v1/console/invoices"`) {
-		t.Fatal("expected NewRouterWithOptions to expose /api/v1/console/invoices")
+	if !routeSurfaceOperationPresent(consoleRouteSurfaceOperations(), stdhttp.MethodGet, "/api/v1/console/invoices", "listConsoleBillingInvoices") {
+		t.Fatal("expected typed Console route surface to expose /api/v1/console/invoices")
 	}
 }
 
 func TestRouteSurfaceRegistersConsoleAPITokenRoutes(t *testing.T) {
-	routesSource := routeSurfaceReadSourceFile(t, "routes_console.go")
-	if !routeSurfaceCalledRegistrars(t, "router.go")["registerConsoleRoutes"] {
-		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
+	if !routeSurfaceCalledRegistrars(t, "router.go")["registerConsoleRouteSurfaces"] {
+		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRouteSurfaces")
 	}
-	text := string(routesSource)
-
-	for _, expected := range []string{
-		`mux.Handle("/api/v1/console/api-tokens"`,
-		`mux.Handle("/api/v1/console/api-tokens/"`,
-		"consoleHandler.createAPIToken",
-		"consoleHandler.listAPITokenUsage",
-		"consoleHandler.revokeAPIToken",
+	for _, expected := range []struct {
+		method      string
+		path        string
+		operationID string
+	}{
+		{stdhttp.MethodGet, "/api/v1/console/api-tokens", "listConsoleAPITokens"},
+		{stdhttp.MethodPost, "/api/v1/console/api-tokens", "createConsoleAPIToken"},
+		{stdhttp.MethodGet, "/api/v1/console/api-tokens/{tokenId}/usage", "listConsoleAPITokenUsage"},
+		{stdhttp.MethodDelete, "/api/v1/console/api-tokens/{tokenId}", "revokeConsoleAPIToken"},
 	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("expected NewRouterWithOptions to expose Console API token route surface containing %q", expected)
+		if !routeSurfaceOperationPresent(consoleRouteSurfaceOperations(), expected.method, expected.path, expected.operationID) {
+			t.Fatalf("expected typed Console API token route %s %s (%s)", expected.method, expected.path, expected.operationID)
 		}
 	}
+}
+
+func routeSurfaceOperationPresent(operations []OperationContractMetadataV1, method, path, operationID string) bool {
+	for _, operation := range operations {
+		if operation.Method == method && operation.NormalizedPath == path && operation.OperationID == operationID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRouteSurfaceRegistersAdminAPITokenRoutes(t *testing.T) {

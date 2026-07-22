@@ -53,12 +53,24 @@ func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	authStore := auth.NewSQLStore(database)
 	authService := auth.NewService(authStore)
 	authMiddleware := newAuthMiddleware(cfg, authService)
+	routeSurfaceRegistrar, err := NewRouteSurfaceRegistrar(mux, RouteSurfacePolicies{
+		Auth: map[RouteSurfaceAuth]RouteSurfaceMiddleware{
+			RouteSurfaceAuthSession: authMiddleware.requireSession,
+		},
+		CSRF:                authMiddleware.securityGuard,
+		AllowedCapabilities: routeSurfaceAllowedCapabilities(),
+	})
+	if err != nil {
+		panic(err)
+	}
 	replyGenerator, _ := newConfiguredChatGateways(cfg)
 	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	chatHandler := newChatHandler(chatService)
 
-	registerChatRoutes(mux, authMiddleware, chatHandler)
-	if err := registerConversationAliasRouteSurfaces(mustRouteSurfaceAdapterRegistrar(mux, authMiddleware), chatHandler); err != nil {
+	if err := registerChatRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
+		panic(err)
+	}
+	if err := registerConversationAliasRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
 		panic(err)
 	}
 	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
@@ -181,7 +193,7 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			RouteSurfaceAuthAdmin:   authMiddleware.requireAdmin,
 		},
 		CSRF:                authMiddleware.securityGuard,
-		AllowedCapabilities: routeSurfaceGroupAAllowedCapabilities(),
+		AllowedCapabilities: routeSurfaceAllowedCapabilities(),
 	}
 	if options.Guard != nil {
 		routeSurfacePolicies.Guard = func(_ string, capabilityID string, next stdhttp.Handler) stdhttp.Handler {
@@ -440,7 +452,9 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	} else {
 		adminHandler = newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
 	}
-	registerReleaseEvidenceRoutes(mux, authMiddleware, newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg, database, options.RequestLogEvidenceStore))
+	if err := registerReleaseEvidenceRouteSurfaces(routeSurfaceRegistrar, newReleaseEvidenceHandlerWithDatabaseAndRequestLogs(cfg, database, options.RequestLogEvidenceStore)); err != nil {
+		return nil, err
+	}
 	marketplaceCheckoutConfig := stripebilling.CheckoutConfig{
 		SecretKey: cfg.StripeSecretKey, SuccessURL: cfg.StripeSuccessURL,
 		CancelURL: cfg.StripeCancelURL, WebhookSecret: cfg.StripeWebhookSecret,
@@ -506,22 +520,36 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	if err := registerAuthRouteSurfaces(routeSurfaceRegistrar, authHandler); err != nil {
 		return nil, err
 	}
-	registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)
-	registerKnowledgeAliasRoutes(mux, authMiddleware, knowledgeHandler)
+	if err := registerKnowledgeRouteSurfaces(routeSurfaceRegistrar, knowledgeHandler); err != nil {
+		return nil, err
+	}
+	if err := registerKnowledgeAliasRouteSurfaces(routeSurfaceRegistrar, knowledgeHandler); err != nil {
+		return nil, err
+	}
 	if err := registerAgentMemoryRouteSurfaces(routeSurfaceRegistrar, agentMemoryHandler); err != nil {
 		return nil, err
 	}
 	if err := registerAgentRunRouteSurfaces(routeSurfaceRegistrar, agentRunsHandler); err != nil {
 		return nil, err
 	}
-	registerWorkflowRoutes(mux, authMiddleware, workflowHandler)
+	if err := registerWorkflowRouteSurfaces(routeSurfaceRegistrar, workflowHandler); err != nil {
+		return nil, err
+	}
 	if err := registerScheduleRouteSurfaces(routeSurfaceRegistrar, scheduleHandler); err != nil {
 		return nil, err
 	}
-	registerPublishingChannelRoutes(mux, authMiddleware, channelHandler)
-	registerObservabilityAlertRoutes(mux, authMiddleware, observabilityAlertHandler)
-	registerConsoleRoutes(mux, authMiddleware, consoleHandler)
-	registerChatRoutes(mux, authMiddleware, chatHandler)
+	if err := registerPublishingChannelRouteSurfaces(routeSurfaceRegistrar, channelHandler); err != nil {
+		return nil, err
+	}
+	if err := registerObservabilityAlertRouteSurfaces(routeSurfaceRegistrar, observabilityAlertHandler); err != nil {
+		return nil, err
+	}
+	if err := registerConsoleRouteSurfaces(routeSurfaceRegistrar, consoleHandler); err != nil {
+		return nil, err
+	}
+	if err := registerChatRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
+		return nil, err
+	}
 	if err := registerConversationAliasRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
 		return nil, err
 	}
