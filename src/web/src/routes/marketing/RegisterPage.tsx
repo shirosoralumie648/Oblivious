@@ -3,7 +3,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import { RiArrowRightLine, RiBuilding4Line } from '@remixicon/react';
 
 import { useAppContext } from '../../app/providers';
-import { createHttpClient } from '../../services/http/client';
+import { registerOperationContract } from '@/generated/operation-contracts.generated';
+import {
+  createHttpClient,
+  jsonEnvelopeDecoder,
+  jsonRequestEncoder,
+  type OperationTransportContract
+} from '../../services/http/client';
+import type { SessionResponse } from '../../types/api';
+
+const registerTransport: OperationTransportContract<SessionResponse> = {
+  operation: registerOperationContract,
+  requestEncoder: jsonRequestEncoder(registerOperationContract),
+  responseDecoder: jsonEnvelopeDecoder<SessionResponse>(registerOperationContract, 200)
+};
 
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : 'Unable to create the account. Check the details and try again.';
@@ -24,7 +37,7 @@ export function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      await client.post('/api/v1/auth/register', { email, password });
+      await client.post<SessionResponse>('/api/v1/auth/register', { email, password }, undefined, registerTransport);
       await bootstrapAuth();
       navigate('/onboarding');
     } catch (caughtError) {
