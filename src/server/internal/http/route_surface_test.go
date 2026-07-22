@@ -2534,13 +2534,6 @@ func routeSurfaceRouterOwnedManifestOperations(t *testing.T, manifest routeSurfa
 	return result
 }
 
-func routeSurfaceErrorCode(err error) string {
-	if contractErr, ok := err.(*RouteSurfaceContractError); ok {
-		return contractErr.Code
-	}
-	return ""
-}
-
 func routeSurfaceASTSelectorCallCount(t *testing.T, sourceFile, selectorName string) int {
 	t.Helper()
 	fset := token.NewFileSet()
