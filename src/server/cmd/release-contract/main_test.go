@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -150,6 +152,149 @@ func TestRunVerifyReportRejectsSchemaAndIdentitySplice(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunVerifyAllSurfaceReportTypesContract(t *testing.T) {
+	root := t.TempDir()
+	if output := os.Getenv("OBLIVIOUS_SURFACE_FIXTURE_DIR"); output != "" {
+		root = output
+	}
+	reportsDir := filepath.Join(root, "reports")
+	if err := os.MkdirAll(reportsDir, 0o755); err != nil {
+		t.Fatalf("create fixture report directory: %v", err)
+	}
+
+	identity := commandTestIdentity()
+	identityContent, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatalf("marshal fixture identity: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "identity.json"), identityContent, 0o644); err != nil {
+		t.Fatalf("write fixture identity: %v", err)
+	}
+
+	reports := commandFixtureSurfaceReports(t, identity)
+	if len(reports) != 10 {
+		t.Fatalf("fixture report count = %d, want 10", len(reports))
+	}
+	seen := map[string]struct{}{}
+	for _, report := range reports {
+		surface := report.SurfaceIdentity.Surface
+		if _, duplicate := seen[surface]; duplicate {
+			t.Fatalf("duplicate fixture surface %q", surface)
+		}
+		seen[surface] = struct{}{}
+		content, err := surfacereport.Marshal(report, surfacereport.NewDetailsRegistry())
+		if err != nil {
+			t.Fatalf("marshal %s fixture: %v", surface, err)
+		}
+		path := filepath.Join(reportsDir, surface+".json")
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatalf("write %s fixture: %v", surface, err)
+		}
+		var stdout, stderr bytes.Buffer
+		if exitCode := runWithDependencies(context.Background(), []string{"verify-report", "--input", path}, &stdout, &stderr, dependencies{}); exitCode != 0 {
+			t.Fatalf("verify %s fixture exit=%d stderr=%s", surface, exitCode, stderr.String())
+		}
+		var status struct {
+			SchemaVersion string `json:"schemaVersion"`
+			Surface       string `json:"surface"`
+			Result        string `json:"result"`
+			EvidenceClass string `json:"evidenceClass"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &status); err != nil || status.SchemaVersion != surfacereport.SurfaceReportSchemaV1 || status.Surface != surface || status.Result != "pass" || status.EvidenceClass != buildinfo.EvidenceRepositoryLocal {
+			t.Fatalf("unexpected %s verify status: %#v err=%v", surface, status, err)
+		}
+	}
+}
+
+func commandFixtureSurfaceReports(t *testing.T, identity buildinfo.BuildIdentityV1) []surfacereport.SurfaceReportV1 {
+	t.Helper()
+	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
+	buildDetails := surfacereport.BuildIdentityDetails{
+		Binaries: []surfacereport.BinaryInspection{
+			{Name: "grpc-smoke", Path: "bin/oblivious-grpc-smoke", Digest: digest("1"), Identity: identity, Matches: true},
+			{Name: "migrate", Path: "bin/oblivious-migrate", Digest: digest("2"), Identity: identity, Matches: true},
+			{Name: "server", Path: "bin/oblivious-server", Digest: digest("3"), Identity: identity, Matches: true},
+		},
+		OCI:              surfacereport.OCIInspection{Image: "oblivious:fixture", Digest: digest("4"), Identity: identity, Matches: true},
+		PackagedContract: surfacereport.PackagedContractInspection{Path: "config/release/contract.v1.json", Digest: identity.ContractDigest, Identity: identity, Matches: true},
+		ResidualRisks:    []string{"external target not inspected"},
+	}
+	protobufDetails := surfacereport.ProtobufDetails{
+		SchemaVersion: "protobuf-observation/v1", ManifestDigest: "sha256:3b225e40c4a7659d07c2638f128ac2087483d2ebab737f4533415793dcad54eb",
+		ToolVersions:           surfacereport.ProtobufToolVersions{Protoc: "25.1", ProtocGenGo: "1.36.11", ProtocGenGoGRPC: "1.6.2"},
+		GeneratedHeaderVersion: "v4.25.1", SourceCount: 10, OutputCount: 21, ManagedCount: 9, SourceOnlyCount: 1,
+		Regeneration: surfacereport.ProtobufRegeneration{Result: "pass", GeneratedCount: 21, Digest: "sha256:c74af7cc805309b00807b9ecfbbbce31ec2737c4fb726130a70ecbbc168da96a"},
+		ErrorCodes:   []string{}, SkippedChecks: []string{},
+	}
+	transportDetails := surfacereport.FrontendTransportDetails{
+		SchemaVersion: "frontend-transport-observation/v1", SidecarDigest: digest("5"), SourceDigest: digest("6"), ConfigDigest: digest("7"),
+		OperationCount: 264, CoreCount: 264, CompatibleCount: 264, TaxonomyDigest: digest("8"), UnresolvedCount: 0,
+		ErrorCodes: []string{}, SkippedChecks: []string{},
+	}
+	exposureDetails := surfacereport.FrontendExposureDetails{
+		SchemaVersion: "frontend-exposure-observation/v1", SidecarDigest: digest("5"), SourceDigest: digest("6"), ConfigDigest: digest("7"),
+		ExposureCount: 80, CatalogCount: 14, NavigationCount: 67, GeneratedConsumerCount: 374, ProjectionDigest: digest("9"), UnresolvedCount: 0,
+		ErrorCodes: []string{}, SkippedChecks: []string{},
+	}
+	staticDetails := surfacereport.MigrationStaticDetails{
+		DatabaseKind: "postgresql-pgvector", IdentityCount: 2, FileCount: 2, IdentityDigest: digest("a"), StaticMetadataDigest: digest("b"),
+		NonMonolithDispositionCounts: map[string]int{"clickhouse-non-monolith": 1, "microservice-non-monolith": 1},
+	}
+	ledgerDetails := surfacereport.MigrationLedgerDetails{DatabaseKind: "postgresql-pgvector", RowCount: 2, IdentityDigest: digest("a"), MatchesStatic: true}
+	replayDetails := surfacereport.MigrationReplayDetails{
+		DatabaseKind: "postgresql-pgvector", ReplayMode: "docker-ephemeral", InitialLedgerRows: 0,
+		FirstApply: surfacereport.MigrationApplyCounts{Applied: 2, Skipped: 0}, SecondApply: surfacereport.MigrationApplyCounts{Applied: 0, Skipped: 2},
+		FinalLedgerRows: 2, StaticDigest: digest("a"), LedgerDigest: digest("a"), CleanupResult: "succeeded",
+	}
+
+	return []surfacereport.SurfaceReportV1{
+		commandFixtureReport(t, identity, surfacereport.BuildIdentitySurfaceID, "config/release/contract.v1.json", "binary-oci-packaged-contract-inspector", identity.ContractDigest, commandFixtureDetailsDigest(t, surfacereport.BuildIdentitySurfaceID, buildDetails), "repository", "inspection", map[string]string{}, buildDetails),
+		commandFixtureReport(t, identity, surfacereport.ReadinessSurfaceID, "config/release/contract.v1.json", "runtime-readiness-inspector", identity.ContractDigest, commandFixtureDetailsDigest(t, surfacereport.ReadinessSurfaceID, surfacereport.ReadinessDetails{Generation: 1, CheckedAt: "2026-07-22T10:50:00Z", ValidUntil: "2026-07-22T10:52:00Z"}), "repository", "offline", map[string]string{}, surfacereport.ReadinessDetails{Generation: 1, CheckedAt: "2026-07-22T10:50:00Z", ValidUntil: "2026-07-22T10:52:00Z"}),
+		commandFixtureReport(t, identity, surfacereport.DeploymentSurfaceID, "deploy/kubernetes/app-deployment.yaml", "readiness-deployment-harness", identity.ContractDigest, commandFixtureDetailsDigest(t, surfacereport.DeploymentSurfaceID, surfacereport.DeploymentDetails{Profile: "monolith", CanonicalWorkload: "deploy/kubernetes/app-deployment.yaml", StartupEndpoint: "/livez", LivenessEndpoint: "/livez", ReadinessEndpoint: "/readyz", AuditStorage: "emptyDir", MigrationState: "applied_and_validated", HarnessResult: "passed"}), "repository", "deployment-harness", map[string]string{}, surfacereport.DeploymentDetails{Profile: "monolith", CanonicalWorkload: "deploy/kubernetes/app-deployment.yaml", StartupEndpoint: "/livez", LivenessEndpoint: "/livez", ReadinessEndpoint: "/readyz", AuditStorage: "emptyDir", MigrationState: "applied_and_validated", HarnessResult: "passed"}),
+		commandFixtureReport(t, identity, surfacereport.HTTPRuntimeSurfaceID, "docs/api/openapi.yaml", "runtime-route-registry", digest("c"), digest("c"), "repository", "runtime-registry-parity", map[string]string{}, surfacereport.HTTPRuntimeDetails{OperationCount: 264, MountedCount: 264, DescriptorCount: 264, CoreDigest: digest("c"), RuntimeDigest: digest("c"), MediaProbeCount: 1, ParityResult: "pass"}),
+		commandFixtureReport(t, identity, surfacereport.FrontendTransportSurfaceID, "src/web/src", "frontend-transport-verifier", transportDetails.SourceDigest, commandFixtureDetailsDigest(t, surfacereport.FrontendTransportSurfaceID, transportDetails), "repository", "compiler-sidecar", map[string]string{}, transportDetails),
+		commandFixtureReport(t, identity, surfacereport.FrontendExposureSurfaceID, "src/web/src", "product-exposure-verifier", exposureDetails.SourceDigest, commandFixtureDetailsDigest(t, surfacereport.FrontendExposureSurfaceID, exposureDetails), "repository", "compiler-sidecar", map[string]string{}, exposureDetails),
+		commandFixtureReport(t, identity, surfacereport.ProtobufSurfaceID, "config/release/protobuf-toolchain.v1.json", "tracked-protobuf-generated-consumers", protobufDetails.ManifestDigest, commandFixtureDetailsDigest(t, surfacereport.ProtobufSurfaceID, protobufDetails), "repository", "fresh-regeneration", map[string]string{"protoc": "25.1", "protoc-gen-go": "1.36.11", "protoc-gen-go-grpc": "1.6.2"}, protobufDetails),
+		commandFixtureReport(t, identity, surfacereport.MigrationStaticSurfaceID, "src/server/migrations", "monolith-migration-static-inventory", staticDetails.StaticMetadataDigest, staticDetails.IdentityDigest, "repository", "static", map[string]string{}, staticDetails),
+		commandFixtureReport(t, identity, surfacereport.MigrationLedgerSurfaceID, "schema_migrations(version,checksum)", "monolith-runtime-ledger", ledgerDetails.IdentityDigest, ledgerDetails.IdentityDigest, "repository-local-database", "ledger", map[string]string{}, ledgerDetails),
+		commandFixtureReport(t, identity, surfacereport.MigrationReplaySurfaceID, "src/server/migrations+schema_migrations(version,checksum)", "monolith-migration-replay", replayDetails.StaticDigest, replayDetails.LedgerDigest, "local-docker", "replay", map[string]string{}, replayDetails),
+	}
+}
+
+func commandFixtureReport(t *testing.T, identity buildinfo.BuildIdentityV1, surface, canonicalSource, consumer, sourceDigest, consumerDigest, environment, mode string, toolVersions map[string]string, details any) surfacereport.SurfaceReportV1 {
+	t.Helper()
+	registry := surfacereport.NewDetailsRegistry()
+	raw, err := registry.MarshalDetails(surface, details)
+	if err != nil {
+		t.Fatalf("marshal %s fixture details: %v", surface, err)
+	}
+	return surfacereport.NewReport(
+		surfacereport.ReleaseIdentity{ReleaseCommit: identity.ReleaseCommit, SourceTree: identity.SourceTree, ContractDigest: identity.ContractDigest, DeploymentProfile: "monolith", Dirty: false, EvidenceClass: buildinfo.EvidenceRepositoryLocal},
+		surfacereport.SurfaceIdentity{Surface: surface, CanonicalSource: canonicalSource, Consumer: consumer, Version: "v1", SourceDigest: sourceDigest, ConsumerDigest: consumerDigest},
+		surfacereport.Drift{Missing: []string{}, Extra: []string{}, Incompatible: []string{}},
+		surfacereport.Evidence{Class: buildinfo.EvidenceRepositoryLocal, Environment: environment, Mode: mode, CheckedAt: "2026-07-22T10:51:00Z", ToolVersions: toolVersions, Details: raw},
+		surfacereport.Outcome{Result: surfacereport.ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}},
+	)
+}
+
+func commandFixtureDetailsDigest(t *testing.T, surface string, details any) string {
+	t.Helper()
+	raw, err := surfacereport.NewDetailsRegistry().MarshalDetails(surface, details)
+	if err != nil {
+		t.Fatalf("marshal %s fixture details for digest: %v", surface, err)
+	}
+	var normalized any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		t.Fatalf("normalize %s fixture details: %v", surface, err)
+	}
+	canonical, err := json.Marshal(normalized)
+	if err != nil {
+		t.Fatalf("canonicalize %s fixture details: %v", surface, err)
+	}
+	sum := sha256.Sum256(canonical)
+	return fmt.Sprintf("sha256:%x", sum)
 }
 
 func TestRunReportPreservesProducerFailure(t *testing.T) {
