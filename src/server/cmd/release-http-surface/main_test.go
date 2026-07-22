@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -78,6 +79,17 @@ func TestReleaseHTTPRuntimeSurfaceCommandContract(t *testing.T) {
 		_, stderr, exitCode := runHTTPCommand(repoRoot, manifestPath, filepath.Join(t.TempDir(), "report.json"), deps)
 		if exitCode != 0 || strings.Join(order, ",") != "runtime,manifest" {
 			t.Fatalf("construction order=%v exit=%d stderr=%s", order, exitCode, stderr)
+		}
+	})
+
+	t.Run("frontend handoff resolves the exact owner inventory", func(t *testing.T) {
+		counts := verifyHTTPFrontendOwnerClosure(t, repoRoot)
+		expected := httpFrontendUsageCounts{
+			Owners: 24, Imports: 264, Uses: 267, Dispositions: 25,
+			TransportCalls: 267, SharedTransports: 4,
+		}
+		if counts != expected {
+			t.Fatalf("frontend owner closure counts=%+v want=%+v", counts, expected)
 		}
 	})
 
@@ -270,4 +282,86 @@ func httpSurfaceRepoRoot(t *testing.T) string {
 func httpSurfaceFileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+type httpFrontendUsageCounts struct {
+	Owners           int `json:"owners"`
+	Imports          int `json:"imports"`
+	Uses             int `json:"uses"`
+	Dispositions     int `json:"dispositions"`
+	TransportCalls   int `json:"transportCalls"`
+	SharedTransports int `json:"sharedTransports"`
+}
+
+func verifyHTTPFrontendOwnerClosure(t *testing.T, repoRoot string) httpFrontendUsageCounts {
+	t.Helper()
+	fixtureScript := filepath.Join(repoRoot, "scripts/verify-http-runtime-contract-fixtures.sh")
+	listCommand := exec.Command("bash", fixtureScript, "--frontend-owner-list")
+	listCommand.Dir = repoRoot
+	inventory, err := listCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("list frontend owner inventory: %v: %s", err, inventory)
+	}
+	lines := strings.Split(strings.TrimSpace(string(inventory)), "\n")
+	if len(lines) != 25 {
+		t.Fatalf("frontend owner inventory count=%d", len(lines))
+	}
+
+	arguments := []string{
+		filepath.Join(repoRoot, "scripts/verify_frontend_operation_contract_usage.mjs"),
+		"--tsconfig", filepath.Join(repoRoot, "src/web/tsconfig.json"),
+	}
+	seen := make(map[string]struct{}, len(lines))
+	nonCallers := 0
+	for _, line := range lines {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 || len(fields) > 3 {
+			t.Fatalf("frontend owner inventory row invalid: %q", line)
+		}
+		owner := fields[1]
+		if filepath.IsAbs(owner) || filepath.Clean(owner) != owner || !httpSurfaceFileExists(filepath.Join(repoRoot, owner)) {
+			t.Fatalf("frontend owner path invalid: %q", owner)
+		}
+		if _, exists := seen[owner]; exists {
+			t.Fatalf("frontend owner duplicated: %q", owner)
+		}
+		seen[owner] = struct{}{}
+		switch fields[0] {
+		case "owner":
+			if len(fields) != 2 {
+				t.Fatalf("frontend owner has disposition reason: %q", line)
+			}
+			arguments = append(arguments, "--expect-owner", owner)
+		case "non-caller":
+			if len(fields) != 3 || strings.TrimSpace(fields[2]) == "" {
+				t.Fatalf("frontend non-caller reason invalid: %q", line)
+			}
+			nonCallers++
+			arguments = append(arguments, "--expect-non-caller", owner+"="+fields[2])
+		default:
+			t.Fatalf("frontend owner disposition invalid: %q", fields[0])
+		}
+	}
+	if len(seen) != 25 || nonCallers != 1 {
+		t.Fatalf("frontend owner inventory unique/non-callers=%d/%d", len(seen), nonCallers)
+	}
+	arguments = append(arguments, "--require-all")
+	verifyCommand := exec.Command("node", arguments...)
+	verifyCommand.Dir = repoRoot
+	verified, err := verifyCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("verify frontend owner closure: %v: %s", err, verified)
+	}
+	var evidence struct {
+		SchemaVersion string                  `json:"schemaVersion"`
+		EvidenceClass string                  `json:"evidenceClass"`
+		Counts        httpFrontendUsageCounts `json:"counts"`
+	}
+	if err := json.Unmarshal(verified, &evidence); err != nil {
+		t.Fatalf("decode frontend owner evidence: %v", err)
+	}
+	if evidence.SchemaVersion != "operation-contract-usage/v1" || evidence.EvidenceClass != "E1" {
+		t.Fatalf("frontend owner evidence identity=%q/%q", evidence.SchemaVersion, evidence.EvidenceClass)
+	}
+	return evidence.Counts
 }

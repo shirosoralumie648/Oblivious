@@ -2,14 +2,57 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+expected_frontend_disposition_count=25
+frontend_owner_specs=(
+  $'owner\tsrc/web/src/services/http/client.ts'
+  $'owner\tsrc/web/src/services/http/stream.ts'
+  $'owner\tsrc/web/src/services/http/upload.ts'
+  $'owner\tsrc/web/src/lib/swr.ts'
+  $'owner\tsrc/web/src/features/chat/api.ts'
+  $'owner\tsrc/web/src/app/appContext.tsx'
+  $'non-caller\tsrc/web/src/app/providers.tsx\tcomposition-only-no-transport'
+  $'owner\tsrc/web/src/features/admin/api.ts'
+  $'owner\tsrc/web/src/features/agents/agentsApi.ts'
+  $'owner\tsrc/web/src/features/agents/memoriesApi.ts'
+  $'owner\tsrc/web/src/features/agents/planStepsApi.ts'
+  $'owner\tsrc/web/src/features/auth/api.ts'
+  $'owner\tsrc/web/src/features/console/api.ts'
+  $'owner\tsrc/web/src/features/knowledge/api.ts'
+  $'owner\tsrc/web/src/features/marketplace/api.ts'
+  $'owner\tsrc/web/src/features/mcp/mcpServersApi.ts'
+  $'owner\tsrc/web/src/features/notifications/notificationsApi.ts'
+  $'owner\tsrc/web/src/features/publishingChannels/publishingChannelsApi.ts'
+  $'owner\tsrc/web/src/features/scheduledTasks/scheduledTasksApi.ts'
+  $'owner\tsrc/web/src/features/tasks/api.ts'
+  $'owner\tsrc/web/src/features/workflows/workflowsApi.ts'
+  $'owner\tsrc/web/src/routes/admin/AdminHomePage.tsx'
+  $'owner\tsrc/web/src/features/releaseProjection/releaseProjection.tsx'
+  $'owner\tsrc/web/src/routes/marketing/LoginPage.tsx'
+  $'owner\tsrc/web/src/routes/marketing/RegisterPage.tsx'
+)
+
+[[ ${#frontend_owner_specs[@]} -eq $expected_frontend_disposition_count ]] || {
+  printf 'http_runtime_fixture_failed: frontend owner inventory count\n' >&2
+  exit 1
+}
+
 owner_closure_only=false
 if [[ $# -gt 0 ]]; then
-  if [[ $# -eq 1 && "$1" == "--owner-closure" ]]; then
-    owner_closure_only=true
-  else
-    printf 'http_runtime_fixture_argument_invalid\n' >&2
-    exit 2
-  fi
+  case "$1" in
+    --owner-closure)
+      [[ $# -eq 1 ]] || { printf 'http_runtime_fixture_argument_invalid\n' >&2; exit 2; }
+      owner_closure_only=true
+      ;;
+    --frontend-owner-list)
+      [[ $# -eq 1 ]] || { printf 'http_runtime_fixture_argument_invalid\n' >&2; exit 2; }
+      printf '%s\n' "${frontend_owner_specs[@]}"
+      exit 0
+      ;;
+    *)
+      printf 'http_runtime_fixture_argument_invalid\n' >&2
+      exit 2
+      ;;
+  esac
 fi
 
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/oblivious-http-runtime-fixtures.XXXXXX")
@@ -18,6 +61,8 @@ producer="$fixture_root/release-http-surface"
 case_count=0
 route_owner_count=0
 operation_count=0
+frontend_disposition_count=0
+frontend_transport_call_count=0
 status_before=$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)
 
 cleanup() {
@@ -37,6 +82,55 @@ expect_failure() {
     fail "$label unexpectedly passed"
   fi
   case_count=$((case_count + 1))
+}
+
+run_frontend_owner_preflight() {
+  local root="$1" report="$2" disposition path reason
+  local -a arguments=(
+    --tsconfig src/web/tsconfig.json
+  )
+  for spec in "${frontend_owner_specs[@]}"; do
+    IFS=$'\t' read -r disposition path reason <<<"$spec"
+    case "$disposition" in
+      owner)
+        [[ -z "$reason" ]] || fail "frontend owner reason invalid"
+        arguments+=(--expect-owner "$path")
+        ;;
+      non-caller)
+        [[ -n "$reason" ]] || fail "frontend non-caller reason missing"
+        arguments+=(--expect-non-caller "$path=$reason")
+        ;;
+      *)
+        fail "frontend owner disposition invalid"
+        ;;
+    esac
+  done
+  arguments+=(--require-all)
+  (
+    cd "$root"
+    node scripts/verify_frontend_operation_contract_usage.mjs "${arguments[@]}"
+  ) >"$report"
+  python3 - "$report" "$expected_frontend_disposition_count" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = int(sys.argv[2])
+counts = report.get("counts", {})
+if report.get("schemaVersion") != "operation-contract-usage/v1" or report.get("evidenceClass") != "E1":
+    raise SystemExit("http_runtime_frontend_preflight_schema_invalid")
+if counts != {
+    "owners": 24,
+    "imports": 264,
+    "uses": 267,
+    "dispositions": expected,
+    "transportCalls": 267,
+    "sharedTransports": 4,
+}:
+    raise SystemExit("http_runtime_frontend_preflight_counts_invalid")
+print(counts["dispositions"], counts["transportCalls"])
+PY
 }
 
 assert_route_owner_closure() {
@@ -128,6 +222,10 @@ invoke_producer() {
 
 route_owner_count=$(assert_route_owner_closure "$repo_root")
 [[ "$route_owner_count" == "17" ]] || fail "route owner count"
+read -r frontend_disposition_count frontend_transport_call_count < <(
+  run_frontend_owner_preflight "$repo_root" "$fixture_root/frontend-owner-preflight.json"
+)
+[[ "$frontend_disposition_count" == "25" && "$frontend_transport_call_count" == "267" ]] || fail "frontend owner closure"
 
 (
   cd "$repo_root"
@@ -153,7 +251,7 @@ PY
 if [[ "$owner_closure_only" == true ]]; then
   status_after=$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)
   [[ "$status_after" == "$status_before" ]] || fail "worktree changed"
-  printf '[http-runtime-fixtures] owner closure passed: routeOwners=%s operations=%s cases=%s\n' "$route_owner_count" "$operation_count" "$case_count"
+  printf '[http-runtime-fixtures] owner closure passed: routeOwners=%s frontendDispositions=%s frontendCalls=%s operations=%s cases=%s\n' "$route_owner_count" "$frontend_disposition_count" "$frontend_transport_call_count" "$operation_count" "$case_count"
   exit 0
 fi
 
@@ -241,4 +339,4 @@ case_count=$((case_count + 1))
 status_after=$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)
 [[ "$status_after" == "$status_before" ]] || fail "worktree changed"
 
-printf '[http-runtime-fixtures] passed: routeOwners=%s operations=%s cases=%s\n' "$route_owner_count" "$operation_count" "$case_count"
+printf '[http-runtime-fixtures] passed: routeOwners=%s frontendDispositions=%s frontendCalls=%s operations=%s cases=%s\n' "$route_owner_count" "$frontend_disposition_count" "$frontend_transport_call_count" "$operation_count" "$case_count"
