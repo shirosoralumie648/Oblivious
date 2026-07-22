@@ -19,6 +19,12 @@ vi.mock('../../features/agents/agentsApi', () => ({
   })
 }));
 
+vi.mock('../../features/releaseProjection/releaseProjection', () => ({
+  useReleaseProjection: () => ({
+    isCapabilityEnabled: (capabilityId: string) => capabilityId === 'mcp.network_execution'
+  })
+}));
+
 import { AgentsPage } from './AgentsPage';
 
 function renderAgentsPage() {
@@ -538,6 +544,7 @@ describe('AgentsPage', () => {
     getAgentTools
       .mockResolvedValueOnce([
         {
+          capabilityId: 'mcp.network_execution',
           description: 'Search workspace and web sources',
           inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
           name: 'web_search'
@@ -575,6 +582,7 @@ describe('AgentsPage', () => {
     ]);
     getAgentTools.mockResolvedValueOnce([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Lookup customer records',
         inputSchema: { properties: { customer_id: { type: 'string' } }, type: 'object' },
         name: 'crm_lookup',

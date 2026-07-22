@@ -26,7 +26,9 @@ const chatApiMocks = vi.hoisted(() => ({
   ),
   listConversations: vi.fn(() => Promise.resolve([{ id: 'conversation_router', title: 'Router parameter thread' }])),
   listMessages: vi.fn(() => Promise.resolve([{ id: 'message_router', role: 'assistant', content: 'Router parameter message.' }])),
-  listModels: vi.fn(() => Promise.resolve([{ id: 'gpt-4o-mini', label: 'gpt-4o-mini' }])),
+  listModels: vi.fn(() => Promise.resolve([
+    { capabilityId: 'relay.provider_inference', id: 'gpt-4o-mini', label: 'gpt-4o-mini' }
+  ])),
   listPersonas: vi.fn(() => Promise.resolve([])),
   sendMessage: vi.fn(() => Promise.resolve([])),
   sendMessageStream: vi.fn(async (_conversationId: string, _payload: Record<string, unknown>, handlers: { onChunk: (chunk: string) => void }) => {
@@ -601,6 +603,7 @@ const agentsApiMocks = vi.hoisted(() => ({
   getAgentTools: vi.fn(() =>
     Promise.resolve([
       {
+        capabilityId: 'mcp.network_execution',
         description: 'Search the web with tenant policy controls.',
         inputSchema: { type: 'object' },
         name: 'web_search',
