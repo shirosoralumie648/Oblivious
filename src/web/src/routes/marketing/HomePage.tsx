@@ -9,12 +9,14 @@ import {
   RiStore2Line,
 } from '@remixicon/react';
 
+import { getGeneratedReleaseCapability } from '../../features/releaseProjection/releaseProjection';
+
 const routeMap = [
-  { path: '/chat', label: 'Relay chat', detail: 'Quota, model policy, drafts, and SOLO handoff.' },
-  { path: '/knowledge', label: 'Knowledge RAG', detail: 'Embedding retrieval with source citations.' },
-  { path: '/solo', label: 'Agent runs', detail: 'Durable tool runs, approval gates, retry evidence.' },
-  { path: '/marketplace', label: 'Marketplace', detail: 'Browse, publish, install, review, settlement boundaries.' },
-  { path: '/admin/billing', label: 'Billing ops', detail: 'Sessions, invoices, refunds, payouts, webhook ledger.' },
+  { path: '/chat', label: 'Relay chat', detail: 'Quota, model policy, drafts, and SOLO handoff.', capabilityId: 'chat.conversation_use' },
+  { path: '/knowledge', label: 'Knowledge RAG', detail: 'Embedding retrieval with source citations.', capabilityId: 'knowledge.retrieval' },
+  { path: '/solo', label: 'Agent runs', detail: 'Durable tool runs, approval gates, retry evidence.', capabilityId: 'agent.run' },
+  { path: '/marketplace', label: 'Marketplace', detail: 'Browse, publish, install, review, settlement boundaries.', capabilityId: 'marketplace.commerce' },
+  { path: '/admin/billing', label: 'Billing ops', detail: 'Sessions, invoices, refunds, payouts, webhook ledger.', capabilityId: 'billing.payment_lifecycle' },
 ];
 
 const commandSurfaces = [
@@ -25,6 +27,12 @@ const commandSurfaces = [
 ];
 
 export function HomePage() {
+  const committedRoutes = routeMap.filter((route) => {
+    const generated = getGeneratedReleaseCapability(route.capabilityId);
+    return generated?.disposition === 'committed' && generated.navigationDisposition === 'visible';
+  });
+  const authCommitted = getGeneratedReleaseCapability('identity.account_session')?.disposition === 'committed';
+  const consoleCommitted = getGeneratedReleaseCapability('billing.ledger_lifecycle')?.disposition === 'committed';
   return (
     <main className="min-h-screen overflow-hidden bg-[#11100d] text-[#f7f4ea]" data-gsap-scope="marketing">
       <section className="relative min-h-[92vh] border-b border-white/10">
@@ -44,12 +52,16 @@ export function HomePage() {
               <span>Oblivious command plane</span>
             </Link>
             <nav aria-label="Public navigation" className="flex items-center gap-2 text-sm">
-              <Link className="rounded-lg px-3 py-2 text-[#d8d3c8] transition hover:bg-white/10 hover:text-white" to="/login">
-                Sign in
-              </Link>
-              <Link className="rounded-lg bg-[#f0c36a] px-4 py-2 font-semibold text-[#17110a] transition hover:bg-[#ffd98a]" to="/register">
-                Create account
-              </Link>
+              {authCommitted ? (
+                <>
+                  <Link className="rounded-lg px-3 py-2 text-[#d8d3c8] transition hover:bg-white/10 hover:text-white" to="/login">
+                    Sign in
+                  </Link>
+                  <Link className="rounded-lg bg-[#f0c36a] px-4 py-2 font-semibold text-[#17110a] transition hover:bg-[#ffd98a]" to="/register">
+                    Create account
+                  </Link>
+                </>
+              ) : null}
             </nav>
           </header>
 
@@ -67,21 +79,21 @@ export function HomePage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-3" data-gsap-item>
-                <Link
+                {authCommitted ? <Link
                   className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-[#f0c36a] px-5 py-3 font-semibold text-[#17110a] transition hover:bg-[#ffd98a]"
                   data-gsap-magnetic
                   to="/register"
                 >
                   Start commercial workspace
                   <RiArrowRightLine className="size-4" aria-hidden="true" />
-                </Link>
-                <Link
+                </Link> : null}
+                {consoleCommitted ? <Link
                   className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/15"
                   data-gsap-magnetic
                   to="/console"
                 >
                   Open console
-                </Link>
+                </Link> : null}
               </div>
               <dl className="grid gap-3 sm:grid-cols-2">
                 {commandSurfaces.map((surface) => (
@@ -109,7 +121,7 @@ export function HomePage() {
                 <div className="grid gap-px bg-white/10 md:grid-cols-[1.1fr_0.9fr]">
                   <div className="bg-[#17150f] p-5">
                     <div className="space-y-3">
-                      {routeMap.map((route) => (
+                      {committedRoutes.map((route) => (
                         <Link
                           key={route.path}
                           to={route.path}

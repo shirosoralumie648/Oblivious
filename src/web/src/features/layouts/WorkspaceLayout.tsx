@@ -14,21 +14,32 @@ import {
   RiTerminalBoxLine
 } from '@remixicon/react';
 
+import { getGeneratedReleaseCapability, useReleaseProjection } from '../releaseProjection/releaseProjection';
+
 const workspaceLinks = [
-  { label: 'Chat', to: '/chat', icon: <RiChat3Line className="size-4" aria-hidden="true" /> },
-  { label: 'Knowledge', to: '/knowledge', icon: <RiBrainLine className="size-4" aria-hidden="true" /> },
-  { label: 'Agents', to: '/agents', icon: <RiRobot2Line className="size-4" aria-hidden="true" /> },
-  { label: 'MCP Servers', to: '/mcp-servers', icon: <RiPlugLine className="size-4" aria-hidden="true" /> },
-  { label: 'Agent Memories', to: '/memories', icon: <RiDatabase2Line className="size-4" aria-hidden="true" /> },
-  { label: 'SOLO', to: '/solo', icon: <RiTerminalBoxLine className="size-4" aria-hidden="true" /> },
-  { label: 'Workflows', to: '/workflows', icon: <RiFlowChart className="size-4" aria-hidden="true" /> },
-  { label: 'Scheduled Tasks', to: '/scheduled-tasks', icon: <RiCalendarScheduleLine className="size-4" aria-hidden="true" /> },
-  { label: 'Publishing', to: '/publishing', icon: <RiMegaphoneLine className="size-4" aria-hidden="true" /> },
-  { label: 'Settings', to: '/settings', icon: <RiSettings3Line className="size-4" aria-hidden="true" /> },
-  { label: 'Console', to: '/console', icon: <RiBillLine className="size-4" aria-hidden="true" /> },
+  { label: 'Chat', to: '/chat', capabilityId: 'chat.conversation_use', icon: <RiChat3Line className="size-4" aria-hidden="true" /> },
+  { label: 'Knowledge', to: '/knowledge', capabilityId: 'knowledge.retrieval', icon: <RiBrainLine className="size-4" aria-hidden="true" /> },
+  { label: 'Agents', to: '/agents', capabilityId: 'agent.run', icon: <RiRobot2Line className="size-4" aria-hidden="true" /> },
+  { label: 'MCP Servers', to: '/mcp-servers', capabilityId: 'mcp.custom_execution', icon: <RiPlugLine className="size-4" aria-hidden="true" /> },
+  { label: 'Agent Memories', to: '/memories', capabilityId: 'agent.tool_execution', icon: <RiDatabase2Line className="size-4" aria-hidden="true" /> },
+  { label: 'SOLO', to: '/solo', capabilityId: 'agent.run', icon: <RiTerminalBoxLine className="size-4" aria-hidden="true" /> },
+  { label: 'Workflows', to: '/workflows', capabilityId: 'workflow.graph_execution', icon: <RiFlowChart className="size-4" aria-hidden="true" /> },
+  { label: 'Scheduled Tasks', to: '/scheduled-tasks', capabilityId: 'task.scheduled_execution', icon: <RiCalendarScheduleLine className="size-4" aria-hidden="true" /> },
+  { label: 'Publishing', to: '/publishing', capabilityId: 'channel.delivery', icon: <RiMegaphoneLine className="size-4" aria-hidden="true" /> },
+  { label: 'Settings', to: '/settings', capabilityId: 'identity.account_session', icon: <RiSettings3Line className="size-4" aria-hidden="true" /> },
+  { label: 'Console', to: '/console', capabilityId: 'billing.ledger_lifecycle', icon: <RiBillLine className="size-4" aria-hidden="true" /> },
 ];
 
+const marketplaceCapabilityId = 'marketplace.commerce';
+
 export function WorkspaceLayout() {
+  const projection = useReleaseProjection();
+  const navigationVisible = (capabilityId: string) => {
+    const generated = getGeneratedReleaseCapability(capabilityId);
+    return generated?.navigationDisposition === 'visible'
+      || (generated?.navigationDisposition === 'conditional' && projection.isCapabilityEnabled(capabilityId));
+  };
+  const visibleWorkspaceLinks = workspaceLinks.filter((item) => navigationVisible(item.capabilityId));
   const workspaceLinkClassName = ({ isActive }: { isActive: boolean }) =>
     [
       'flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-sm transition hover:bg-white/10 hover:text-white',
@@ -49,7 +60,7 @@ export function WorkspaceLayout() {
           <p className="mt-2 text-xs leading-5 text-[#bdb5a6]">Relay-backed Chat, Knowledge, and SOLO share the same commercial context.</p>
         </div>
         <nav aria-label="Workspace navigation" className="mt-6 space-y-1">
-          {workspaceLinks.map((item) => (
+          {visibleWorkspaceLinks.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -60,20 +71,22 @@ export function WorkspaceLayout() {
               {item.label}
             </NavLink>
           ))}
-          <NavLink
-            to="/marketplace"
-            className={({ isActive }) =>
-              [
-                'mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15',
-                isActive ? 'ring-2 ring-cyan-100/50' : ''
-              ].join(' ')
-            }
-            data-gsap-item
-            data-gsap-magnetic
-          >
-            <RiStore2Line className="size-4" aria-hidden="true" />
-            Marketplace
-          </NavLink>
+          {navigationVisible(marketplaceCapabilityId) ? (
+            <NavLink
+              to="/marketplace"
+              className={({ isActive }) =>
+                [
+                  'mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15',
+                  isActive ? 'ring-2 ring-cyan-100/50' : ''
+                ].join(' ')
+              }
+              data-gsap-item
+              data-gsap-magnetic
+            >
+              <RiStore2Line className="size-4" aria-hidden="true" />
+              Marketplace
+            </NavLink>
+          ) : null}
         </nav>
       </aside>
       <main className="workspace-canvas min-h-screen min-w-0 overflow-auto p-5 lg:p-8" data-gsap-item>
