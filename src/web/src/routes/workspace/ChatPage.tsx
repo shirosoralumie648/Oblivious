@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createChatApi, createConversationRealtimeSocket } from '../../features/chat/api';
+import { useReleaseProjection } from '../../features/releaseProjection/releaseProjection';
 import { createTasksApi } from '../../features/tasks/api';
 import { createHttpClient } from '../../services/http/client';
 import type { ChatRealtimeEvent, ConversationRealtimeSocket } from '../../features/chat/api';
@@ -16,6 +17,7 @@ import type {
   KnowledgeBaseSummary,
   KnowledgeCitation,
   MessageAttachment,
+  ModelOption,
   PersonaRequest,
   PersonaSummary,
   TaskSummary,
@@ -489,6 +491,7 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const { authState } = useAppContext();
+  const releaseProjection = useReleaseProjection();
   const httpClient = useMemo(() => createHttpClient(), []);
   const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
@@ -510,7 +513,7 @@ export function ChatPage() {
   const [conversationShareUrl, setConversationShareUrl] = useState('');
   const [messageShareExpirations, setMessageShareExpirations] = useState<Record<string, string>>({});
   const [messageShares, setMessageShares] = useState<Record<string, string>>({});
-  const [modelOptions, setModelOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [personaOptions, setPersonaOptions] = useState<PersonaSummary[]>([]);
   const [personaDraft, setPersonaDraft] = useState<PersonaDraft>(emptyPersonaDraft);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
@@ -538,6 +541,15 @@ export function ChatPage() {
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
   const chatReturnPath = conversationId ? `/chat/${conversationId}` : '/chat';
   const normalizedConversationSearch = conversationSearch.trim().toLowerCase();
+  const selectableModelOptions = useMemo(
+    () => modelOptions.filter(
+      (model) => typeof model.capabilityId === 'string' && releaseProjection.isCapabilityEnabled(model.capabilityId)
+    ),
+    [modelOptions, releaseProjection]
+  );
+  const isConversationModelSelectable = conversationConfig !== null && selectableModelOptions.some(
+    (model) => model.id === conversationConfig.modelId
+  );
   const filteredConversations = useMemo(() => {
     const visibleByFilter = conversations.filter((conversation) => {
       const isArchived = Boolean(conversation.archivedAt);
@@ -816,6 +828,10 @@ export function ChatPage() {
     if (!conversationId || conversationConfig === null) {
       return;
     }
+    if (!isConversationModelSelectable) {
+      setActionError({ title: 'Selected conversation model is unavailable.' });
+      return;
+    }
 
     const nextKnowledgeBaseIds = conversationConfig.knowledgeBaseIds.includes(knowledgeBaseId)
       ? conversationConfig.knowledgeBaseIds.filter((currentId) => currentId !== knowledgeBaseId)
@@ -876,7 +892,7 @@ export function ChatPage() {
   };
 
   const conversationOverrides = () => {
-    if (conversationConfig === null) {
+    if (conversationConfig === null || !isConversationModelSelectable) {
       return undefined;
     }
 
@@ -905,6 +921,10 @@ export function ChatPage() {
 
   const saveConversationSettings = async () => {
     if (!conversationId || conversationConfig === null) {
+      return;
+    }
+    if (!isConversationModelSelectable) {
+      setActionError({ title: 'Selected conversation model is unavailable.' });
       return;
     }
 
@@ -1667,17 +1687,14 @@ export function ChatPage() {
                 Conversation model
                 <select
                   onChange={(event) => updateConversationConfigDraft({ modelId: event.target.value })}
-                  value={conversationConfig.modelId}
+                  value={isConversationModelSelectable ? conversationConfig.modelId : ''}
                 >
-                  {modelOptions.length > 0 ? (
-                    modelOptions.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))
-                  ) : (
-                    <option value={conversationConfig.modelId}>{conversationConfig.modelId}</option>
-                  )}
+                  {!isConversationModelSelectable ? <option disabled value="">No available model selected</option> : null}
+                  {selectableModelOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -1826,7 +1843,11 @@ export function ChatPage() {
                   {`Use knowledge base ${knowledgeBase.name}`}
                 </label>
               ))}
-              <button disabled={isUpdatingConversationSettings} onClick={() => void saveConversationSettings()} type="button">
+              <button
+                disabled={isUpdatingConversationSettings || !isConversationModelSelectable}
+                onClick={() => void saveConversationSettings()}
+                type="button"
+              >
                 Save conversation settings
               </button>
             </section>

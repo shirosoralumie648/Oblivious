@@ -3,6 +3,7 @@ import { RiAddLine, RiPlayCircleLine, RiRefreshLine, RiSave3Line, RiTerminalBoxL
 import { Link } from 'react-router-dom';
 
 import { createAgentsApi, type AgentToolDefinition } from '../../features/agents/agentsApi';
+import { useReleaseProjection } from '../../features/releaseProjection/releaseProjection';
 import { createHttpClient } from '../../services/http/client';
 import type { AgentConfig, AgentModelRoutingRule, AgentSkill, AgentSummary, AgentTool, ToolApprovalOverride } from '../../types/api';
 
@@ -193,6 +194,7 @@ function initialOverrides(agent: AgentSummary | null) {
 
 export function AgentsPage() {
   const api = useMemo(() => createAgentsApi(createHttpClient()), []);
+  const releaseProjection = useReleaseProjection();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -249,6 +251,12 @@ export function AgentsPage() {
   const [customToolTimeoutSeconds, setCustomToolTimeoutSeconds] = useState('');
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? agents[0] ?? null;
+  const availableToolCatalog = useMemo(
+    () => toolCatalog.filter(
+      (tool) => typeof tool.capabilityId === 'string' && releaseProjection.isCapabilityEnabled(tool.capabilityId)
+    ),
+    [releaseProjection, toolCatalog]
+  );
 
   const applySelectedAgent = (agent: AgentSummary | null) => {
     setSelectedAgentId(agent?.id ?? '');
@@ -524,6 +532,10 @@ export function AgentsPage() {
 
   const enableCatalogTool = async (tool: AgentToolDefinition) => {
     if (!selectedAgent) {
+      return;
+    }
+    if (!releaseProjection.isCapabilityEnabled(tool.capabilityId)) {
+      setError('Tool is unavailable for the current release projection.');
       return;
     }
 
@@ -1423,11 +1435,11 @@ export function AgentsPage() {
                   Load tool catalog
                 </button>
               </div>
-              {toolCatalog.length === 0 ? (
+              {availableToolCatalog.length === 0 ? (
                 <p className="px-5 py-4 text-sm text-[#625b4f]">Tool definitions load on demand for the selected agent.</p>
               ) : (
                 <div className="divide-y divide-[#e8e2d3]">
-                  {toolCatalog.map((tool) => {
+                  {availableToolCatalog.map((tool) => {
                     const inputSchema = readableJSON(tool.inputSchema);
                     const isEnabled = (selectedAgent?.tools ?? []).some((agentTool) => agentTool.name === tool.name);
                     const isEnabling = enablingCatalogToolName === tool.name;

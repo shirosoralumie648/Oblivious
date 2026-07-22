@@ -95,6 +95,12 @@ vi.mock('../../app/providers', () => ({
   useAppContext: () => appContext
 }));
 
+vi.mock('../../features/releaseProjection/releaseProjection', () => ({
+  useReleaseProjection: () => ({
+    isCapabilityEnabled: (capabilityId: string) => capabilityId === 'relay.provider_inference'
+  })
+}));
+
 vi.mock('../../features/chat/api', async () => {
   const actual = await vi.importActual<typeof import('../../features/chat/api')>('../../features/chat/api');
 
@@ -114,7 +120,10 @@ vi.mock('../../features/chat/api', async () => {
       getConversationConfig,
       listConversations,
       listMessages,
-      listModels,
+      listModels: async () => (await listModels()).map((model: { capabilityId?: string; id: string; label: string }) => ({
+        ...model,
+        capabilityId: model.capabilityId ?? 'relay.provider_inference'
+      })),
       listPersonas,
       sendMessage,
       sendMessageStream,
