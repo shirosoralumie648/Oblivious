@@ -12,6 +12,30 @@ export const SCHEMA_VERSION = 'frontend-surface-sidecar/v1';
 const GENERATED_MODULE = '@/generated/operation-contracts.generated';
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 const HTTP_METHODS = new Set(['request', 'get', 'post', 'put', 'delete', 'patch']);
+const CATALOG_RESPONSE_DTOS = new Set(['ModelOption', 'AgentToolDefinition']);
+const DTO_ROLES = new Map([
+  ['AppCapabilityProjectionResponse', 'app-projection-response'],
+  ['ModelOption', 'catalog-response'],
+  ['AgentToolDefinition', 'catalog-response'],
+  ['UpdateConversationConfigRequest', 'mutation-request'],
+  ['CreateAgentRequest', 'mutation-request'],
+  ['UpdateAgentRequest', 'mutation-request'],
+  ['AgentTool', 'mutation-request']
+]);
+const DTO_SOURCE_SUFFIXES = new Map([
+  ['AppCapabilityProjectionResponse', 'src/web/src/features/releaseProjection/releaseProjection.tsx'],
+  ['ModelOption', 'src/web/src/types/api.ts'],
+  ['AgentToolDefinition', 'src/web/src/features/agents/agentsApi.ts'],
+  ['UpdateConversationConfigRequest', 'src/web/src/types/api.ts'],
+  ['CreateAgentRequest', 'src/web/src/features/agents/agentsApi.ts'],
+  ['UpdateAgentRequest', 'src/web/src/features/agents/agentsApi.ts'],
+  ['AgentTool', 'src/web/src/types/api.ts']
+]);
+const MUTATION_FUNCTIONS = new Map([
+  ['conversationConfigRequest', { id: 'chat-model-mutation', input: 'ModelOption', output: 'UpdateConversationConfigRequest' }],
+  ['toolFromCatalogDefinition', { id: 'agent-tool-catalog-projection', input: 'AgentToolDefinition', output: 'AgentTool' }],
+  ['serializeAgentMutation', { id: 'agent-mutation', input: 'CreateAgentRequest|UpdateAgentRequest', output: 'Record' }]
+]);
 const SHARED_OWNER_SUFFIXES = new Set([
   'src/services/http/client.ts',
   'src/services/http/stream.ts',
@@ -115,6 +139,183 @@ function sourceLocation(node, projectRoot) {
     line: start.line + 1,
     column: start.character + 1
   };
+}
+
+function declarationTypeName(node, checker) {
+  const type = checker.getTypeAtLocation(node);
+  const symbol = type.aliasSymbol ?? type.getSymbol?.();
+  if (symbol && symbol.name && symbol.name !== '__type') return symbol.name;
+  const rendered = checker.typeToString(type);
+  return rendered && rendered !== 'any' && rendered !== 'unknown' ? rendered : null;
+}
+
+function propertyName(name) {
+  if (!name) return null;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function projectionSourcePath(generatedFile) {
+  return path.join(path.dirname(generatedFile), 'release-projection.generated.ts');
+}
+
+function generatedReleaseProjection(program, generatedFile) {
+  const sourceFile = program.getSourceFile(projectionSourcePath(generatedFile));
+  if (!sourceFile) fail('generated_release_projection_missing');
+  const declarations = new Map();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name)) declarations.set(declaration.name.text, declaration.initializer);
+    }
+  }
+  const digest = literalValue(declarations.get('releaseProjectionDigest'));
+  const capabilities = literalValue(declarations.get('releaseCapabilityProjection'));
+  const surfaces = literalValue(declarations.get('releaseSurfaceProjection'));
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? '') || !Array.isArray(capabilities) || capabilities.length === 0 || !Array.isArray(surfaces) || surfaces.length === 0) {
+    fail('generated_release_projection_invalid');
+  }
+  return { digest, capabilities, surfaces };
+}
+
+function discoverDTOContracts(sourceFile, projectRoot, checker, contracts) {
+  const relative = path.relative(projectRoot, sourceFile.fileName).split(path.sep).join('/');
+  for (const statement of sourceFile.statements) {
+    if (!ts.isTypeAliasDeclaration(statement) && !ts.isInterfaceDeclaration(statement)) continue;
+    const name = statement.name.text;
+    const role = DTO_ROLES.get(name);
+    const expectedSource = DTO_SOURCE_SUFFIXES.get(name);
+    const fixtureSource = relative.endsWith('scripts/testdata/frontend-surface/production/transports.ts');
+    if (expectedSource && relative !== expectedSource && !fixtureSource) continue;
+    if (!role || contracts.some((entry) => entry.name === name)) continue;
+    const type = checker.getTypeAtLocation(statement.name);
+    contracts.push({
+      source: sourceLocation(statement, projectRoot),
+      name,
+      role,
+      fields: checker.getPropertiesOfType(type).map((field) => field.name).sort()
+    });
+  }
+}
+
+function collectMutationFields(node) {
+  const fields = new Set();
+  const visit = (current) => {
+    if (ts.isPropertyAssignment(current) || ts.isShorthandPropertyAssignment(current)) {
+      const name = propertyName(current.name);
+      if (name) fields.add(name);
+    }
+    if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name) && current.name.text === 'fields') {
+      const value = unwrap(current.initializer);
+      if (value && ts.isArrayLiteralExpression(value)) {
+        for (const element of value.elements) {
+          const literal = literalValue(element);
+          if (typeof literal === 'string') fields.add(literal);
+        }
+      }
+    }
+    if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(current.left)) {
+      if (ts.isIdentifier(current.left.expression) && current.left.expression.text === 'result') fields.add(current.left.name.text);
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return [...fields].sort();
+}
+
+function discoverMutationContracts(sourceFile, projectRoot, contracts) {
+  const visit = (statement) => {
+    const candidates = [];
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      candidates.push({ name: statement.name.text, node: statement, body: statement.body });
+    } else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        const initializer = unwrap(declaration.initializer);
+        if (
+          ts.isIdentifier(declaration.name)
+          && initializer
+          && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+          && initializer.body
+        ) {
+          candidates.push({ name: declaration.name.text, node: declaration, body: initializer.body });
+        }
+      }
+    }
+    for (const candidate of candidates) {
+      const spec = MUTATION_FUNCTIONS.get(candidate.name);
+      if (!spec || contracts.some((entry) => entry.id === spec.id)) continue;
+      contracts.push({
+        source: sourceLocation(candidate.node, projectRoot),
+        id: spec.id,
+        inputType: spec.input,
+        outputType: spec.output,
+        fields: collectMutationFields(candidate.body),
+        capabilityIdOmitted: !candidate.body.getText().includes('capabilityId')
+      });
+    }
+    ts.forEachChild(statement, visit);
+  };
+  visit(sourceFile);
+}
+
+function findFunction(sourceFiles, name) {
+  for (const sourceFile of sourceFiles) {
+    const found = sourceFile.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+    if (found) return found;
+  }
+  return null;
+}
+
+function containsCall(node, name) {
+  let found = false;
+  const visit = (current) => {
+    if (ts.isCallExpression(current) && callName(current) === name) found = true;
+    if (!found) ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function containsLiteral(node, expected) {
+  let found = false;
+  const visit = (current) => {
+    if ((ts.isStringLiteral(current) || ts.isNoSubstitutionTemplateLiteral(current)) && current.text === expected) found = true;
+    if (!found) ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function projectionProviderContract(sourceFiles, projectRoot) {
+  const provider = findFunction(sourceFiles, 'ReleaseProjectionProvider');
+  const apiFactory = findFunction(sourceFiles, 'createReleaseProjectionApi');
+  if (!provider?.body || !apiFactory) fail('projection_provider_missing');
+  const parameter = provider.parameters[0]?.name;
+  const props = parameter && ts.isObjectBindingPattern(parameter)
+    ? parameter.elements.map((element) => propertyName(element.propertyName ?? element.name)).filter(Boolean).sort()
+    : [];
+  if (!containsCall(provider.body, 'useAppContext') || !containsCall(provider.body, 'load') || !containsLiteral(provider.body, 'authenticated')) {
+    fail('projection_provider_invalid');
+  }
+  return {
+    source: sourceLocation(provider, projectRoot),
+    component: 'ReleaseProjectionProvider',
+    responseType: 'AppCapabilityProjectionResponse',
+    operationId: 'getAppReadinessCapabilities',
+    authSource: 'useAppContext',
+    authenticatedStatus: 'authenticated',
+    stateSource: 'api.load',
+    props
+  };
+}
+
+function exposureSurfaceKind(file) {
+  if (file.endsWith('/app/router.tsx')) return 'router';
+  if (file.endsWith('/WorkspaceLayout.tsx')) return 'workspace-navigation';
+  if (file.endsWith('/ConsoleLayout.tsx')) return 'console-navigation';
+  if (file.endsWith('/AdminSidebar.tsx')) return 'admin-navigation';
+  if (file.includes('/routes/marketing/')) return 'public';
+  return 'product';
 }
 
 function isProductionSource(file, sourceRoot) {
@@ -493,7 +694,7 @@ function makeOperationRecord(node, projectRoot, transport, operation, requestEnc
   };
 }
 
-function discoverExposures(sourceFile, projectRoot, checker, exposures) {
+function discoverExposures(sourceFile, projectRoot, checker, exposures, policyViolations, capabilityIds) {
   const visit = (node) => {
     if (ts.isObjectLiteralExpression(node)) {
       const pathValue = findProperty(node, 'path') ?? findProperty(node, 'to') ?? findProperty(node, 'href');
@@ -502,9 +703,11 @@ function discoverExposures(sourceFile, projectRoot, checker, exposures) {
       const capabilityId = literalValue(capabilityValue);
       if (typeof pathLiteral === 'string' && (typeof capabilityId === 'string' || capabilityValue)) {
         const kind = pathValue === findProperty(node, 'href') ? 'link' : 'navigation';
+        const source = sourceLocation(node, projectRoot);
         exposures.push({
-          source: sourceLocation(node, projectRoot),
+          source,
           kind,
+          surfaceKind: exposureSurfaceKind(source.file),
           productPath: pathLiteral,
           catalogSubject: null,
           capabilityId: typeof capabilityId === 'string' ? capabilityId : null,
@@ -513,14 +716,45 @@ function discoverExposures(sourceFile, projectRoot, checker, exposures) {
       }
     }
     if (ts.isPropertyAccessExpression(node) && node.name.text === 'capabilityId') {
+      const subject = declarationTypeName(node.expression, checker);
+      if (subject && CATALOG_RESPONSE_DTOS.has(subject)) {
+        exposures.push({
+          source: sourceLocation(node, projectRoot),
+          kind: 'selector',
+          surfaceKind: 'catalog-selector',
+          productPath: null,
+          catalogSubject: `${subject}.capabilityId`,
+          capabilityId: null,
+          capabilitySource: 'server-catalog'
+        });
+      }
+      const parent = node.parent;
+      if (parent && ts.isBinaryExpression(parent) && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(parent.operatorToken.kind)) {
+        const other = parent.left === node ? parent.right : parent.left;
+        const fallback = literalValue(other);
+        if (typeof fallback === 'string' && capabilityIds.has(fallback)) policyViolations.push('capability_fallback_literal');
+      }
+    }
+    if (ts.isCallExpression(node) && callName(node) === 'isCapabilityEnabled') {
+      const argument = unwrap(node.arguments[0]);
+      const subject = argument && ts.isPropertyAccessExpression(argument) ? declarationTypeName(argument.expression, checker) : null;
       exposures.push({
         source: sourceLocation(node, projectRoot),
-        kind: 'selector',
+        kind: 'availability-guard',
+        surfaceKind: 'authenticated-projection',
         productPath: null,
-        catalogSubject: null,
-        capabilityId: null,
-        capabilitySource: 'server-catalog'
+        catalogSubject: subject && CATALOG_RESPONSE_DTOS.has(subject) ? `${subject}.capabilityId` : null,
+        capabilityId: typeof literalValue(argument) === 'string' ? literalValue(argument) : null,
+        capabilitySource: 'app-projection'
       });
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      const mappedCapabilities = node.properties.flatMap((property) => {
+        if (!ts.isPropertyAssignment(property) || propertyName(property.name) === 'capabilityId') return [];
+        const value = literalValue(property.initializer);
+        return typeof value === 'string' && capabilityIds.has(value) ? [value] : [];
+      });
+      if (mappedCapabilities.length >= 2) policyViolations.push('client_capability_map');
     }
     ts.forEachChild(node, visit);
   };
@@ -605,14 +839,23 @@ export function extractSidecar({ root, tsconfig, generatedFile = null }) {
   const generatedSymbols = new Set(generatedMetadataBySymbol.keys());
   const operations = [];
   const exposures = [];
+  const dtoContracts = [];
+  const mutationContracts = [];
+  const policyViolations = [];
   const unresolved = [];
   const callerFiles = new Set();
+  const releaseProjection = generatedReleaseProjection(program, generatedPath);
+  const capabilityIds = new Set(releaseProjection.capabilities.map((entry) => entry.capabilityId));
+  const productionSourceFiles = [];
   for (const file of productionFiles) {
     const sourceFile = program.getSourceFile(file);
     if (!sourceFile) continue;
+    productionSourceFiles.push(sourceFile);
     const relative = path.relative(repositoryRoot, file).split(path.sep).join('/');
     const isShared = [...SHARED_OWNER_SUFFIXES].some((suffix) => relative.endsWith(suffix));
-    if (!isShared) discoverExposures(sourceFile, repositoryRoot, checker, exposures);
+    discoverDTOContracts(sourceFile, repositoryRoot, checker, dtoContracts);
+    discoverMutationContracts(sourceFile, repositoryRoot, mutationContracts);
+    if (!isShared) discoverExposures(sourceFile, repositoryRoot, checker, exposures, policyViolations, capabilityIds);
     const visit = (node) => {
       const kind = transportKind(node, checker);
       if (kind && !isShared) {
@@ -677,6 +920,8 @@ export function extractSidecar({ root, tsconfig, generatedFile = null }) {
     : { expected: 0, resolved: callerFiles.size, nonCallers: 0, sharedOwners: 0, files: [] };
   operations.sort((left, right) => `${left.source.file}:${left.source.line}:${left.source.column}`.localeCompare(`${right.source.file}:${right.source.line}:${right.source.column}`));
   exposures.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  dtoContracts.sort((left, right) => left.name.localeCompare(right.name));
+  mutationContracts.sort((left, right) => left.id.localeCompare(right.id));
   unresolved.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   if (operations.length === 0) fail('operation_inventory_empty');
   const configDigest = sha256(fs.readFileSync(configPath));
@@ -699,6 +944,11 @@ export function extractSidecar({ root, tsconfig, generatedFile = null }) {
     },
     operations,
     exposures,
+    releaseProjection,
+    dtoContracts,
+    mutationContracts,
+    projectionProvider: projectionProviderContract(productionSourceFiles, repositoryRoot),
+    policyViolations: [...new Set(policyViolations)].sort(),
     generatedConsumers: [...generatedMetadataBySymbol.keys()].length,
     unresolved
   };

@@ -1,5 +1,6 @@
 import {
   eventSourceOperationContract,
+  getAppReadinessCapabilitiesOperationContract,
   listUsersOperationContract,
   noContentOperationContract,
   rawOperationContract,
@@ -31,6 +32,11 @@ const listTransport: Transport = {
   operation: listUsersOperationContract,
   requestEncoder: noneRequestEncoder(listUsersOperationContract),
   responseDecoder: jsonEnvelopeDecoder(listUsersOperationContract, 200)
+};
+const projectionTransport: Transport = {
+  operation: getAppReadinessCapabilitiesOperationContract,
+  requestEncoder: noneRequestEncoder(getAppReadinessCapabilitiesOperationContract),
+  responseDecoder: jsonEnvelopeDecoder(getAppReadinessCapabilitiesOperationContract, 200)
 };
 const uploadTransport: Transport = {
   operation: uploadOperationContract,
@@ -76,4 +82,88 @@ new EventSource(eventSourceOperationContract.normalizedPath);
 new WebSocket(socketOperationContract.normalizedPath);
 
 export const fixtureExposure = { path: '/fixture/users', capabilityId: 'fixture.users' };
-export const fixtureSelector = { capabilityId: 'fixture.users' };
+export const fixtureConditionalExposure = { path: '/fixture/conditional', capabilityId: 'fixture.conditional' };
+
+export type ModelOption = {
+  id: string;
+  label: string;
+  capabilityId: string;
+};
+
+export type AgentToolDefinition = {
+  capabilityId: string;
+  name: string;
+};
+
+type UpdateConversationConfigRequest = {
+  modelId: string;
+};
+
+type AppCapabilityProjectionResponse = {
+  capabilities: readonly { capabilityId: string }[];
+};
+
+type AgentTool = {
+  enabled: boolean;
+  name: string;
+};
+
+type CreateAgentRequest = {
+  name: string;
+  tools?: AgentTool[];
+};
+
+type UpdateAgentRequest = {
+  name?: string;
+  tools?: AgentTool[];
+};
+
+declare const releaseProjection: { isCapabilityEnabled(capabilityId: string): boolean };
+declare const modelOption: ModelOption;
+declare const agentToolDefinition: AgentToolDefinition;
+declare function useAppContext(): { authState: { status: string } };
+
+function createReleaseProjectionApi(): { load(): Promise<AppCapabilityProjectionResponse> } {
+  return {
+    load: () => client.get('/fixture/app-projection', undefined, projectionTransport) as Promise<AppCapabilityProjectionResponse>
+  };
+}
+
+releaseProjection.isCapabilityEnabled(modelOption.capabilityId);
+releaseProjection.isCapabilityEnabled(agentToolDefinition.capabilityId);
+
+export function ReleaseProjectionProvider({ children }: { children: unknown }) {
+  const { authState } = useAppContext();
+  if (authState.status !== 'authenticated') return null;
+  void createReleaseProjectionApi().load();
+  return children;
+}
+
+function conversationConfigRequest(model: ModelOption): UpdateConversationConfigRequest {
+  return { modelId: model.id };
+}
+
+function toolFromCatalogDefinition(tool: AgentToolDefinition): AgentTool {
+  return { enabled: true, name: tool.name };
+}
+
+function serializeToolMutation(tool: AgentTool): Record<string, unknown> {
+  const fields = ['enabled', 'name'] as const;
+  const result: Record<string, unknown> = {};
+  for (const field of fields) result[field] = tool[field];
+  return result;
+}
+
+function serializeAgentMutation(payload: CreateAgentRequest | UpdateAgentRequest): Record<string, unknown> {
+  const fields = ['name'] as const;
+  const result: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (payload[field] !== undefined) result[field] = payload[field];
+  }
+  if (payload.tools !== undefined) result.tools = payload.tools.map(serializeToolMutation);
+  return result;
+}
+
+void conversationConfigRequest;
+void toolFromCatalogDefinition;
+void serializeAgentMutation;
