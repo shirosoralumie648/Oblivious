@@ -5,10 +5,10 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-09-PLAN.md
-last_updated: "2026-07-22T13:12:14.803Z"
+stopped_at: Phase 31.2 verification found 2 blocking gaps
+last_updated: "2026-07-22T14:14:50.000Z"
 last_activity: 2026-07-22
-last_activity_desc: Plan 31.2-09 exact ten-surface aggregate and clean-head quality gate
+last_activity_desc: Phase 31.2 verification found frontend inventory and migration replay blockers
 progress:
   total_phases: 11
   completed_phases: 2
@@ -30,8 +30,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
 Plan: 15 of 15
-Status: Ready for verification
-Last activity: 2026-07-22 — Plan 31.2-09 exact ten-surface aggregate and clean-head quality gate
+Status: Verification gaps found — 2 blockers
+Last activity: 2026-07-22 — Phase 31.2 verification found frontend inventory and migration replay blockers
 
 Progress: [██████████] 100%
 
@@ -205,8 +205,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-22T13:12:14.792Z
-Stopped at: Completed 31.2-09-PLAN.md
+Last session: 2026-07-22T14:14:50.000Z
+Stopped at: Phase 31.2 verification found 2 blocking gaps
 Resume file: None
 
 ## Performance Metrics
