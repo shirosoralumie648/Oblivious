@@ -12,6 +12,55 @@ type routeSurfaceBinding struct {
 	Handler       stdhttp.Handler
 }
 
+type routeSurfaceOperationSpec struct {
+	Method, Path, OperationID, Security string
+	CSRF                                bool
+	CapabilityID                        string
+	RequestMediaType                    string
+	RequestSchemaKind                   string
+	RequestSchemaValue                  string
+	ResponseStatus                      string
+	ResponseMediaType                   string
+	ResponseSchemaKind                  string
+	ResponseSchemaValue                 string
+}
+
+func routeSurfaceOperationsFromSpecs(specs []routeSurfaceOperationSpec) []OperationContractMetadataV1 {
+	operations := make([]OperationContractMetadataV1, 0, len(specs))
+	for _, spec := range specs {
+		operations = append(operations, routeSurfaceMustOperation(
+			spec.Method,
+			spec.Path,
+			spec.OperationID,
+			spec.Security,
+			spec.CapabilityID,
+			spec.CSRF,
+			MediaSchemaIdentityV1{
+				MediaType:      spec.RequestMediaType,
+				SchemaIdentity: SchemaIdentityV1{Kind: spec.RequestSchemaKind, Value: spec.RequestSchemaValue},
+			},
+			StatusMediaSchemaIdentityV1{
+				Status:         spec.ResponseStatus,
+				MediaType:      spec.ResponseMediaType,
+				SchemaIdentity: SchemaIdentityV1{Kind: spec.ResponseSchemaKind, Value: spec.ResponseSchemaValue},
+			},
+		))
+	}
+	return operations
+}
+
+func routeSurfaceBindingsForHandler(operations []OperationContractMetadataV1, defaultAuth RouteSurfaceAuth, handler stdhttp.Handler) []routeSurfaceBinding {
+	bindings := make([]routeSurfaceBinding, 0, len(operations))
+	for _, operation := range operations {
+		auth := defaultAuth
+		if operation.Security == "public" {
+			auth = RouteSurfaceAuthPublic
+		}
+		bindings = append(bindings, routeSurfaceBinding{Operation: operation, Auth: auth, Handler: handler})
+	}
+	return bindings
+}
+
 func registerRouteSurfaceBindings(registrar *RouteSurfaceRegistrar, bindings []routeSurfaceBinding) error {
 	if registrar == nil || len(bindings) == 0 {
 		return routeSurfaceError("route_surface_inventory_empty", "bindings")
@@ -37,16 +86,26 @@ func registerRouteSurfaceBindings(registrar *RouteSurfaceRegistrar, bindings []r
 	return registrar.registerRoutingFallbacks()
 }
 
-func routeSurfaceGroupAAllowedCapabilities() map[string]struct{} {
+func routeSurfaceAllowedCapabilities() map[string]struct{} {
 	return map[string]struct{}{
 		"agent.run":                  {},
 		"agent.tool_execution":       {},
+		"billing.ledger_lifecycle":   {},
+		"billing.payment_lifecycle":  {},
+		"channel.delivery":           {},
 		"chat.conversation_use":      {},
+		"chat.export":                {},
 		"gateway.request_admission":  {},
 		"identity.account_session":   {},
+		"knowledge.ingestion":        {},
+		"knowledge.retrieval":        {},
+		"observability.audit":        {},
+		"observability.slo":          {},
 		"relay.provider_inference":   {},
 		"release.contract_reporting": {},
 		"task.scheduled_execution":   {},
+		"workflow.graph_execution":   {},
+		"workflow.replay":            {},
 	}
 }
 
@@ -57,7 +116,24 @@ func mustRouteSurfaceAdapterRegistrar(mux *stdhttp.ServeMux, authMiddleware sess
 			RouteSurfaceAuthSession: authMiddleware.requireSession,
 		},
 		CSRF:                pass,
-		AllowedCapabilities: routeSurfaceGroupAAllowedCapabilities(),
+		AllowedCapabilities: routeSurfaceAllowedCapabilities(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return registrar
+}
+
+func mustRouteSurfaceAdminAdapterRegistrar(mux *stdhttp.ServeMux, authMiddleware interface {
+	requireAdmin(stdhttp.Handler) stdhttp.Handler
+}) *RouteSurfaceRegistrar {
+	pass := func(next stdhttp.Handler) stdhttp.Handler { return next }
+	registrar, err := NewRouteSurfaceRegistrar(mux, RouteSurfacePolicies{
+		Auth: map[RouteSurfaceAuth]RouteSurfaceMiddleware{
+			RouteSurfaceAuthAdmin: authMiddleware.requireAdmin,
+		},
+		CSRF:                pass,
+		AllowedCapabilities: routeSurfaceAllowedCapabilities(),
 	})
 	if err != nil {
 		panic(err)

@@ -99,11 +99,23 @@ type RouteSurfacePolicies struct {
 }
 
 type RouteSurfaceRegistrar struct {
-	mux         *stdhttp.ServeMux
-	policies    RouteSurfacePolicies
-	descriptors map[string]RouteSurfaceDescriptor
-	mounts      map[string]string
-	fallbacks   map[string]string
+	mux             *stdhttp.ServeMux
+	policies        RouteSurfacePolicies
+	descriptors     map[string]RouteSurfaceDescriptor
+	mounts          map[string]string
+	dispatchBridges map[string]string
+	bridgeHandlers  map[string]*routeSurfaceDispatchBridge
+	fallbacks       map[string]string
+}
+
+type routeSurfaceDispatchBridge struct {
+	routes   map[string]routeSurfaceBridgeRoute
+	fallback stdhttp.Handler
+}
+
+type routeSurfaceBridgeRoute struct {
+	path    string
+	handler stdhttp.Handler
 }
 
 func NewRouteSurfaceRegistrar(mux *stdhttp.ServeMux, policies RouteSurfacePolicies) (*RouteSurfaceRegistrar, error) {
@@ -114,11 +126,13 @@ func NewRouteSurfaceRegistrar(mux *stdhttp.ServeMux, policies RouteSurfacePolici
 		return nil, routeSurfaceError("route_surface_policy_missing", "allowedCapabilities")
 	}
 	return &RouteSurfaceRegistrar{
-		mux:         mux,
-		policies:    cloneRouteSurfacePolicies(policies),
-		descriptors: make(map[string]RouteSurfaceDescriptor),
-		mounts:      make(map[string]string),
-		fallbacks:   make(map[string]string),
+		mux:             mux,
+		policies:        cloneRouteSurfacePolicies(policies),
+		descriptors:     make(map[string]RouteSurfaceDescriptor),
+		mounts:          make(map[string]string),
+		dispatchBridges: make(map[string]string),
+		bridgeHandlers:  make(map[string]*routeSurfaceDispatchBridge),
+		fallbacks:       make(map[string]string),
 	}, nil
 }
 
@@ -139,7 +153,31 @@ func (r *RouteSurfaceRegistrar) Register(reg RouteSurfaceRegistration) error {
 
 	pattern := descriptor.Method + " " + descriptor.Path
 	if err := handleRouteSurfacePattern(r.mux, pattern, handler); err != nil {
-		return err
+		if routeSurfaceErrorCode(err) != "route_surface_mount_invalid" {
+			return err
+		}
+		bridgePattern := descriptor.Method + " " + routeSurfaceWildcardFallback(descriptor.Path)
+		if strings.HasSuffix(bridgePattern, " ") {
+			return err
+		}
+		if bridge, exists := r.bridgeHandlers[bridgePattern]; exists {
+			if bridgeErr := bridge.add(key, descriptor.Path, handler); bridgeErr != nil {
+				return bridgeErr
+			}
+		} else {
+			bridge := &routeSurfaceDispatchBridge{
+				routes:   make(map[string]routeSurfaceBridgeRoute),
+				fallback: r.routeSurfaceNotFoundHandler(descriptor),
+			}
+			if bridgeErr := bridge.add(key, descriptor.Path, handler); bridgeErr != nil {
+				return bridgeErr
+			}
+			if bridgeErr := handleRouteSurfacePattern(r.mux, bridgePattern, bridge); bridgeErr != nil {
+				return bridgeErr
+			}
+			r.bridgeHandlers[bridgePattern] = bridge
+		}
+		r.dispatchBridges[key] = bridgePattern
 	}
 	r.descriptors[key] = descriptor
 	r.mounts[key] = pattern
@@ -201,6 +239,24 @@ func (r *RouteSurfaceRegistrar) validateSnapshot() error {
 			return routeSurfaceError("route_surface_mount_descriptor_mismatch", key)
 		}
 	}
+	for key, bridgePattern := range r.dispatchBridges {
+		descriptor, ok := r.descriptors[key]
+		bridge := r.bridgeHandlers[bridgePattern]
+		if !ok || bridge == nil || !bridge.contains(key, descriptor.Path) || bridgePattern != descriptor.Method+" "+routeSurfaceWildcardFallback(descriptor.Path) {
+			return routeSurfaceError("route_surface_mount_descriptor_mismatch", key)
+		}
+	}
+	for bridgePattern, bridge := range r.bridgeHandlers {
+		if bridge == nil || len(bridge.routes) == 0 {
+			return routeSurfaceError("route_surface_mount_descriptor_mismatch", bridgePattern)
+		}
+		for key, route := range bridge.routes {
+			descriptor, ok := r.descriptors[key]
+			if !ok || route.path != descriptor.Path || r.dispatchBridges[key] != bridgePattern {
+				return routeSurfaceError("route_surface_mount_descriptor_mismatch", key)
+			}
+		}
+	}
 	for pattern, key := range r.fallbacks {
 		descriptor, ok := r.descriptors[key]
 		if !ok || !routeSurfaceFallbackBelongsToDescriptor(pattern, descriptor) {
@@ -208,6 +264,74 @@ func (r *RouteSurfaceRegistrar) validateSnapshot() error {
 		}
 	}
 	return nil
+}
+
+func (r *RouteSurfaceRegistrar) routeSurfaceNotFoundHandler(owner RouteSurfaceDescriptor) stdhttp.Handler {
+	handler := stdhttp.Handler(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	}))
+	if owner.Auth != RouteSurfaceAuthPublic {
+		handler = r.policies.Auth[owner.Auth](handler)
+	}
+	return handler
+}
+
+func (b *routeSurfaceDispatchBridge) add(key, path string, handler stdhttp.Handler) error {
+	if b == nil || handler == nil || strings.TrimSpace(key) == "" || strings.TrimSpace(path) == "" {
+		return routeSurfaceError("route_surface_mount_invalid", key)
+	}
+	if _, exists := b.routes[key]; exists {
+		return routeSurfaceError("route_surface_duplicate", key)
+	}
+	b.routes[key] = routeSurfaceBridgeRoute{path: path, handler: handler}
+	return nil
+}
+
+func (b *routeSurfaceDispatchBridge) contains(key, path string) bool {
+	if b == nil {
+		return false
+	}
+	route, ok := b.routes[key]
+	return ok && route.path == path && route.handler != nil
+}
+
+func (b *routeSurfaceDispatchBridge) ServeHTTP(w stdhttp.ResponseWriter, request *stdhttp.Request) {
+	var matched stdhttp.Handler
+	for _, route := range b.routes {
+		if !routeSurfacePathMatches(route.path, request.URL.Path) {
+			continue
+		}
+		if matched != nil {
+			b.fallback.ServeHTTP(w, request)
+			return
+		}
+		matched = route.handler
+	}
+	if matched == nil {
+		b.fallback.ServeHTTP(w, request)
+		return
+	}
+	matched.ServeHTTP(w, request)
+}
+
+func routeSurfacePathMatches(pattern, requestPath string) bool {
+	patternSegments := strings.Split(strings.TrimPrefix(pattern, "/"), "/")
+	requestSegments := strings.Split(strings.TrimPrefix(requestPath, "/"), "/")
+	if len(patternSegments) != len(requestSegments) {
+		return false
+	}
+	for index, segment := range patternSegments {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			if requestSegments[index] == "" {
+				return false
+			}
+			continue
+		}
+		if segment != requestSegments[index] {
+			return false
+		}
+	}
+	return true
 }
 
 type HTTPRuntimeObservation struct {
@@ -472,6 +596,9 @@ func (r *RouteSurfaceRegistrar) registerRoutingFallback(pattern, ownerKey string
 		handler = r.policies.Auth[owner.Auth](handler)
 	}
 	if err := handleRouteSurfacePattern(r.mux, pattern, handler); err != nil {
+		if routeSurfaceErrorCode(err) == "route_surface_mount_invalid" {
+			return nil
+		}
 		return err
 	}
 	r.fallbacks[pattern] = ownerKey
