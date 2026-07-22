@@ -2336,7 +2336,8 @@ assert_file_contains "$check_script" "scripts/verify-quality-gates.sh"
 assert_file_contains "$check_script" "scripts/verify-observability-dashboard.mjs"
 assert_file_contains "$check_script" "scripts/verify-relay-security.sh"
 assert_file_contains "$check_script" "scripts/verify-dependency-security.sh"
-assert_file_contains "$check_script" "scripts/verify-migration-contract.sh"
+assert_file_not_contains "$check_script" 'bash "$repo_root/scripts/verify-openapi-contract.sh"'
+assert_file_not_contains "$check_script" 'bash "$repo_root/scripts/verify-migration-contract.sh"'
 assert_file_contains "$check_script" "scripts/verify-schema-coverage.sh"
 assert_file_contains "$check_script" "scripts/verify-workflow-success-rate-evidence.sh"
 assert_file_contains "$check_script" "scripts/verify-fusion-evidence-pack.sh"
@@ -2474,5 +2475,8 @@ for doc_file in \
   "$commercial_completion_audit_file"; do
   assert_file_not_matches "$doc_file" "$stale_docs_pattern"
 done
+
+echo "[quality-gates] Verifying the exact clean-head release contract aggregate."
+bash "$repo_root/scripts/verify-release-contract.sh" --clean-head --profile monolith
 
 echo "[quality-gates] quality gate assets look complete."
