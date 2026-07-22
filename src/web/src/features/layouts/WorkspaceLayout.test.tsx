@@ -28,7 +28,7 @@ vi.mock('../../app/providers', () => ({
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 describe('WorkspaceLayout', () => {
-  it('renders workspace navigation with a console entry', async () => {
+  it('renders visible workspace navigation with a console entry', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -48,7 +48,7 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Agent Memories' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Agents' })).toBeInTheDocument();
-    expect(await screen.findByRole('link', { name: 'MCP Servers' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'MCP Servers' })).not.toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Settings' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Workflows' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Scheduled Tasks' })).toBeInTheDocument();
@@ -86,7 +86,6 @@ describe('WorkspaceLayout', () => {
       'Chat',
       'Knowledge',
       'Agents',
-      'MCP Servers',
       'Agent Memories',
       'SOLO',
       'Workflows',
