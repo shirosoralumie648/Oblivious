@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-10-PLAN.md
-last_updated: "2026-07-22T05:43:57.421Z"
+stopped_at: Completed 31.2-14-PLAN.md
+last_updated: "2026-07-22T07:04:30.789Z"
 last_activity: 2026-07-22
-last_activity_desc: Plan 31.2-10 authenticated frontend release projection closure
+last_activity_desc: Plan 31.2-14 Group B runtime route registration closure
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 39
-  percent: 89
+  completed_plans: 40
+  percent: 91
 ---
 
 # Project State
@@ -29,23 +29,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 14 of 15
+Plan: 15 of 15
 Status: Ready to execute
-Last activity: 2026-07-22 — Plan 31.2-10 authenticated frontend release projection closure
+Last activity: 2026-07-22 — Plan 31.2-14 Group B runtime route registration closure
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 19
-- Average duration: 33 min
-- Total execution time: 10.3 hours
+- Total plans completed: 20
+- Average duration: 35 min
+- Total execution time: 11.5 hours
 
 **By Phase:** Phase 31 completed 7 plans in 249 minutes; Phase 31.1 completed 19 plans in 619 minutes.
 
-**Recent Trend:** Plan 31.2-10 wired authenticated release projection state into routes, navigation, marketing, Chat models, and Agent tools with 127/127 focused tests passing.
+**Recent Trend:** Plan 31.2-14 migrated 136 Group B operations to the shared registrar with four media classes, nine dispatch probes, and 30 fail-closed mutation cases passing.
 
 ## Accumulated Context
 
@@ -134,6 +134,10 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Routing fallbacks apply auth only and remain outside capability, guard, mount, and descriptor parity; HEAD stays implicit through Go ServeMux GET behavior. — Preserves structured 404/405 behavior without manufacturing release authority or conflicting patterns.
 - [Phase 31.2]: Same-status responses are unique by status plus normalized media/schema identity. — Preserves the canonical Gateway JSON and SSE status-200 response contracts while still rejecting exact duplicates.
 - [Phase 31.2]: Runtime projectionDigest and generated releaseProjectionDigest remain separate digest classes — The frontend recomputes the authenticated runtime digest and independently exact-joins generated capability IDs and dispositions
+- [Phase 31.2]: Production router composition calls only explicit Group B registrar entrypoints; legacy adapters remain focused-test compatibility surfaces only. — Keeps all 136 production operations on one same-source runtime authority.
+- [Phase 31.2]: ServeMux conflict bridges retain each logical registration composed handler and dispatch only on one unique logical path match. — Prevents a shared physical wildcard from sending later logical routes to the wrong handler.
+- [Phase 31.2]: Logical mount counts and descriptors remain the parity authority even when Go ServeMux requires a physical conflict bridge. — Keeps implementation mechanics from rewriting method and path contract identity.
+- [Phase 31.2]: The compare-only manifest is filtered by the closed 136-key Group B inventory and never participates in runtime registration construction. — Preserves Go declarations and handlers as runtime authority while detecting OpenAPI drift.
 
 ### Pending Todos
 
@@ -175,6 +179,7 @@ None yet.
 | Phase 31.2 P12 | 22 min | 3 tasks | 16 files |
 | Phase 31.2 P13 | 40 min | 2 tasks | 12 files |
 | Phase 31.2 P10 | 1h 12m | 3 tasks | 13 files |
+| Phase 31.2 P14 | 72 min | 2 tasks | 13 files |
 
 ### Roadmap Evolution
 
@@ -187,8 +192,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-22T05:43:57.409Z
-Stopped at: Completed 31.2-10-PLAN.md
+Last session: 2026-07-22T07:04:30.777Z
+Stopped at: Completed 31.2-14-PLAN.md
 Resume file: None
 
 ## Performance Metrics
