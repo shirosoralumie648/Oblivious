@@ -1,6 +1,7 @@
 import {
   bookmarkMessageOperationContract,
   convertConversationToTaskOperationContract,
+  connectWorkspaceWebSocketOperationContract,
   createConversationOperationContract,
   createConversationShareOperationContract,
   createMessageShareOperationContract,
@@ -207,7 +208,7 @@ export function createConversationRealtimeSocket(
     return noopConversationRealtimeSocket();
   }
 
-  const socket = new WebSocket(websocketURL('/api/v1/ws'));
+  const socket = new WebSocket(websocketURL(connectWorkspaceWebSocketOperationContract.normalizedPath));
   const sendClientMessage = (message: { conversationId: string; isTyping?: boolean; type: string }) => {
     if (socket.readyState !== WebSocket.OPEN) {
       return;
