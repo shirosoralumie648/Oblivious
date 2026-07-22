@@ -5,16 +5,16 @@ milestone_name: milestone
 current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
-stopped_at: Completed 31.2-12-PLAN.md
-last_updated: "2026-07-21T17:36:04.559Z"
-last_activity: 2026-07-21
-last_activity_desc: Completed Plan 31.2-12 Group B frontend operation contracts
+stopped_at: Completed 31.2-13-PLAN.md
+last_updated: "2026-07-22T04:04:40.586Z"
+last_activity: 2026-07-22
+last_activity_desc: Plan 31.2-13 Group A same-source route registration closure
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 44
-  completed_plans: 37
-  percent: 84
+  completed_plans: 38
+  percent: 86
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 9 of 15
+Plan: 10 of 15
 Status: Ready to execute
-Last activity: 2026-07-21 — Plan 31.2-12 Group B frontend operation contracts
+Last activity: 2026-07-22 — Plan 31.2-13 Group A same-source route registration closure
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -130,6 +130,9 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Project MCP add-server and execute-tool mutations to their explicit business fields. — Caller-supplied capabilityId and unknown authority fields cannot cross the frontend mutation boundary.
 - [Phase 31.2]: Route Admin dashboard data through the shared typed SWR fetcher with getAdminStatsOperationContract. — The SWR owner now carries exact request and response identity into the actual transport.
 - [Phase 31.2]: Preserve legacy business-argument assertions by stripping only the new transport argument inside test client adapters. — Separates public behavior compatibility from compiler-owned exact metadata proof.
+- [Phase 31.2]: Production Group A composition calls only explicit registrar entrypoints; legacy mux helpers remain test-only delegating adapters. — Keeps all 58 Group A dispatch and descriptor identities on one runtime registration value.
+- [Phase 31.2]: Routing fallbacks apply auth only and remain outside capability, guard, mount, and descriptor parity; HEAD stays implicit through Go ServeMux GET behavior. — Preserves structured 404/405 behavior without manufacturing release authority or conflicting patterns.
+- [Phase 31.2]: Same-status responses are unique by status plus normalized media/schema identity. — Preserves the canonical Gateway JSON and SSE status-200 response contracts while still rejecting exact duplicates.
 
 ### Pending Todos
 
@@ -169,6 +172,7 @@ None yet.
 | Phase 31.2 P08 | 45 min | 2 tasks | 7 files |
 | Phase 31.2 P11 | 46m | 3 tasks | 19 files |
 | Phase 31.2 P12 | 22 min | 3 tasks | 16 files |
+| Phase 31.2 P13 | 40 min | 2 tasks | 12 files |
 
 ### Roadmap Evolution
 
@@ -181,8 +185,8 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-21T17:36:04.548Z
-Stopped at: Completed 31.2-12-PLAN.md
+Last session: 2026-07-22T04:03:56.337Z
+Stopped at: Completed 31.2-13-PLAN.md
 Resume file: None
 
 ## Performance Metrics
