@@ -85,7 +85,7 @@ func TestReleaseHTTPRuntimeSurfaceCommandContract(t *testing.T) {
 	t.Run("frontend handoff resolves the exact owner inventory", func(t *testing.T) {
 		counts := verifyHTTPFrontendOwnerClosure(t, repoRoot)
 		expected := httpFrontendUsageCounts{
-			Owners: 24, Imports: 264, Uses: 267, Dispositions: 25,
+			Owners: 24, Imports: 265, Uses: 267, Dispositions: 25,
 			TransportCalls: 267, SharedTransports: 4,
 		}
 		if counts != expected {

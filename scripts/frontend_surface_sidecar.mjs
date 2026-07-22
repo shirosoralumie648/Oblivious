@@ -405,7 +405,7 @@ function validateTransportInvocation(node, kind, args, operation, checker) {
   if (args.path && !invocationPathMatches(args.path, operation.normalizedPath)) fail('transport_path_mismatch', operation.operationId);
 }
 
-function operationRecord(node, projectRoot, checker, generatedSymbols, metadataBySymbol) {
+function operationRecord(node, projectRoot, checker, generatedSymbols, metadataBySymbol, browserEventsByOperation) {
   const kind = transportKind(node, checker);
   if (!kind) return null;
   if (ts.isNewExpression(node)) {
@@ -414,14 +414,20 @@ function operationRecord(node, projectRoot, checker, generatedSymbols, metadataB
     const operation = metadataBySymbol.get(operationSymbols[0]);
     if (!operation) fail('generated_operation_metadata_unresolved');
     const eventSource = kind.kind === 'event-source';
+    const eventSourceResponse = eventSource
+      ? operation.successResponses.find((response) => response.mediaType === 'text/event-stream')
+      : null;
+    if (eventSource && !eventSourceResponse) fail('event_source_response_unresolved', operation.operationId);
     return makeOperationRecord(node, projectRoot, kind, operation, {
       id: 'none', mediaType: null, schemaIdentity: { kind: 'none', value: null }
     }, {
       id: eventSource ? 'event-source' : 'raw-response',
-      status: eventSource ? Number(operation.successResponses[0]?.status ?? 200) : 101,
-      mediaType: null,
-      schemaIdentity: { kind: 'none', value: null }
-    }, checker, operation);
+      status: eventSource ? Number(eventSourceResponse.status) : 101,
+      mediaType: eventSource ? eventSourceResponse.mediaType : null,
+      schemaIdentity: eventSource
+        ? eventSourceResponse.schemaIdentity
+        : { kind: 'none', value: null }
+    }, browserEventsByOperation.get(operation.operationId) ?? []);
   }
   const args = operationArguments(node, kind.kind, checker);
   let operation;
@@ -444,10 +450,18 @@ function operationRecord(node, projectRoot, checker, generatedSymbols, metadataB
   }
   if (!operation) fail('operation_unresolved');
   validateTransportInvocation(node, kind.kind, args, operation, checker);
-  return makeOperationRecord(node, projectRoot, kind, operation, requestEncoder, responseDecoder, checker, operation);
+  return makeOperationRecord(
+    node,
+    projectRoot,
+    kind,
+    operation,
+    requestEncoder,
+    responseDecoder,
+    browserEventsByOperation.get(operation.operationId) ?? []
+  );
 }
 
-function makeOperationRecord(node, projectRoot, transport, operation, requestEncoder, responseDecoder, checker) {
+function makeOperationRecord(node, projectRoot, transport, operation, requestEncoder, responseDecoder, events) {
   const location = sourceLocation(node, projectRoot);
   const method = operation.method;
   return {
@@ -475,7 +489,7 @@ function makeOperationRecord(node, projectRoot, transport, operation, requestEnc
     },
     requestEncoder,
     responseDecoder,
-    events: []
+    events
   };
 }
 
@@ -532,7 +546,41 @@ function generatedMetadata(program, checker, generatedFile) {
     }
   }
   if (metadataBySymbol.size === 0) fail('generated_operation_inventory_empty');
-  return metadataBySymbol;
+  const browserEventDeclaration = sourceFile.statements
+    .flatMap((statement) => ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [])
+    .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'browserEventContracts');
+  const browserEventValues = browserEventDeclaration
+    ? literalValue(browserEventDeclaration.initializer)
+    : undefined;
+  if (!Array.isArray(browserEventValues) || browserEventValues.length === 0) {
+    fail('generated_browser_event_inventory_empty');
+  }
+  const browserEventsByOperation = new Map();
+  for (const row of browserEventValues) {
+    if (
+      !row
+      || typeof row.operationId !== 'string'
+      || !['sse', 'websocket'].includes(row.transport)
+      || !Array.isArray(row.events)
+      || row.events.length === 0
+      || browserEventsByOperation.has(row.operationId)
+    ) {
+      fail('generated_browser_event_invalid');
+    }
+    for (const event of row.events) {
+      if (
+        !event
+        || !['client', 'server'].includes(event.direction)
+        || !['message', 'event'].includes(event.kind)
+        || !event.schemaIdentity
+        || !['ref', 'inline', 'none'].includes(event.schemaIdentity.kind)
+      ) {
+        fail('generated_browser_event_invalid', row.operationId);
+      }
+    }
+    browserEventsByOperation.set(row.operationId, row.events);
+  }
+  return { metadataBySymbol, browserEventsByOperation };
 }
 
 export function extractSidecar({ root, tsconfig, generatedFile = null }) {
@@ -553,7 +601,7 @@ export function extractSidecar({ root, tsconfig, generatedFile = null }) {
   const program = ts.createProgram({ rootNames, options: parsed.options });
   const checker = program.getTypeChecker();
   const generatedPath = path.resolve(generatedFile ?? path.join(projectRoot, 'src/generated/operation-contracts.generated.ts'));
-  const generatedMetadataBySymbol = generatedMetadata(program, checker, generatedPath);
+  const { metadataBySymbol: generatedMetadataBySymbol, browserEventsByOperation } = generatedMetadata(program, checker, generatedPath);
   const generatedSymbols = new Set(generatedMetadataBySymbol.keys());
   const operations = [];
   const exposures = [];
@@ -569,7 +617,14 @@ export function extractSidecar({ root, tsconfig, generatedFile = null }) {
       const kind = transportKind(node, checker);
       if (kind && !isShared) {
         try {
-          const record = operationRecord(node, repositoryRoot, checker, generatedSymbols, generatedMetadataBySymbol);
+          const record = operationRecord(
+            node,
+            repositoryRoot,
+            checker,
+            generatedSymbols,
+            generatedMetadataBySymbol,
+            browserEventsByOperation
+          );
           if (record) {
             operations.push(record);
             callerFiles.add(relative);

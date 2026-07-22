@@ -40,12 +40,14 @@ type commandOptions struct {
 }
 
 type httpSurfaceManifest struct {
-	SchemaVersion    string                                    `json:"schemaVersion"`
-	GeneratedFrom    json.RawMessage                           `json:"generatedFrom"`
-	ProjectionDigest string                                    `json:"projectionDigest"`
-	Scope            runtimehttp.PublicOperationScopeV1        `json:"scope"`
-	Operations       []runtimehttp.OperationContractMetadataV1 `json:"operations"`
-	RouteSamples     json.RawMessage                           `json:"routeSamples"`
+	SchemaVersion      string                                    `json:"schemaVersion"`
+	GeneratedFrom      json.RawMessage                           `json:"generatedFrom"`
+	ProjectionDigest   string                                    `json:"projectionDigest"`
+	BrowserEventDigest json.RawMessage                           `json:"browserEventDigest"`
+	Scope              runtimehttp.PublicOperationScopeV1        `json:"scope"`
+	Operations         []runtimehttp.OperationContractMetadataV1 `json:"operations"`
+	BrowserEvents      json.RawMessage                           `json:"browserEvents"`
+	RouteSamples       json.RawMessage                           `json:"routeSamples"`
 }
 
 type commandError struct {
