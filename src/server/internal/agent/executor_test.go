@@ -12,7 +12,37 @@ import (
 	"oblivious/server/internal/mcp"
 )
 
+func TestToolExecutorBlocksSSRFCustomAPITool(t *testing.T) {
+	executor := NewToolExecutor(nil)
+	agent := &Agent{
+		ID:             "agent_custom_api_ssrf",
+		OrganizationID: "org_1",
+		Tools: []Tool{{
+			Name:     "lookup_internal",
+			Type:     "custom",
+			ServerID: "http://127.0.0.1:8080/admin",
+			Enabled:  true,
+		}},
+	}
+	toolCall := &ToolCall{
+		ID:        "call_123",
+		Name:      "lookup_internal",
+		Arguments: map[string]any{},
+	}
+
+	_, err := executor.Execute(context.Background(), agent, toolCall)
+	if err == nil {
+		t.Fatal("Execute should have returned an error for SSRF attempt")
+	}
+	if !strings.Contains(err.Error(), "SSRF protection") {
+		t.Fatalf("expected SSRF error, got: %v", err)
+	}
+}
+
 func TestToolExecutorExecutesCustomAPITool(t *testing.T) {
+	ssrfBypassForTest = true
+	defer func() { ssrfBypassForTest = false }()
+
 	var (
 		receivedBody map[string]any
 		receivedPath string

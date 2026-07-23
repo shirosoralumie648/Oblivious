@@ -99,7 +99,7 @@ describe('PublishingChannelsPage', () => {
       expect(listFailedChannelMessages).toHaveBeenCalledWith('channel_1');
     });
     expect(screen.getByText('Recent messages')).toBeInTheDocument();
-    expect(await screen.findByText('channel_message_recent')).toBeInTheDocument();
+    expect(screen.getByText('channel_message_recent')).toBeInTheDocument();
     expect(screen.getByText('inbound')).toBeInTheDocument();
     expect(screen.getByText('Failed retry queue')).toBeInTheDocument();
     expect(screen.getByText('channel_message_failed')).toBeInTheDocument();

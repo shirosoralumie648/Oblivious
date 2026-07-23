@@ -1,0 +1,4 @@
+## 2025-02-28 - SSRF Vulnerability in Custom API Tool Execution
+**Vulnerability:** The `executeCustomAPI` function used the user-provided `tool.ServerID` URL directly without any validation, allowing the agent to perform Server-Side Request Forgery (SSRF) against internal services on the local network (`localhost`, `127.0.0.1`, `169.254.169.254`, etc.).
+**Learning:** Agent custom API tools provide an interface for interacting with external services, but without validation, it becomes an open proxy for the server executing the agent tools.
+**Prevention:** Always parse and resolve hostnames for user-provided API endpoints. Verify that the resolved IPs are not in private, loopback, or unspecified ranges using the `net` package's validation methods (`IsPrivate`, `IsLoopback`, etc.) before initiating HTTP requests.
