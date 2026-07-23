@@ -334,15 +334,19 @@ function formatPackageDuration(durationDays: number | undefined) {
   return durationDays && durationDays > 0 ? `${durationDays} days` : 'ongoing';
 }
 
+// ⚡ Bolt: Cache Intl formatters to improve render performance
+const integerFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const invoiceDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric'
+});
+
 function formatInteger(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+  return integerFormatter.format(value);
 }
 
 function formatInvoiceDueDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-    year: 'numeric'
-  }).format(new Date(value));
+  return invoiceDateFormatter.format(new Date(value));
 }
