@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SWRConfig } from 'swr';
 
 const getStats = vi.fn();
 
@@ -8,6 +9,14 @@ vi.mock('../../features/admin/api', () => ({
 }));
 
 import { AdminHomePage } from './AdminHomePage';
+
+function renderWithSWR(component: React.ReactElement) {
+  return render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      {component}
+    </SWRConfig>
+  );
+}
 
 describe('AdminHomePage', () => {
   beforeEach(() => {
@@ -26,9 +35,23 @@ describe('AdminHomePage', () => {
       channelsOnline: 3,
       activeAgents: 7,
       apiCalls24h: 128,
+      dailyStats: [
+        { date: '06-05', calls: 100 },
+        { date: '06-06', calls: 120 },
+        { date: '06-07', calls: 110 },
+        { date: '06-08', calls: 130 },
+        { date: '06-09', calls: 125 },
+        { date: '06-10', calls: 128 },
+        { date: '06-11', calls: 135 },
+      ],
+      modelBreakdown: [
+        { model: 'gpt-4', count: 50 },
+        { model: 'gpt-3.5-turbo', count: 30 },
+        { model: 'claude-3', count: 20 },
+      ],
     });
 
-    render(<AdminHomePage />);
+    renderWithSWR(<AdminHomePage />);
 
     expect((await screen.findAllByText('Channels')).length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
@@ -37,6 +60,8 @@ describe('AdminHomePage', () => {
     expect(await screen.findByText('Active Agents')).toBeInTheDocument();
     expect(await screen.findByText('API Call Volume (7 days)')).toBeInTheDocument();
     expect(await screen.findByText('Channel Uptime')).toBeInTheDocument();
+    expect(await screen.findByText('API 调用趋势（最近 7 天）')).toBeInTheDocument();
+    expect(await screen.findByText('模型使用占比')).toBeInTheDocument();
   });
 
   it('renders commercial operations module coverage', async () => {
@@ -51,9 +76,23 @@ describe('AdminHomePage', () => {
       channelsOnline: 3,
       activeAgents: 7,
       apiCalls24h: 128,
+      dailyStats: [
+        { date: '06-05', calls: 100 },
+        { date: '06-06', calls: 120 },
+        { date: '06-07', calls: 110 },
+        { date: '06-08', calls: 130 },
+        { date: '06-09', calls: 125 },
+        { date: '06-10', calls: 128 },
+        { date: '06-11', calls: 135 },
+      ],
+      modelBreakdown: [
+        { model: 'gpt-4', count: 50 },
+        { model: 'gpt-3.5-turbo', count: 30 },
+        { model: 'claude-3', count: 20 },
+      ],
     });
 
-    render(<AdminHomePage />);
+    renderWithSWR(<AdminHomePage />);
 
     expect(await screen.findByRole('heading', { name: 'Commercial operations' })).toBeInTheDocument();
     const operations = screen.getByRole('region', { name: 'Commercial operations' });
@@ -69,7 +108,7 @@ describe('AdminHomePage', () => {
   it('renders retryable error state when stats fail', async () => {
     getStats.mockRejectedValue(new Error('network unavailable'));
 
-    render(<AdminHomePage />);
+    renderWithSWR(<AdminHomePage />);
 
     expect(await screen.findByText('Something went wrong while loading this data. Please try again or contact support if the issue persists.')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Try Again' })).toBeInTheDocument();

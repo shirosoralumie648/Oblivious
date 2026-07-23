@@ -496,7 +496,7 @@ func (s *Service) RejectAgent(ctx context.Context, reviewerID, reviewerEmail, ag
 
 	// Audit
 	if s.audit != nil {
-		if err := s.audit.LogAction(ctx, reviewerID, reviewerEmail, "agent.reject", "agent", agentID, reason, ip); err != nil {
+		if err := s.audit.LogAction(ctx, reviewerID, reviewerEmail, "agent.reject", "agent", agentID, toJSON(map[string]string{"reason": reason}), ip); err != nil {
 			_ = err
 		}
 	}

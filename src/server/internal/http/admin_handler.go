@@ -897,7 +897,8 @@ func (h adminHandler) rejectAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.reject", "agent", agentID, req.Reason, requestClientIP(r))
+	reasonJSON, _ := json.Marshal(map[string]string{"reason": req.Reason})
+	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.reject", "agent", agentID, string(reasonJSON), requestClientIP(r))
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "rejected"})
 }
@@ -919,7 +920,8 @@ func (h adminHandler) needsChangesAgent(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.needs_changes", "agent", agentID, req.Reason, requestClientIP(r))
+	reasonJSON, _ := json.Marshal(map[string]string{"reason": req.Reason})
+	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.needs_changes", "agent", agentID, string(reasonJSON), requestClientIP(r))
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "needs_changes"})
 }

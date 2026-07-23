@@ -1,9 +1,19 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { RiArrowRightLine, RiShieldKeyholeLine } from '@remixicon/react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 
 import { useAppContext } from '../../app/providers';
 import { createHttpClient } from '../../services/http/client';
+
+const loginFormSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+type LoginFormData = z.infer<typeof loginFormSchema>;
 
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : 'Unable to sign in. Check the credentials and try again.';
@@ -13,24 +23,20 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { bootstrapAuth } = useAppContext();
   const client = useMemo(() => createHttpClient(), []);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { register, handleSubmit, formState: { isSubmitting } } = useForm<LoginFormData>({
+    resolver: zodResolver(loginFormSchema),
+  });
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (data: LoginFormData) => {
     setError(null);
-    setIsSubmitting(true);
 
     try {
-      await client.post('/api/v1/auth/login', { email, password });
+      await client.post('/api/v1/auth/login', data);
       await bootstrapAuth();
       navigate('/chat');
     } catch (caughtError) {
       setError(errorMessage(caughtError));
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -51,7 +57,7 @@ export function LoginPage() {
         </div>
       </section>
       <section className="flex items-center justify-center bg-[#f4f3ee] px-6 py-10 text-[#181611]" data-gsap-item>
-        <form onSubmit={handleSubmit} className="w-full max-w-md space-y-5 rounded-lg border border-[#d7d2c4] bg-white p-6 shadow-xl" data-gsap-item>
+        <form onSubmit={handleSubmit(onSubmit)} className="w-full max-w-md space-y-5 rounded-lg border border-[#d7d2c4] bg-white p-6 shadow-xl" data-gsap-item>
           <div>
             <h2 className="font-heading text-2xl font-semibold">Workspace login</h2>
             <p className="mt-2 text-sm leading-6 text-[#625b4f]">Uses `POST /api/v1/auth/login` and refreshes the current session before entering Chat.</p>
@@ -64,25 +70,21 @@ export function LoginPage() {
           <label className="block space-y-2 text-sm font-medium" htmlFor="login-email">
             <span>Email</span>
             <input
+              {...register('email')}
               autoComplete="email"
               className="min-h-[44px] w-full rounded-lg border border-[#cfc8b7] bg-white px-3 text-[#181611] outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/20"
               id="login-email"
-              onChange={(event) => setEmail(event.target.value)}
-              required
               type="email"
-              value={email}
             />
           </label>
           <label className="block space-y-2 text-sm font-medium" htmlFor="login-password">
             <span>Password</span>
             <input
+              {...register('password')}
               autoComplete="current-password"
               className="min-h-[44px] w-full rounded-lg border border-[#cfc8b7] bg-white px-3 text-[#181611] outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-600/20"
               id="login-password"
-              onChange={(event) => setPassword(event.target.value)}
-              required
               type="password"
-              value={password}
             />
           </label>
           <button

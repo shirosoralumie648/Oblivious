@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiPlayLine, RiSearchLine } from '@remixicon/react';
+import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiLoader4Line, RiPlayLine, RiSearchLine } from '@remixicon/react';
 
 import { createHttpClient } from '../../services/http/client';
 import {
@@ -301,7 +301,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
           disabled={isAdding || name.trim() === '' || url.trim() === ''}
           type="submit"
         >
-          <RiAddLine className="size-4" aria-hidden="true" />
+          {isAdding ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiAddLine className="size-4" aria-hidden="true" />}
           {isAdding ? 'Adding...' : 'Add MCP server'}
         </button>
       </form>
@@ -354,48 +354,48 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                 <div className="flex flex-wrap gap-2">
                   <button
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
-                    disabled={loadingAction === `connect:${server.id}`}
+                    disabled={!!loadingAction || loadingAction === `connect:${server.id}`}
                     onClick={() => void connectServer(server.id)}
                     type="button"
                   >
-                    <RiLink className="size-4" aria-hidden="true" />
+                    {loadingAction === `connect:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiLink className="size-4" aria-hidden="true" />}
                     Connect
                   </button>
                   <button
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
-                    disabled={loadingAction === `disconnect:${server.id}`}
+                    disabled={!!loadingAction || loadingAction === `disconnect:${server.id}`}
                     onClick={() => void disconnectServer(server.id)}
                     type="button"
                   >
-                    <RiLinkUnlink className="size-4" aria-hidden="true" />
+                    {loadingAction === `disconnect:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiLinkUnlink className="size-4" aria-hidden="true" />}
                     Disconnect
                   </button>
                   <button
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
-                    disabled={loadingAction === `diagnose:${server.id}`}
+                    disabled={!!loadingAction || loadingAction === `diagnose:${server.id}`}
                     onClick={() => void diagnoseServer(server.id)}
                     type="button"
                   >
-                    <RiSearchLine className="size-4" aria-hidden="true" />
+                    {loadingAction === `diagnose:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiSearchLine className="size-4" aria-hidden="true" />}
                     Diagnose
                   </button>
                   <button
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
-                    disabled={loadingAction === `tools:${server.id}`}
+                    disabled={!!loadingAction || loadingAction === `tools:${server.id}`}
                     onClick={() => void listTools(server.id)}
                     type="button"
                   >
-                    <RiListCheck className="size-4" aria-hidden="true" />
+                    {loadingAction === `tools:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiListCheck className="size-4" aria-hidden="true" />}
                     List tools
                   </button>
                   <button
                     aria-label={`Delete ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={loadingAction === `delete:${server.id}`}
+                    disabled={!!loadingAction || loadingAction === `delete:${server.id}`}
                     onClick={() => void deleteServer(server.id)}
                     type="button"
                   >
-                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                    {loadingAction === `delete:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiDeleteBinLine className="size-4" aria-hidden="true" />}
                     Delete
                   </button>
                 </div>
@@ -442,10 +442,10 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     </label>
                     <button
                       className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={loadingAction === `execute:${server.id}` || (toolName || toolState.selectedToolName || '').trim() === ''}
+                      disabled={!!loadingAction || loadingAction === `execute:${server.id}` || (toolName || toolState.selectedToolName || '').trim() === ''}
                       type="submit"
                     >
-                      <RiPlayLine className="size-4" aria-hidden="true" />
+                      {loadingAction === `execute:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiPlayLine className="size-4" aria-hidden="true" />}
                       Execute test call
                     </button>
                     {toolState.result ? (

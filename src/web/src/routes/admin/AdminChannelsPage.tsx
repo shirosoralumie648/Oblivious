@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { RiAddLine, RiDeleteBinLine, RiDownloadCloudLine, RiFlashlightLine, RiLoader4Line, RiPencilLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -13,6 +15,7 @@ import { SearchBar } from '../../components/shared/SearchBar';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
 import { createHttpClient } from '../../services/http/client';
+import { channelFormSchema } from '../../lib/formSchemas';
 import type { ChannelCreateRequest, ChannelInfo, ChannelModelUpdatePreview, ChannelProviderInfo, ChannelRuntimeStats, ChannelTestResult, ChannelUpdateRequest } from '../../types/admin';
 
 type ChannelForm = {
@@ -89,7 +92,6 @@ type ChannelState = {
   selectedIds: Set<string>;
   drawerOpen: boolean;
   editingChannel: ChannelInfo | null;
-  form: ChannelForm;
   formLoading: boolean;
   formError: string | null;
   confirmDelete: ChannelInfo | null;
@@ -112,7 +114,6 @@ type Action =
   | { type: 'OPEN_ADD' }
   | { type: 'OPEN_EDIT'; channel: ChannelInfo }
   | { type: 'CLOSE_DRAWER' }
-  | { type: 'FORM_FIELD'; field: keyof ChannelForm; value: string }
   | { type: 'FORM_START' }
   | { type: 'FORM_ERROR'; error: string }
   | { type: 'FORM_DONE' }
@@ -148,7 +149,6 @@ const initialState: ChannelState = {
   selectedIds: new Set(),
   drawerOpen: false,
   editingChannel: null,
-  form: emptyForm,
   formLoading: false,
   formError: null,
   confirmDelete: null,
@@ -213,13 +213,11 @@ function reducer(state: ChannelState, action: Action): ChannelState {
     case 'CLEAR_SELECTION':
       return { ...state, selectedIds: new Set() };
     case 'OPEN_ADD':
-      return { ...state, drawerOpen: true, editingChannel: null, form: emptyForm, formError: null };
+      return { ...state, drawerOpen: true, editingChannel: null, formError: null };
     case 'OPEN_EDIT':
-      return { ...state, drawerOpen: true, editingChannel: action.channel, form: channelToForm(action.channel), formError: null };
+      return { ...state, drawerOpen: true, editingChannel: action.channel, formError: null };
     case 'CLOSE_DRAWER':
       return { ...state, drawerOpen: false, editingChannel: null, formLoading: false, formError: null };
-    case 'FORM_FIELD':
-      return { ...state, form: { ...state.form, [action.field]: action.value } };
     case 'FORM_START':
       return { ...state, formLoading: true, formError: null };
     case 'FORM_ERROR':
@@ -359,6 +357,19 @@ export function AdminChannelsPage() {
   const [providerOptions, setProviderOptions] = useState<RelayProviderOption[]>(defaultRelayProviderOptions);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
 
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ChannelForm>({
+    resolver: zodResolver(channelFormSchema),
+    defaultValues: emptyForm,
+  });
+
+  useEffect(() => {
+    if (state.editingChannel) {
+      reset(channelToForm(state.editingChannel));
+    } else if (state.drawerOpen) {
+      reset(emptyForm);
+    }
+  }, [state.editingChannel, state.drawerOpen, reset]);
+
   const loadChannels = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });
     try {
@@ -415,17 +426,13 @@ export function AdminChannelsPage() {
     return () => window.clearInterval(interval);
   }, [api, state.channels]);
 
-  const handleSubmit = async () => {
-    const payload = channelPayload(state.form);
-    if (!payload.name || !payload.baseURL) {
-      dispatch({ type: 'FORM_ERROR', error: 'Name and Base URL are required.' });
-      return;
-    }
+  const onSubmit = async (formData: ChannelForm) => {
+    const payload = channelPayload(formData);
 
     dispatch({ type: 'FORM_START' });
     try {
       if (state.editingChannel) {
-        await api.updateChannel(state.editingChannel.id, channelUpdatePayload(state.form));
+        await api.updateChannel(state.editingChannel.id, channelUpdatePayload(formData));
       } else {
         await api.createChannel(payload);
       }
@@ -853,71 +860,82 @@ export function AdminChannelsPage() {
           }}
           title={state.editingChannel ? 'Edit Channel' : 'Add Channel'}
           submitLabel={state.editingChannel ? 'Save Changes' : 'Create Channel'}
-          onSubmit={handleSubmit}
+          onSubmit={() => void handleSubmit(onSubmit)()}
           loading={state.formLoading}
           error={state.formError}
         >
           <div className="space-y-2">
             <label htmlFor="channel-name" className="text-sm font-medium">Name</label>
-            <Input id="channel-name" value={state.form.name} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'name', value: event.target.value })} />
+            <Input id="channel-name" {...register('name')} />
+            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           </div>
           <div className="space-y-2">
             <label htmlFor="channel-provider" className="text-sm font-medium">Provider</label>
             <select
               id="channel-provider"
-              value={state.form.provider}
-              onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'provider', value: event.target.value })}
+              {...register('provider')}
               className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
             >
               {providerOptions.map((provider) => (
                 <option key={provider.value} value={provider.value}>{provider.label}</option>
               ))}
             </select>
+            {errors.provider && <p className="text-xs text-destructive">{errors.provider.message}</p>}
           </div>
           <div className="space-y-2">
             <label htmlFor="channel-api-key" className="text-sm font-medium">API Key</label>
-            <Input id="channel-api-key" type="password" value={state.form.apiKey} placeholder={state.editingChannel ? '********' : ''} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'apiKey', value: event.target.value })} />
+            <Input id="channel-api-key" type="password" placeholder={state.editingChannel ? '********' : ''} {...register('apiKey')} />
+            {errors.apiKey && <p className="text-xs text-destructive">{errors.apiKey.message}</p>}
           </div>
           <div className="space-y-2">
             <label htmlFor="channel-base-url" className="text-sm font-medium">Base URL</label>
-            <Input id="channel-base-url" value={state.form.baseURL} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'baseURL', value: event.target.value })} />
+            <Input id="channel-base-url" {...register('baseURL')} />
+            {errors.baseURL && <p className="text-xs text-destructive">{errors.baseURL.message}</p>}
           </div>
           <div className="space-y-2">
             <label htmlFor="channel-models" className="text-sm font-medium">Models</label>
-            <Input id="channel-models" value={state.form.models} placeholder="gpt-4o, gpt-4o-mini" onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'models', value: event.target.value })} />
+            <Input id="channel-models" placeholder="gpt-4o, gpt-4o-mini" {...register('models')} />
+            {errors.models && <p className="text-xs text-destructive">{errors.models.message}</p>}
           </div>
           <div className="space-y-2">
             <label htmlFor="channel-groups" className="text-sm font-medium">Groups</label>
-            <Input id="channel-groups" value={state.form.groups} placeholder="default, vip, enterprise" onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'groups', value: event.target.value })} />
+            <Input id="channel-groups" placeholder="default, vip, enterprise" {...register('groups')} />
+            {errors.groups && <p className="text-xs text-destructive">{errors.groups.message}</p>}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="channel-rpm-limit" className="text-sm font-medium">RPM Limit</label>
-              <Input id="channel-rpm-limit" type="number" min="0" value={state.form.rpmLimit} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'rpmLimit', value: event.target.value })} />
+              <Input id="channel-rpm-limit" type="number" min="0" {...register('rpmLimit')} />
+              {errors.rpmLimit && <p className="text-xs text-destructive">{errors.rpmLimit.message}</p>}
             </div>
             <div className="space-y-2">
               <label htmlFor="channel-tpm-limit" className="text-sm font-medium">TPM Limit</label>
-              <Input id="channel-tpm-limit" type="number" min="0" value={state.form.tpmLimit} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'tpmLimit', value: event.target.value })} />
+              <Input id="channel-tpm-limit" type="number" min="0" {...register('tpmLimit')} />
+              {errors.tpmLimit && <p className="text-xs text-destructive">{errors.tpmLimit.message}</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="channel-estimated-cost" className="text-sm font-medium">Estimated Cost per 1K</label>
-              <Input id="channel-estimated-cost" type="number" step="0.0001" min="0" value={state.form.estimatedCostPer1K} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'estimatedCostPer1K', value: event.target.value })} />
+              <Input id="channel-estimated-cost" type="number" step="0.0001" min="0" {...register('estimatedCostPer1K')} />
+              {errors.estimatedCostPer1K && <p className="text-xs text-destructive">{errors.estimatedCostPer1K.message}</p>}
             </div>
             <div className="space-y-2">
               <label htmlFor="channel-cost-multiplier" className="text-sm font-medium">Cost Multiplier</label>
-              <Input id="channel-cost-multiplier" type="number" step="0.01" min="0" value={state.form.costMultiplier} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'costMultiplier', value: event.target.value })} />
+              <Input id="channel-cost-multiplier" type="number" step="0.01" min="0" {...register('costMultiplier')} />
+              {errors.costMultiplier && <p className="text-xs text-destructive">{errors.costMultiplier.message}</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="channel-priority" className="text-sm font-medium">Priority</label>
-              <Input id="channel-priority" type="number" value={state.form.priority} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'priority', value: event.target.value })} />
+              <Input id="channel-priority" type="number" {...register('priority')} />
+              {errors.priority && <p className="text-xs text-destructive">{errors.priority.message}</p>}
             </div>
             <div className="space-y-2">
               <label htmlFor="channel-weight" className="text-sm font-medium">Weight</label>
-              <Input id="channel-weight" type="number" value={state.form.weight} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'weight', value: event.target.value })} />
+              <Input id="channel-weight" type="number" {...register('weight')} />
+              {errors.weight && <p className="text-xs text-destructive">{errors.weight.message}</p>}
             </div>
           </div>
         </DrawerForm>
