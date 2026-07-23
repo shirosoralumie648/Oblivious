@@ -96,6 +96,7 @@ export function FilterPanel({
               }
             }}
             placeholder="Add tag..."
+            aria-label="Add tag"
             className="min-h-[44px] rounded-lg"
           />
           <datalist id="available-marketplace-tags">
@@ -112,6 +113,7 @@ export function FilterPanel({
               <Button
                 key={rating}
                 type="button"
+                aria-pressed={minRating === rating}
                 variant={minRating === rating ? 'default' : 'outline'}
                 className="min-h-[44px]"
                 onClick={() => onRatingChange(rating)}
@@ -129,6 +131,7 @@ export function FilterPanel({
               <Button
                 key={filter}
                 type="button"
+                aria-pressed={priceFilter === filter}
                 variant={priceFilter === filter ? 'default' : 'outline'}
                 className="min-h-[44px] capitalize"
                 onClick={() => onPriceFilterChange(filter)}
