@@ -726,6 +726,10 @@ export function KnowledgePage() {
       return;
     }
 
+    if (!window.confirm('Are you sure you want to delete this knowledge base? This action cannot be undone.')) {
+      return;
+    }
+
     setIsDeletingKnowledgeBase(true);
     setError(null);
 
@@ -1107,6 +1111,10 @@ export function KnowledgePage() {
 
   const handleDeleteKnowledgeDocument = async (document: KnowledgeDocumentSummary) => {
     if (!knowledgeBaseId) {
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete "${document.title}"? This action cannot be undone.`)) {
       return;
     }
 
