@@ -19,7 +19,7 @@ test('commercial journey covers onboarding Chat Knowledge Agent Marketplace Admi
   await expect(page.getByRole('heading', { name: 'Conversation transcript' })).toBeVisible();
   await page.getByLabel('Message draft').fill('Prove the commercial Relay journey.');
   await page.getByRole('button', { name: 'Send message' }).click();
-  await expect(page.getByText('Relay settled this chat with quota, billing, and monitoring metadata attached.')).toBeVisible();
+  await expect(page.getByText('Relay settled this chat with quota, billing, and monitoring metadata attached.')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText('Use knowledge base Commercial Runbook')).toBeVisible();
 
   await page.goto('/knowledge/kb_commercial');

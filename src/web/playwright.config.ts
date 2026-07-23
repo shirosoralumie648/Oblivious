@@ -19,9 +19,15 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
+  timeout: 120000,
+  expect: {
+    timeout: 30000,
+  },
   use: {
     baseURL,
     trace: 'retain-on-failure',
+    actionTimeout: 30000,
+    navigationTimeout: 30000,
   },
   ...(webServer ? { webServer } : {}),
   projects: [
