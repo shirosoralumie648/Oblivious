@@ -637,6 +637,8 @@ describe('KnowledgePage', () => {
     });
     expect(screen.getByText('Overview v2')).toBeInTheDocument();
 
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+
     fireEvent.click(screen.getByRole('button', { name: 'Delete document Overview v2' }));
 
     await waitFor(() => {
@@ -659,6 +661,9 @@ describe('KnowledgePage', () => {
     render(<KnowledgePage />);
 
     await screen.findByRole('heading', { name: 'Architecture Notes' });
+
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+
     fireEvent.click(screen.getByRole('button', { name: 'Delete knowledge base' }));
 
     await waitFor(() => {
