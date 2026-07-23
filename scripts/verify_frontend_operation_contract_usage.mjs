@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(new URL('../src/web/package.json', import.meta.url));
 const ts = require('typescript');
 
 const SCHEMA_VERSION = 'operation-contract-usage/v1';
