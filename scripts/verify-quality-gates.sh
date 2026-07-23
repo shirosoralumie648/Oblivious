@@ -47,6 +47,22 @@ assert_file_matches() {
   fi
 }
 
+assert_workflow_job_contains() {
+  local path="$1"
+  local job="$2"
+  local pattern="$3"
+
+  if ! awk -v job="$job" -v pattern="$pattern" '
+    $0 == "  " job ":" { in_job = 1; next }
+    in_job && /^  [[:alnum:]_-]+:$/ { exit }
+    in_job && index($0, pattern) { found = 1 }
+    END { exit !found }
+  ' "$path"; then
+    echo "[quality-gates] expected pattern '$pattern' in workflow job '$job' in $path" >&2
+    exit 1
+  fi
+}
+
 assert_k8s_images_are_release_tagged() {
   local path relative_path line image image_name
 
@@ -169,6 +185,10 @@ verify_ci_contract() {
   assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh"
   assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh server"
   assert_file_contains "$reusable_workflow_file" "bash scripts/test.sh e2e"
+  assert_workflow_job_contains "$reusable_workflow_file" "quick-server" 'setup-node: "true"'
+  assert_workflow_job_contains "$reusable_workflow_file" "quick-server" 'install-dependencies: "true"'
+  assert_workflow_job_contains "$reusable_workflow_file" "server-database" 'setup-node: "true"'
+  assert_workflow_job_contains "$reusable_workflow_file" "server-database" 'install-dependencies: "true"'
   assert_file_contains "$reusable_workflow_file" "actions/upload-artifact@v4"
   assert_file_contains "$reusable_workflow_file" "if: failure()"
   assert_file_contains "$reusable_workflow_file" "src/web/playwright-report/"

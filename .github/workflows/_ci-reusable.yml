@@ -21,6 +21,8 @@ jobs:
       - uses: ./.github/actions/setup-toolchain
         with:
           setup-go: "true"
+          setup-node: "true"
+          install-dependencies: "true"
       - name: Compile server packages
         run: bash scripts/check.sh server
       - name: Run server unit tests
@@ -181,6 +183,8 @@ jobs:
       - uses: ./.github/actions/setup-toolchain
         with:
           setup-go: "true"
+          setup-node: "true"
+          install-dependencies: "true"
       - name: Compile server packages
         run: bash scripts/check.sh server
       - name: Run database-backed server tests
