@@ -6,9 +6,9 @@ current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
 stopped_at: Phase 31.2 verification found 2 blocking gaps
-last_updated: "2026-07-22T18:18:08.000Z"
+last_updated: "2026-07-23T03:00:36.000Z"
 last_activity: 2026-07-23
-last_activity_desc: Completed quick task 260723-1rx with repository-local tiered reusable CI verification
+last_activity_desc: Hosted quick CI verified after correcting server-test frontend dependency resolution
 progress:
   total_phases: 11
   completed_phases: 2
@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
 Plan: 15 of 15
 Status: Verification gaps found — 2 blockers
-Last activity: 2026-07-23 - Completed quick task 260723-1rx: Implement approved tiered reusable CI
+Last activity: 2026-07-23 - Hosted quick CI passed for quick task 260723-1rx
 
 Progress: [██████████] 100%
 
@@ -163,7 +163,7 @@ None yet.
 |---|-------------|------|--------|--------|-----------|
 | 260717-up4 | 审计当前未提交内容，完善 .gitignore，删除确认无关的生成内容，并按逻辑边界逐步提交 | 2026-07-17 | 5d43da8 | Verified | [260717-up4-gitignore](./quick/260717-up4-gitignore/) |
 | 260723-1ln | Document approved tiered reusable CI design | 2026-07-23 | 5add4de | Designed | [260723-1ln-document-approved-tiered-reusable-ci-des](./quick/260723-1ln-document-approved-tiered-reusable-ci-des/) |
-| 260723-1rx | Implement approved tiered reusable CI and push it | 2026-07-23 | e543a6d | Repository-local verified | [260723-1rx-implement-approved-tiered-reusable-ci-an](./quick/260723-1rx-implement-approved-tiered-reusable-ci-an/) |
+| 260723-1rx | Implement approved tiered reusable CI and push it | 2026-07-23 | 325e293 | Hosted quick verified | [260723-1rx-implement-approved-tiered-reusable-ci-an](./quick/260723-1rx-implement-approved-tiered-reusable-ci-an/) |
 | Phase 31.1 P06 | 40 min | 3 tasks | 9 files |
 | Phase 31.1 P07 | 36 min | 3 tasks | 8 files |
 | Phase 31.1 P10 | 70 min | 2 tasks | 10 files |
