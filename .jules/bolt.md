@@ -1,0 +1,3 @@
+## 2026-07-24 - Memoize MetricCard Component
+**Learning:** Pure UI components like `MetricCard` that frequently receive the same props across renders but contain slightly complex formatting logic or DOM structures should be wrapped in `React.memo` to prevent unnecessary re-renders. This is particularly noticeable on dashboards (e.g. `AdminHomePage`) where multiple metric cards might re-render unnecessarily when unrelated state changes.
+**Action:** Use `React.memo()` around simple UI presentation components that take primitive props when they are used repeatedly or in places where their parent's state changes often without affecting the card's props.

@@ -95,7 +95,7 @@ describe('WorkflowsPage real React Flow canvas', () => {
     const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
     const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
 
-    expect(canvas.querySelector('.react-flow')).toBeInTheDocument();
+    expect(canvas.querySelector('.react-flow__pane')).toBeInTheDocument();
     expect(canvas.querySelector('[data-id="manual-start"]')).toBeInTheDocument();
     expect(canvas.querySelector('[data-id="classify-ticket"]')).toBeInTheDocument();
     expect(within(visualEditor).getByLabelText('Node palette for Incident triage')).toBeInTheDocument();
