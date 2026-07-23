@@ -387,6 +387,20 @@ run_dependency_security_checks() {
   bash "$repo_root/scripts/verify-dependency-security.sh"
 }
 
+run_target_release_evidence_checks() {
+  echo "[check] Verifying target release evidence behavior."
+  bash "$repo_root/scripts/verify-target-release-evidence-fixtures.sh"
+
+  echo "[check] Verifying target release evidence assembler."
+  bash "$repo_root/scripts/assemble-target-release-evidence-fixtures.sh"
+
+  echo "[check] Verifying target release artifact collection."
+  bash "$repo_root/scripts/collect-target-release-artifacts-fixtures.sh"
+
+  echo "[check] Verifying target release digest computation."
+  bash "$repo_root/scripts/compute-target-release-digests-fixtures.sh"
+}
+
 case "$target" in
   all)
     run_docs_checks
@@ -397,6 +411,9 @@ case "$target" in
     ;;
   docs)
     run_docs_checks
+    ;;
+  target-release-evidence)
+    run_target_release_evidence_checks
     ;;
   relay-security)
     run_relay_security_checks
