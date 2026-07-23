@@ -1,0 +1,3 @@
+## 2025-05-19 - Added ARIA labels to Pagination buttons
+**Learning:** Found a common UX and accessibility gap in `Pagination.tsx`. The "Previous", "Next", and page number buttons were lacking clear ARIA labels which makes keyboard/screen reader navigation more difficult to interpret context. Adding simple `aria-label` tags to control buttons improves overall accessibility of any paginated tables. I also changed the wrapping `div` to a `<nav aria-label="Pagination">` for better semantic structuring.
+**Action:** Always verify components that involve navigation or repeating elements (like paginations, lists, tables) are using appropriate semantic tags and have `aria-label` attributes on icon-only or ambiguous control buttons.
