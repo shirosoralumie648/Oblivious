@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +20,7 @@ function visiblePages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((a, b) => a - b);
 }
 
-export function Pagination({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }: PaginationProps) {
+export const Pagination = memo(function Pagination({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }: PaginationProps) {
   if (totalPages <= 1 && totalItems === undefined) {
     return null;
   }
@@ -56,5 +58,5 @@ export function Pagination({ currentPage, totalPages, onPageChange, totalItems, 
         </Button>
       </div>
     </div>
-  );
-}
+   );
+});

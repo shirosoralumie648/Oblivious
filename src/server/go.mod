@@ -1,6 +1,6 @@
 module oblivious/server
 
-go 1.25.0
+go 1.26.5
 
 require (
 	github.com/dop251/goja v0.0.0-20260603143327-1f200ca63355
@@ -64,7 +64,7 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )

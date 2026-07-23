@@ -913,7 +913,7 @@ assert_file_contains "$check_script" "go test ./... -run '^$' -count=1"
 assert_file_contains "$dependency_security_file" "pnpm audit --registry"
 assert_file_contains "$dependency_security_file" "https://registry.npmjs.org"
 assert_file_contains "$dependency_security_file" "govulncheck"
-assert_file_contains "$dependency_security_file" "go1.26.4"
+assert_file_contains "$dependency_security_file" "go1.26.5"
 assert_file_contains "$dependency_security_file" "OBLIVIOUS_SECURITY_GOVULNCHECK_VERSION"
 assert_file_contains "$dependency_security_file" "v1.3.0"
 assert_file_contains "$package_file" '"check:security": "bash scripts/check.sh security"'

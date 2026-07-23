@@ -1,0 +1,3 @@
+## 2026-06-11 - [Optimize shared UI components rendering]
+**Learning:** Common shared presentational components like `RatingStars`, `SearchBar`, and `Pagination` are often used in deeply nested lists or complex layouts. When their parent components re-render, they also re-render unnecessarily, leading to a performance bottleneck specific to this architecture. By utilizing `React.memo`, we can memoize these components, avoiding wasteful render cycles when their props have not changed.
+**Action:** Always wrap purely presentational or shared leaf components with `React.memo` to prevent cascading re-renders in larger React applications.
