@@ -55,9 +55,7 @@ describe('AdminChannelsPage', () => {
       { id: 'ollama', displayName: 'Ollama', kind: 'openai_compatible', status: 'supported', defaultBaseURL: 'http://localhost:11434/v1' },
       { id: 'vertex', displayName: 'Vertex AI', kind: 'native', status: 'supported', defaultBaseURL: '' },
       { id: 'bedrock', displayName: 'Amazon Bedrock', kind: 'native', status: 'supported', defaultBaseURL: '' },
-      { id: 'azure-openai', displayName: 'Azure OpenAI', kind: 'openai_compatible', status: 'planned', defaultBaseURL: '', configurable: false, installable: false, runtimeReady: false },
-      { id: 'catalog-only', displayName: 'Catalog Only', kind: 'openai_compatible', status: 'supported', defaultBaseURL: '', configurable: true, installable: false, runtimeReady: true },
-      { id: 'runtime-beta', displayName: 'Runtime Beta', kind: 'openai_compatible', status: 'supported', defaultBaseURL: '', configurable: true, installable: true, runtimeReady: false },
+      { id: 'azure-openai', displayName: 'Azure OpenAI', kind: 'openai_compatible', status: 'planned', defaultBaseURL: '' },
     ]);
     listChannelStats.mockResolvedValue([]);
   });
@@ -350,8 +348,6 @@ describe('AdminChannelsPage', () => {
       expect(providerFilter).toHaveTextContent(label);
     }
     expect(providerFilter).not.toHaveTextContent('Azure OpenAI');
-    expect(providerFilter).not.toHaveTextContent('Catalog Only');
-    expect(providerFilter).not.toHaveTextContent('Runtime Beta');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Channel' }));
     const providerSelect = await screen.findByLabelText('Provider');
@@ -359,8 +355,6 @@ describe('AdminChannelsPage', () => {
       expect(providerSelect).toHaveTextContent(label);
     }
     expect(providerSelect).not.toHaveTextContent('Azure OpenAI');
-    expect(providerSelect).not.toHaveTextContent('Catalog Only');
-    expect(providerSelect).not.toHaveTextContent('Runtime Beta');
   });
 
   it('submits channel groups when creating a channel', async () => {
