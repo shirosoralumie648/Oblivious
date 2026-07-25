@@ -65,6 +65,9 @@ export type ChannelProviderInfo = {
   kind: string;
   status: string;
   defaultBaseURL: string;
+  configurable?: boolean;
+  installable?: boolean;
+  runtimeReady?: boolean;
 };
 
 export type ChannelCreateRequest = {
