@@ -359,6 +359,65 @@ func (s *RelayAPITokenSQLStore) RefundRelayAPITokenQuota(ctx context.Context, to
 	return err
 }
 
+// RefundRelayAPITokenQuotaOnce decrements used_quota and records a
+// compensation receipt in one SQL transaction. Repeating the call with the
+// same scopeKey is idempotent: if the receipt already exists and matches
+// tokenID/amount the function returns nil. A mismatch returns
+// ErrQuotaCompensationReceiptMismatch.
+func (s *RelayAPITokenSQLStore) RefundRelayAPITokenQuotaOnce(ctx context.Context, tokenID string, amount float64, scopeKey string) error {
+	if amount <= 0 || scopeKey == "" || tokenID == "" {
+		return ErrQuotaCompensationInvalidRequest
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	var storedTokenID string
+	var storedAmount float64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO relay_api_token_quota_refund_receipts (scope_key_digest, api_token_id, amount, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (scope_key_digest) DO NOTHING
+		RETURNING api_token_id, amount
+	`, scopeKey, tokenID, amount).Scan(&storedTokenID, &storedAmount)
+	inserted := err == nil
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, `
+			SELECT api_token_id, amount
+			FROM relay_api_token_quota_refund_receipts
+			WHERE scope_key_digest = $1
+		`, scopeKey).Scan(&storedTokenID, &storedAmount)
+	}
+	if err != nil {
+		return err
+	}
+	if storedTokenID != tokenID || storedAmount != amount {
+		return ErrQuotaCompensationReceiptMismatch
+	}
+	if inserted {
+		// Only decrement quota when we are the first to record the receipt.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE relay_api_tokens
+			SET used_quota = GREATEST(used_quota - $2, 0),
+			    updated_at = NOW()
+			WHERE id = $1
+		`, tokenID, amount); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func (s *RelayAPITokenSQLStore) ListRelayAPITokenUsage(ctx context.Context, organizationID, userID, tokenID string) ([]RelayAPITokenUsageItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT

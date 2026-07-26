@@ -24,22 +24,24 @@ type ConversationAffinityStore interface {
 }
 
 type Router struct {
-	pool                 *ChannelPool
-	loadBalancer         *LoadBalancer
-	circuitBreakers      map[string]*CircuitBreaker
-	tokenBucket          *TokenBucket
-	healthChecker        *HealthChecker
-	billingHook          *BillingHook
-	billingRedisAddr     string
-	rateLimiter          ratelimit.RateLimiter
-	rateLimitResolver    RateLimitResolver
-	affinityStore        ConversationAffinityStore
-	semanticCache        *relaycache.SemanticCache
-	quotaManager         QuotaManager
-	apiTokenQuotaManager APITokenQuotaManager
-	usageLogger          UsageLogger
-	retrySleep           func(time.Duration)
-	readiness            *routerReadiness
+	pool                   *ChannelPool
+	loadBalancer           *LoadBalancer
+	circuitBreakers        map[string]*CircuitBreaker
+	tokenBucket            *TokenBucket
+	healthChecker          *HealthChecker
+	billingHook            *BillingHook
+	billingRedisAddr       string
+	rateLimiter            ratelimit.RateLimiter
+	rateLimitResolver      RateLimitResolver
+	affinityStore          ConversationAffinityStore
+	semanticCache          *relaycache.SemanticCache
+	quotaManager           QuotaManager
+	apiTokenQuotaManager   APITokenQuotaManager
+	usageLogger            UsageLogger
+	retrySleep             func(time.Duration)
+	readiness              *routerReadiness
+	compensationStore      QuotaCompensationStore
+	routeAttemptIDGen      func() (string, error)
 }
 
 // RouterRuntimeOptions is the one startup-built readiness carrier accepted by
@@ -374,6 +376,49 @@ func (r *Router) SetRateLimitResolver(resolver RateLimitResolver) {
 	r.rateLimitResolver = resolver
 }
 
+// SetCompensationStore wires the durable quota compensation store into the
+// router. When set, late readiness denials commit a compensation job before
+// any immediate refund attempt.
+func (r *Router) SetCompensationStore(store QuotaCompensationStore) {
+	r.compensationStore = store
+}
+
+// generateRouteAttemptID returns a cryptographically random route-attempt
+// identity or the result of an injected generator (used in tests).
+func (r *Router) generateRouteAttemptID() (string, error) {
+	if r.routeAttemptIDGen != nil {
+		return r.routeAttemptIDGen()
+	}
+	return GenerateRouteAttemptID()
+}
+
+// compensateLateReadiness arms the durable job and attempts all required quota
+// refunds independently, returning the original readiness error joined with any
+// stable compensation/persistence failures.
+func (r *Router) compensateLateReadiness(
+	ctx context.Context,
+	readinessErr error,
+	stage string,
+	routeAttemptID string,
+	organizationID string,
+	billingSessionID string,
+	apiTokenID string,
+	amount float64,
+	idempotencyKey string,
+) error {
+	req := QuotaCompensationRequest{
+		RouteAttemptID:       routeAttemptID,
+		Stage:                stage,
+		OrganizationID:       organizationID,
+		BillingSessionID:     billingSessionID,
+		APITokenID:           apiTokenID,
+		Amount:               amount,
+		CallerIdempotencyKey: idempotencyKey,
+	}
+	coordinator := NewQuotaCompensationCoordinator(r.compensationStore, r.quotaManager, r.apiTokenQuotaManager)
+	return coordinator.CompensateLateReadiness(ctx, readinessErr, req)
+}
+
 func (r *Router) RouteWithBilling(
 	ctx context.Context,
 	apiType types.APIType,
@@ -392,6 +437,14 @@ func (r *Router) RouteWithBilling(
 	featureType, _ := types.TrustedFeatureTypeFromContext(ctx)
 	userGroup, _ := types.TrustedUserGroupFromContext(ctx)
 	streamingResponse, _ := types.TrustedStreamingFromContext(ctx)
+
+	// Mint a mandatory server-generated route-attempt identity before either
+	// organization or API-token preauthorization begins. A generation failure
+	// returns a stable sanitized error before any reservation side effect.
+	routeAttemptID, idGenErr := r.generateRouteAttemptID()
+	if idGenErr != nil {
+		return nil, fmt.Errorf("route_attempt_identity_generation_failed")
+	}
 
 	if err := r.requireModel(ctx, model); err != nil {
 		return nil, err
@@ -577,23 +630,13 @@ func (r *Router) RouteWithBilling(
 		// only refund effects that have already started.
 		if err := r.requireModel(ctx, model); err != nil {
 			releaseRateLimit()
-			if r.quotaManager != nil && billingSessionID != "" {
-				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
-			}
-			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
-				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
-			}
-			return nil, err
+			return nil, r.compensateLateReadiness(ctx, err, QuotaCompensationStageLateModelReadiness,
+				routeAttemptID, organizationID, billingSessionID, apiTokenID, tokenPreauthorizedAmount, attemptIdempotencyKey)
 		}
 		if err := r.requireProvider(ctx); err != nil {
 			releaseRateLimit()
-			if r.quotaManager != nil && billingSessionID != "" {
-				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
-			}
-			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
-				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
-			}
-			return nil, err
+			return nil, r.compensateLateReadiness(ctx, err, QuotaCompensationStageLateProviderReadiness,
+				routeAttemptID, organizationID, billingSessionID, apiTokenID, tokenPreauthorizedAmount, attemptIdempotencyKey)
 		}
 
 		resp, err := fn(ch)

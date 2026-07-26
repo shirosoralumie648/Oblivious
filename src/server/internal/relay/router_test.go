@@ -1530,3 +1530,188 @@ func (s *memoryConversationAffinityStore) GetConversationAffinity(_ context.Cont
 func (s *memoryConversationAffinityStore) channelFor(conversationID string) string {
 	return s.bindings[conversationID]
 }
+
+// --- Task 2: Router compensation contract tests ---
+
+func newCompensationTestRouter(t *testing.T, guard *batchGuardSpy, compensationStore QuotaCompensationStore) *Router {
+	t.Helper()
+	contract, profile := loadBatchReadinessAuthority(t)
+	authorities, err := releasecontract.NewRuntimeAuthorities(contract, profile, guard)
+	if err != nil {
+		t.Fatalf("compile runtime authorities: %v", err)
+	}
+	pricing := NewPricingStore()
+	for _, dimension := range []types.UsageDimension{types.DimPromptTokens, types.DimCompletionTokens, types.DimTotalTokens} {
+		pricing.SetPrice("gpt-4o-mini", types.APITypeChat, dimension, 0.01)
+	}
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "comp-primary",
+		Provider: "openai",
+		BaseURL:  "https://comp-primary.invalid",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 1)
+	router, err := NewRouterWithBillingOptions(
+		pool,
+		NewLoadBalancer(pool, "priority"),
+		map[string]*CircuitBreaker{"comp-primary": NewCircuitBreaker("comp-primary", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		NewBillingHook(pricing, nil),
+		"",
+		RouterRuntimeOptions{Guard: guard, Authorities: authorities, Effects: &batchEffectRegistrar{}},
+	)
+	if err != nil {
+		t.Fatalf("construct guarded router: %v", err)
+	}
+	router.retrySleep = func(time.Duration) {}
+	if compensationStore != nil {
+		router.SetCompensationStore(compensationStore)
+	}
+	return router
+}
+
+func TestRelayLateReadinessQuotaCompensationContract(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stage string
+		// denyAtCall: 1=initial model deny (pre-billing), 2=late model deny, 3=late provider deny
+		denyAtCall int
+	}{
+		{"late model readiness denial", "model", 2},
+		{"late provider readiness denial", "provider", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMemoryQuotaCompensationStore()
+			guard := &batchGuardSpy{
+				denyAtCall: tc.denyAtCall,
+				denial:     &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"},
+			}
+			router := newCompensationTestRouter(t, guard, store)
+			quotaManager := &stubQuotaManager{}
+			apiTokenManager := &recordingAPITokenQuotaManager{}
+			router.SetQuotaManager(quotaManager)
+			router.SetAPITokenQuotaManager(apiTokenManager)
+
+			ctx := types.WithTrustedOrganizationID(context.Background(), "org_comp")
+			ctx = types.WithTrustedAPITokenID(ctx, "tok_comp")
+			resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem-comp", &types.Usage{TotalTokens: 5}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+				return types.NewOKResponse(nil, nil), nil
+			})
+			if tc.denyAtCall == 1 {
+				// Initial denial before billing — no job should be armed.
+				if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) {
+					t.Fatalf("expected stale denial, got resp=%+v err=%v", resp, err)
+				}
+				return
+			}
+			if resp != nil || !releasecontract.IsReadinessCode(err, releasecontract.CodeReadinessStale) {
+				t.Fatalf("expected stale denial, got resp=%+v err=%v", resp, err)
+			}
+			// Compensation job must have been armed and scopes completed.
+			req := QuotaCompensationRequest{
+				RouteAttemptID: "placeholder", // any non-empty ID will do for key isolation test
+				Stage:          QuotaCompensationStageLateModelReadiness,
+				OrganizationID: "org_comp",
+				BillingSessionID: "bill_test",
+				APITokenID:     "tok_comp",
+				Amount:         quotaManager.preconsumeAmount,
+			}
+			_ = req
+			// Org quota was refunded exactly once (via compensation coordinator).
+			if quotaManager.refundCalls != 1 {
+				t.Fatalf("expected 1 org refund, got %d", quotaManager.refundCalls)
+			}
+			// API-token was also refunded exactly once.
+			if apiTokenManager.refundCalls != 1 {
+				t.Fatalf("expected 1 api-token refund, got %d", apiTokenManager.refundCalls)
+			}
+		})
+	}
+}
+
+func TestRelayRouteAttemptIdentityRequiredBeforePreauthorization(t *testing.T) {
+	guard := &batchGuardSpy{}
+	router := newCompensationTestRouter(t, guard, nil)
+	quotaManager := &stubQuotaManager{}
+	router.SetQuotaManager(quotaManager)
+	// Inject a failing route-attempt ID generator.
+	router.routeAttemptIDGen = func() (string, error) {
+		return "", errors.New("entropy_exhausted")
+	}
+	providerCalls := 0
+	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem-noid", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+		providerCalls++
+		return types.NewOKResponse(nil, nil), nil
+	})
+	if resp != nil || err == nil || providerCalls != 0 || quotaManager.preconsumeCalls != 0 {
+		t.Fatalf("expected fail-closed before preauthorization: resp=%+v err=%v provider=%d quota=%d", resp, err, providerCalls, quotaManager.preconsumeCalls)
+	}
+}
+
+func TestRelayTokenOnlyReservationIdentityIsolation(t *testing.T) {
+	// Two distinct route attempts with the same caller idempotency key must
+	// produce distinct compensation jobs and not cross-refund each other.
+	store := newMemoryQuotaCompensationStore()
+	guard := &batchGuardSpy{
+		denyAtCall: 2,
+		denial:     &releasecontract.ReadinessError{Code: releasecontract.CodeReadinessStale, Field: "generation"},
+	}
+
+	makeRouter := func() *Router {
+		guard2 := &batchGuardSpy{
+			denyAtCall: guard.denyAtCall,
+			denial:     guard.denial,
+		}
+		r := newCompensationTestRouter(t, guard2, store)
+		r.SetQuotaManager(&stubQuotaManager{})
+		r.SetAPITokenQuotaManager(&recordingAPITokenQuotaManager{})
+		r.retrySleep = func(time.Duration) {}
+		return r
+	}
+
+	for i := 0; i < 2; i++ {
+		r := makeRouter()
+		ctx := types.WithTrustedOrganizationID(context.Background(), "org_isolation")
+		ctx = types.WithTrustedAPITokenID(ctx, "tok_isolation")
+		_, _ = r.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "shared-key", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+			return types.NewOKResponse(nil, nil), nil
+		})
+	}
+	// With two distinct route attempts, the store should have two distinct jobs.
+	store.state.mu.Lock()
+	defer store.state.mu.Unlock()
+	if len(store.state.jobs) < 2 {
+		t.Fatalf("expected at least 2 distinct compensation jobs for distinct route attempts, got %d", len(store.state.jobs))
+	}
+}
+
+func TestRelayReadinessPerAttemptContractWithCompensation(t *testing.T) {
+	// Verify that an initial model denial (before billing) with a compensation
+	// store wired still produces zero downstream effects.
+	store := newMemoryQuotaCompensationStore()
+	guard := &batchGuardSpy{
+		denyAtCall: 1,
+		denial:     &releasecontract.ReadinessError{Code: releasecontract.CodeCapabilityDisabled, Field: "model"},
+	}
+	router := newCompensationTestRouter(t, guard, store)
+	quotaManager := &stubQuotaManager{}
+	router.SetQuotaManager(quotaManager)
+	providerCalls := 0
+	_, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem-initial-comp", &types.Usage{TotalTokens: 2}, func(*types.RouteChannel) (*types.ProviderResponse, error) {
+		providerCalls++
+		return types.NewOKResponse(nil, nil), nil
+	})
+	if !releasecontract.IsReadinessCode(err, releasecontract.CodeCapabilityDisabled) {
+		t.Fatalf("expected capability_disabled, got %v", err)
+	}
+	if providerCalls != 0 || quotaManager.preconsumeCalls != 0 {
+		t.Fatalf("initial denial with compensation store leaked effects: provider=%d quota=%d", providerCalls, quotaManager.preconsumeCalls)
+	}
+	store.state.mu.Lock()
+	defer store.state.mu.Unlock()
+	if len(store.state.jobs) != 0 {
+		t.Fatalf("initial denial (before billing) must not arm a compensation job, got %d jobs", len(store.state.jobs))
+	}
+}

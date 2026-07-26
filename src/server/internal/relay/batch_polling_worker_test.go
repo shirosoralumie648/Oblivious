@@ -999,6 +999,13 @@ func (m *recordingBatchAPITokenQuotaManager) RefundRelayAPITokenQuota(_ context.
 	return m.refundErr
 }
 
+func (m *recordingBatchAPITokenQuotaManager) RefundRelayAPITokenQuotaOnce(_ context.Context, tokenID string, amount float64, _ string) error {
+	m.refundCalls++
+	m.refundedTokenID = tokenID
+	m.refundedAmount = amount
+	return m.refundErr
+}
+
 func (c *recordingBatchStatusClient) RetrieveBatch(_ context.Context, job RelayBatchPollingJob) (BatchStatusResult, error) {
 	c.seen = append(c.seen, job)
 	if c.err != nil {

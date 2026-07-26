@@ -1356,6 +1356,13 @@ func (m *recordingAPITokenQuotaManager) RefundRelayAPITokenQuota(_ context.Conte
 	return nil
 }
 
+func (m *recordingAPITokenQuotaManager) RefundRelayAPITokenQuotaOnce(_ context.Context, tokenID string, amount float64, _ string) error {
+	m.refundedTokenID = tokenID
+	m.refundedAmount = amount
+	m.refundCalls++
+	return nil
+}
+
 var _ APITokenQuotaManager = (*recordingAPITokenQuotaManager)(nil)
 
 type stubQuotaManager struct {
@@ -2180,6 +2187,11 @@ func (m *preauthFailingAPITokenQuotaManager) SettleRelayAPITokenQuota(_ context.
 }
 
 func (m *preauthFailingAPITokenQuotaManager) RefundRelayAPITokenQuota(_ context.Context, _ string, _ float64) error {
+	m.refundCalls++
+	return nil
+}
+
+func (m *preauthFailingAPITokenQuotaManager) RefundRelayAPITokenQuotaOnce(_ context.Context, _ string, _ float64, _ string) error {
 	m.refundCalls++
 	return nil
 }
