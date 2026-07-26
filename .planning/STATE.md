@@ -6,14 +6,14 @@ current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
 stopped_at: Phase 31.2 verification found 2 blocking gaps
-last_updated: "2026-07-26T03:41:43.529Z"
+last_updated: "2026-07-26T03:55:44.138Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 31.2 execution started
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 52
-  completed_plans: 47
+  completed_plans: 48
   percent: 18
 ---
 
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 ## Current Position
 
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
-Plan: 2 of 23
+Plan: 3 of 23
 Status: Ready to execute
 Last activity: 2026-07-26 — Phase 31.2 execution started
 
@@ -147,6 +147,7 @@ Decisions are logged in `PROJECT.md` Key Decisions.
 - [Phase 31.2]: Transport and exposure projections consume the exact same pre-existing sidecar bytes and digest; neither report producer may rescan TypeScript or substitute caller-owned inventory. — Prevents cross-report provenance drift and duplicate scan authority.
 - [Phase 31.2]: Authenticated projection identity, server catalog DTO subjects, selector bindings, generated projection consumers, and mutation capabilityId omission all fail closed. — Product presentation cannot become an independent authorization source.
 - [Phase 31.2]: The paired frontend reports retain independent schemas, surface identities, consumer digests, and diagnostics while sharing only trusted sidecar/source/config provenance. — Aggregation cannot fold the two evidence surfaces into one claim.
+- [Phase ?]: Dual-search CRLF+LF boundaries; consume exact delimiter length
 
 ### Pending Todos
 
@@ -195,6 +196,7 @@ None yet.
 | Phase 31.2 P03 | 1h 10m | 3 tasks | 13 files |
 | Phase 31.2 P05 | 1h 40m | 3 tasks | 19 files |
 | Phase 31.2 P09 | 1h 59m | 3 tasks | 9 files |
+| Phase 31.2 P20 | 4 | - tasks | - files |
 
 ### Roadmap Evolution
 
@@ -207,7 +209,7 @@ Items under `REQUIREMENTS.md` v2 remain outside the current Roadmap until the co
 
 ## Session Continuity
 
-Last session: 2026-07-26T03:41:43.519Z
+Last session: 2026-07-26T03:54:01.484Z
 Stopped at: Phase 31.2 verification found 2 blocking gaps
 Resume file: None
 
