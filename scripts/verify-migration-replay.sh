@@ -16,6 +16,9 @@ database_password=""
 database_url=""
 replay_mode="docker-ephemeral"
 cleanup_result="succeeded"
+resource_ownership=""
+maintenance_url=""
+owned_database_name=""
 resources_started=false
 static_invocations=0
 ledger_invocations=0
@@ -83,6 +86,25 @@ done
 
 cleanup_resources() {
   local cleanup_failed=false
+  # External owned-database teardown: drop the session-owned DB and verify absence.
+  if [[ -n "$owned_database_name" && -n "$maintenance_url" ]]; then
+    local drop_status=0
+    psql -X -v ON_ERROR_STOP=1 "$maintenance_url" \
+      -c "DROP DATABASE IF EXISTS \"$owned_database_name\"" >/dev/null 2>&1 || drop_status=$?
+    if [[ $drop_status -ne 0 ]]; then
+      cleanup_failed=true
+    else
+      # Verify absence via pg_database catalog
+      local still_exists
+      still_exists=$(psql -X -v ON_ERROR_STOP=1 "$maintenance_url" -Atqc \
+        "SELECT COUNT(1) FROM pg_catalog.pg_database WHERE datname = '$owned_database_name'" 2>/dev/null) || still_exists=1
+      if [[ "$still_exists" != "0" ]]; then
+        cleanup_failed=true
+      else
+        owned_database_name=""
+      fi
+    fi
+  fi
   if [[ -n "$container_name" ]]; then
     if ! docker rm -f "$container_name" >/dev/null 2>&1; then
       if docker inspect "$container_name" >/dev/null 2>&1; then
@@ -208,15 +230,17 @@ write_failure_observation() {
   local destination="$1"
   local selected_mode="$replay_mode"
   local selected_cleanup="$cleanup_result"
-  python3 - "$destination" "$selected_mode" "$selected_cleanup" <<'PY'
+  local selected_ownership="$resource_ownership"
+  python3 - "$destination" "$selected_mode" "$selected_cleanup" "$selected_ownership" <<'PY'
 import json
 import os
 import sys
 
-path, mode, cleanup = sys.argv[1:]
+path, mode, cleanup, ownership = sys.argv[1:]
 value = {
     "schemaVersion": "migration-replay-observation/v1",
     "replayMode": mode,
+    "resourceOwnership": ownership,
     "cleanupResult": cleanup,
     "result": "migration_replay_unavailable",
 }
@@ -289,10 +313,51 @@ prepare_external_database() {
   [[ -n "$database_env" ]] || return 1
   command -v psql >/dev/null 2>&1 || return 1
   [[ -v "$database_env" ]] || return 1
-  database_url="${!database_env}"
-  [[ -n "$database_url" ]] || return 1
+  maintenance_url="${!database_env}"
+  [[ -n "$maintenance_url" ]] || return 1
   replay_mode="external-isolated"
-  psql -X -v ON_ERROR_STOP=1 "$database_url" -Atqc 'SELECT 1' >/dev/null 2>&1
+
+  # Verify connectivity only — never use the caller URL as a migration target.
+  psql -X -v ON_ERROR_STOP=1 "$maintenance_url" -Atqc 'SELECT 1' >/dev/null 2>&1 || return 1
+
+  # Whole-database freshness preflight: reject any non-system schema.
+  local ns_count
+  ns_count=$(psql -X -v ON_ERROR_STOP=1 "$maintenance_url" -Atqc \
+    "SELECT COUNT(*) FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog','pg_toast','information_schema','public')" \
+    2>/dev/null) || { resource_ownership="caller-owned"; return 1; }
+  if [[ "$ns_count" != "0" ]]; then
+    resource_ownership="caller-owned"
+    return 1
+  fi
+
+  # Reject any user relations: tables, partitions, views, materialized views,
+  # sequences, and foreign tables. A table implies possible data and rejects
+  # without row sampling.
+  local rel_count
+  rel_count=$(psql -X -v ON_ERROR_STOP=1 "$maintenance_url" -Atqc \
+    "SELECT COUNT(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','pg_toast','information_schema') AND c.relkind IN ('r','p','v','m','S','f')" \
+    2>/dev/null) || { resource_ownership="caller-owned"; return 1; }
+  if [[ "$rel_count" != "0" ]]; then
+    resource_ownership="caller-owned"
+    return 1
+  fi
+
+  # Candidate is clean. Create a collision-resistant session-owned database.
+  local owned_name
+  owned_name="oblivious_replay_$(printf '%d_%d_%d' $$ $RANDOM $RANDOM)"
+  psql -X -v ON_ERROR_STOP=1 "$maintenance_url" \
+    -c "CREATE DATABASE \"$owned_name\"" >/dev/null 2>&1 || return 1
+  owned_database_name="$owned_name"
+  resources_started=true
+
+  # Build the owned database URL by replacing the database name component.
+  database_url=$(python3 -c "
+import sys, re
+url, name = sys.argv[1], sys.argv[2]
+result = re.sub(r'(/[^/?#]*)([?#].*)?$', '/' + re.escape(name) + (r'\2' if re.search(r'[?#]', url) else ''), url)
+sys.stdout.write(result)
+" "$maintenance_url" "$owned_name") || return 1
+  resource_ownership="owned-disposable"
 }
 
 psql_scalar() {
@@ -369,12 +434,12 @@ run_migrate() {
 
 write_pass_observation() {
   local before="$1" first="$2" second="$3" destination="$4"
-  python3 - "$before" "$first" "$second" "$destination" "$replay_mode" "$cleanup_result" <<'PY'
+  python3 - "$before" "$first" "$second" "$destination" "$replay_mode" "$cleanup_result" "$resource_ownership" <<'PY'
 import json
 import os
 import sys
 
-before_path, first_path, second_path, output_path, mode, cleanup = sys.argv[1:]
+before_path, first_path, second_path, output_path, mode, cleanup, ownership = sys.argv[1:]
 with open(before_path, "r", encoding="utf-8") as handle:
     before = json.load(handle)
 with open(first_path, "r", encoding="utf-8") as handle:
@@ -384,6 +449,7 @@ with open(second_path, "r", encoding="utf-8") as handle:
 value = {
     "schemaVersion": "migration-replay-observation/v1",
     "replayMode": mode,
+    "resourceOwnership": ownership,
     "cleanupResult": cleanup,
     "result": "pass",
     "before": before,
@@ -463,6 +529,8 @@ if static["identityDigest"] != ledger["identityDigest"] or static["identityDiges
     raise SystemExit("migration_replay_digest_invalid")
 if replay["cleanupResult"] != "succeeded":
     raise SystemExit("migration_replay_cleanup_invalid")
+if replay.get("resourceOwnership") != "owned-disposable":
+    raise SystemExit("migration_replay_ownership_not_owned_disposable")
 if any(report["outcome"] != {"result": "pass", "errorCodes": [], "skippedChecks": []} for report in reports):
     raise SystemExit("migration_replay_outcome_invalid")
 PY
