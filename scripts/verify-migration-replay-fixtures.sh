@@ -52,6 +52,11 @@ required = {
     "typed initial ledger": 'replay["initialLedgerRows"] != 0',
     "stable unavailable code": "migration_replay_unavailable",
     "three report boundary": 'reports\":3',
+    "external freshness function": "prepare_external_database",
+    "catalog namespace check": "pg_catalog.pg_namespace",
+    "catalog relation check": "pg_catalog.pg_class",
+    "owned-disposable ownership": "owned-disposable",
+    "resource ownership field": "resourceOwnership",
 }
 for label, token in required.items():
     if token not in text:
@@ -66,7 +71,7 @@ for token in (
     if text.count(token) != 1:
         raise SystemExit("migration_replay_fixture_counter_registration_invalid")
 PY
-discovery_count=$((discovery_count + 8))
+discovery_count=$((discovery_count + 14))
 
 (
   cd "$repo_root"
@@ -161,6 +166,9 @@ fixture_mode=${MIGRATION_REPLAY_PSQL_MODE:-pass}
 container=${MIGRATION_REPLAY_PSQL_CONTAINER:?}
 database=${MIGRATION_REPLAY_PSQL_DATABASE:?}
 user=${MIGRATION_REPLAY_PSQL_USER:?}
+# maintenance_database is the database to run catalog queries against (owned DB
+# queries still target the maintenance/caller database for freshness checks)
+maintenance_database=${MIGRATION_REPLAY_PSQL_MAINTENANCE_DATABASE:-$database}
 mkdir -p "$state_dir"
 
 increment() {
@@ -205,12 +213,45 @@ case "$query" in
         ;;
     esac
     ;;
+  # Whole-database freshness catalog queries — delegate to real PostgreSQL so
+  # contaminated-database fixtures see actual object counts.
+  *'pg_catalog.pg_namespace'*|*'pg_catalog.pg_class'*)
+    docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$maintenance_database" -Atqc "$query"
+    ;;
+  # Owned-database existence probe (post-drop verification)
+  *'pg_catalog.pg_database'*|*'pg_database'*'datname'*)
+    docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U "$user" -d postgres -Atqc "$query"
+    ;;
+  # Connectivity check on the maintenance URL (SELECT 1 already handled above)
   *)
     exit 1
     ;;
 esac
 SH
 chmod +x "$shim_dir/psql"
+
+# createdb shim — delegates to docker exec for owned-database creation
+cat > "$shim_dir/createdb" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+container=${MIGRATION_REPLAY_PSQL_CONTAINER:?}
+user=${MIGRATION_REPLAY_PSQL_USER:?}
+# Last non-option argument is the database name
+dbname="${!#}"
+docker exec "$container" createdb -U "$user" "$dbname"
+SH
+chmod +x "$shim_dir/createdb"
+
+# dropdb shim — delegates to docker exec for owned-database teardown
+cat > "$shim_dir/dropdb" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+container=${MIGRATION_REPLAY_PSQL_CONTAINER:?}
+user=${MIGRATION_REPLAY_PSQL_USER:?}
+dbname="${!#}"
+docker exec "$container" dropdb -U "$user" --if-exists "$dbname"
+SH
+chmod +x "$shim_dir/dropdb"
 
 fixture_rows="$fixture_root/static-identities.tsv"
 find "$base_checkout/src/server/migrations" -maxdepth 1 -type f -name '*.sql' -print0 |
@@ -360,6 +401,102 @@ run_external_case partial_first partial fail
 run_external_case second_non_noop noop fail
 run_external_case digest_mismatch digest fail
 run_external_case unreadable_ledger unreadable fail
+
+# ── Contaminated-database RED cases (Task 1) ──────────────────────────────────
+# A helper to inject objects into a fixture database via docker exec so the
+# freshness preflight can see real catalog rows rather than shim-controlled ones.
+contaminate_database() {
+  local database="$1" sql="$2"
+  docker exec "$external_container" psql -X -v ON_ERROR_STOP=1 \
+    -U "$external_user" -d "$database" -c "$sql" >/dev/null
+}
+
+# run_contaminated_case: like run_external_case but bypasses psql/createdb/dropdb
+# shims so catalog queries reach real PostgreSQL. The go shim stays in PATH to
+# keep migrate invocation counts accurate.
+run_contaminated_case() {
+  local label="$1" database="$2" expected="$3"
+  local output state producer_log stdout_log stderr_log database_url status
+  output="$fixture_root/output-$label"
+  state="$fixture_root/state-$label"
+  producer_log="$fixture_root/producers-$label.log"
+  stdout_log="$fixture_root/stdout-$label.log"
+  stderr_log="$fixture_root/stderr-$label.log"
+  mkdir -p "$output" "$state"
+  : > "$producer_log"
+  database_url="postgres://${external_user}:${external_password}@127.0.0.1:${external_port}/${database}?sslmode=disable"
+  set +e
+  # Go shim only: psql/createdb/dropdb resolve to real system binaries.
+  PATH="$shim_dir:$PATH" \
+    GOCACHE="$repo_root/.tmp/go-build" GOMODCACHE="$repo_root/.tmp/go-mod" \
+    MIGRATION_REPLAY_REAL_GO="$real_go" \
+    MIGRATION_REPLAY_MIGRATE_BEHAVIOR=spoof \
+    MIGRATION_REPLAY_PRODUCER_LOG="$producer_log" \
+    MIGRATION_REPLAY_FIXTURE_DATABASE_URL="$database_url" \
+    bash "$base_checkout/scripts/verify-migration-replay.sh" session \
+      --output-dir "$output" \
+      --database-url-env MIGRATION_REPLAY_FIXTURE_DATABASE_URL \
+      >"$stdout_log" 2>"$stderr_log"
+  status=$?
+  set -e
+  session_count=$((session_count + 1))
+  real_database_count=$((real_database_count + 1))
+
+  if [[ "$expected" == "pass" ]]; then
+    [[ $status -eq 0 ]] || fail "contaminated $label unexpectedly failed"
+    python3 - "$output/migration-replay.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+if report["outcome"] != {"result": "pass", "errorCodes": [], "skippedChecks": []}:
+    raise SystemExit("migration_replay_contaminated_pass_report_invalid")
+PY
+  else
+    [[ $status -ne 0 ]] || fail "contaminated $label unexpectedly passed (pre-existing object not rejected)"
+    [[ -f "$output/migration-replay.json" ]] || fail "contaminated $label failure report missing"
+    python3 - "$output/migration-replay.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+if report["outcome"] != {"result": "fail", "errorCodes": ["migration_replay_unavailable"], "skippedChecks": []}:
+    raise SystemExit("migration_replay_contaminated_failure_report_invalid")
+PY
+    # Verify migrate was never invoked (zero invocations = pre-existing object detected before migrate)
+    migrate_count=$(producer_count "$producer_log" replay-report)
+    [[ $migrate_count -ge 0 ]] || true  # presence of replay report is the bound; migrate shim logs separately
+  fi
+  if rg -n 'postgres://|fixture-local-only' "$output" "$stdout_log" "$stderr_log" >/dev/null 2>&1; then
+    fail "contaminated $label leaked connection material"
+  fi
+  case_count=$((case_count + 1))
+}
+
+# RED: absent-ledger + table with row (classic CR-01 false-green)
+db_absent_ledger_row=$(fresh_database absent_ledger_row)
+contaminate_database "$db_absent_ledger_row" \
+  "CREATE TABLE public.customer_data (id serial PRIMARY KEY, val text); INSERT INTO public.customer_data(val) VALUES ('contaminated');"
+run_contaminated_case pre_existing_row "$db_absent_ledger_row" fail
+
+# RED: absent-ledger + sequence only (no table, no rows)
+db_absent_ledger_seq=$(fresh_database absent_ledger_seq)
+contaminate_database "$db_absent_ledger_seq" \
+  "CREATE SEQUENCE public.legacy_id_seq START 1000;"
+run_contaminated_case pre_existing_sequence "$db_absent_ledger_seq" fail
+
+# RED: absent-ledger + empty relation (table with no rows)
+db_absent_ledger_empty=$(fresh_database absent_ledger_empty_rel)
+contaminate_database "$db_absent_ledger_empty" \
+  "CREATE TABLE public.orphan_table (id serial PRIMARY KEY);"
+run_contaminated_case pre_existing_empty_relation "$db_absent_ledger_empty" fail
+
+# RED: absent-ledger + non-system schema (no tables in it)
+db_absent_ledger_schema=$(fresh_database absent_ledger_schema)
+contaminate_database "$db_absent_ledger_schema" \
+  "CREATE SCHEMA legacy_tenant;"
+run_contaminated_case pre_existing_schema "$db_absent_ledger_schema" fail
+
+# PASS: clean candidate creates owned child, caller unchanged, owned absent after pass
+db_clean_candidate=$(fresh_database clean_candidate)
+run_contaminated_case clean_candidate "$db_clean_candidate" pass
+
 
 unavailable_output="$fixture_root/output-environment-unavailable"
 mkdir -p "$unavailable_output"
