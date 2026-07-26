@@ -211,10 +211,11 @@ func TestReleaseMigrationStaticAndLedgerCommandsContract(t *testing.T) {
 func TestReleaseMigrationReplayCommandContract(t *testing.T) {
 	inventory := testMigrationInventory(t)
 	valid := migrationReplayObservation{
-		SchemaVersion: migrationReplayObservationSchema,
-		ReplayMode:    "docker-ephemeral",
-		CleanupResult: "succeeded",
-		Result:        "pass",
+		SchemaVersion:     migrationReplayObservationSchema,
+		ReplayMode:        "docker-ephemeral",
+		ResourceOwnership: "owned-disposable",
+		CleanupResult:     "succeeded",
+		Result:            "pass",
 		Before: surfacereport.MigrationLedgerSnapshot{
 			Identities:     []migrations.MigrationIdentity{},
 			IdentityDigest: "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
@@ -247,7 +248,8 @@ func TestReleaseMigrationReplayCommandContract(t *testing.T) {
 		}
 		if details.FirstApply.Applied != len(inventory.Identities) || details.FirstApply.Skipped != 0 ||
 			details.SecondApply.Applied != 0 || details.SecondApply.Skipped != len(inventory.Identities) ||
-			details.InitialLedgerRows != 0 || details.FinalLedgerRows != len(inventory.Identities) {
+			details.InitialLedgerRows != 0 || details.FinalLedgerRows != len(inventory.Identities) ||
+			details.ResourceOwnership != "owned-disposable" {
 			t.Fatalf("unexpected derived replay details: %#v", details)
 		}
 		for _, prohibited := range []string{"postgres://", "do-not-print", "migrations applied", "SELECT ", observationPath, output} {
@@ -259,10 +261,11 @@ func TestReleaseMigrationReplayCommandContract(t *testing.T) {
 
 	t.Run("failure observation writes a trusted report and preserves nonzero producer status", func(t *testing.T) {
 		failure := migrationReplayObservation{
-			SchemaVersion: migrationReplayObservationSchema,
-			ReplayMode:    "external-isolated",
-			CleanupResult: "failed",
-			Result:        surfacereport.MigrationReplayUnavailableCode,
+			SchemaVersion:     migrationReplayObservationSchema,
+			ReplayMode:        "external-isolated",
+			ResourceOwnership: "caller-owned",
+			CleanupResult:     "failed",
+			Result:            surfacereport.MigrationReplayUnavailableCode,
 		}
 		observationPath := writeMigrationReplayObservation(t, failure)
 		output := filepath.Join(t.TempDir(), "migration-replay.json")
@@ -277,12 +280,16 @@ func TestReleaseMigrationReplayCommandContract(t *testing.T) {
 		if writer.report.Outcome.Result != surfacereport.ResultFail || len(writer.report.Outcome.ErrorCodes) != 1 || writer.report.Outcome.ErrorCodes[0] != surfacereport.MigrationReplayUnavailableCode || len(writer.report.Outcome.SkippedChecks) != 0 {
 			t.Fatalf("unexpected failure outcome: %#v", writer.report.Outcome)
 		}
+		var details surfacereport.MigrationReplayDetails
+		if err := json.Unmarshal(writer.report.Evidence.Details, &details); err != nil || details.ResourceOwnership != "caller-owned" {
+			t.Fatalf("failure ownership = %#v, err=%v", details, err)
+		}
 		assertMigrationReportFile(t, output, surfacereport.MigrationReplaySurfaceID)
 		assertNoMigrationSecret(t, stdout, stderr, writer.report)
 	})
 
 	t.Run("failure report writer error remains nonzero", func(t *testing.T) {
-		failure := migrationReplayObservation{SchemaVersion: migrationReplayObservationSchema, ReplayMode: "docker-ephemeral", CleanupResult: "succeeded", Result: surfacereport.MigrationReplayUnavailableCode}
+		failure := migrationReplayObservation{SchemaVersion: migrationReplayObservationSchema, ReplayMode: "docker-ephemeral", ResourceOwnership: "owned-disposable", CleanupResult: "succeeded", Result: surfacereport.MigrationReplayUnavailableCode}
 		deps := migrationCommandTestDependencies(t)
 		writer := &recordingMigrationReportWriter{err: &surfacereport.ReportError{Code: surfacereport.ErrorReportOutputUnwritable, Field: "destination"}}
 		deps.reportWriter = writer
@@ -310,6 +317,9 @@ func TestReleaseMigrationReplayCommandContract(t *testing.T) {
 				value.AfterSecond.IdentityDigest = "sha256:" + strings.Repeat("0", 64)
 			}},
 			{"unknown mode", func(value *migrationReplayObservation) { value.ReplayMode = "shared" }},
+			{"missing ownership", func(value *migrationReplayObservation) { value.ResourceOwnership = "" }},
+			{"unknown ownership", func(value *migrationReplayObservation) { value.ResourceOwnership = "forged" }},
+			{"caller owned pass", func(value *migrationReplayObservation) { value.ResourceOwnership = "caller-owned" }},
 			{"missing cleanup", func(value *migrationReplayObservation) { value.CleanupResult = "" }},
 		}
 		for _, mutation := range mutations {

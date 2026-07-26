@@ -244,7 +244,7 @@ func commandFixtureSurfaceReports(t *testing.T, identity buildinfo.BuildIdentity
 	}
 	ledgerDetails := surfacereport.MigrationLedgerDetails{DatabaseKind: "postgresql-pgvector", RowCount: 2, IdentityDigest: digest("a"), MatchesStatic: true}
 	replayDetails := surfacereport.MigrationReplayDetails{
-		DatabaseKind: "postgresql-pgvector", ReplayMode: "docker-ephemeral", InitialLedgerRows: 0,
+		DatabaseKind: "postgresql-pgvector", ReplayMode: "docker-ephemeral", ResourceOwnership: "owned-disposable", InitialLedgerRows: 0,
 		FirstApply: surfacereport.MigrationApplyCounts{Applied: 2, Skipped: 0}, SecondApply: surfacereport.MigrationApplyCounts{Applied: 0, Skipped: 2},
 		FinalLedgerRows: 2, StaticDigest: digest("a"), LedgerDigest: digest("a"), CleanupResult: "succeeded",
 	}

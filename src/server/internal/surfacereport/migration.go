@@ -21,24 +21,26 @@ const (
 
 	MigrationReplayUnavailableCode = "migration_replay_unavailable"
 
-	migrationDatabaseKind      = "postgresql-pgvector"
-	migrationStaticSource      = "src/server/migrations"
-	migrationStaticConsumer    = "monolith-migration-static-inventory"
-	migrationLedgerSource      = "schema_migrations(version,checksum)"
-	migrationLedgerConsumer    = "monolith-runtime-ledger"
-	migrationReplaySource      = "src/server/migrations+schema_migrations(version,checksum)"
-	migrationReplayConsumer    = "monolith-migration-replay"
-	migrationSurfaceVersion    = "v1"
-	migrationStaticEnvironment = "repository"
-	migrationLedgerEnvironment = "repository-local-database"
-	migrationStaticMode        = "static"
-	migrationLedgerMode        = "ledger"
-	migrationReplayMode        = "replay"
-	migrationReplayExternal    = "external-isolated"
-	migrationReplayDocker      = "docker-ephemeral"
-	migrationCleanupSucceeded  = "succeeded"
-	migrationCleanupFailed     = "failed"
-	migrationUnavailableCount  = -1
+	migrationDatabaseKind                     = "postgresql-pgvector"
+	migrationStaticSource                     = "src/server/migrations"
+	migrationStaticConsumer                   = "monolith-migration-static-inventory"
+	migrationLedgerSource                     = "schema_migrations(version,checksum)"
+	migrationLedgerConsumer                   = "monolith-runtime-ledger"
+	migrationReplaySource                     = "src/server/migrations+schema_migrations(version,checksum)"
+	migrationReplayConsumer                   = "monolith-migration-replay"
+	migrationSurfaceVersion                   = "v1"
+	migrationStaticEnvironment                = "repository"
+	migrationLedgerEnvironment                = "repository-local-database"
+	migrationStaticMode                       = "static"
+	migrationLedgerMode                       = "ledger"
+	migrationReplayMode                       = "replay"
+	migrationReplayExternal                   = "external-isolated"
+	migrationReplayDocker                     = "docker-ephemeral"
+	migrationResourceOwnershipOwnedDisposable = "owned-disposable"
+	migrationResourceOwnershipCallerOwned     = "caller-owned"
+	migrationCleanupSucceeded                 = "succeeded"
+	migrationCleanupFailed                    = "failed"
+	migrationUnavailableCount                 = -1
 
 	// SHA-256 of the canonical JSON empty identity sequence (`[]`). Non-empty
 	// snapshots continue to use migrations.IdentityDigest directly.
@@ -69,6 +71,7 @@ type MigrationApplyCounts struct {
 type MigrationReplayDetails struct {
 	DatabaseKind      string               `json:"databaseKind"`
 	ReplayMode        string               `json:"replayMode"`
+	ResourceOwnership string               `json:"resourceOwnership"`
 	InitialLedgerRows int                  `json:"initialLedgerRows"`
 	FirstApply        MigrationApplyCounts `json:"firstApply"`
 	SecondApply       MigrationApplyCounts `json:"secondApply"`
@@ -303,7 +306,7 @@ func validateMigrationLedgerDetails(details MigrationLedgerDetails) error {
 }
 
 func validateMigrationReplayDetails(details MigrationReplayDetails) error {
-	if details.DatabaseKind != migrationDatabaseKind || !validMigrationReplayMode(details.ReplayMode) ||
+	if details.DatabaseKind != migrationDatabaseKind || !validMigrationReplayMode(details.ReplayMode) || !validMigrationResourceOwnership(details.ResourceOwnership) ||
 		!validDigest(details.StaticDigest) || !validDigest(details.LedgerDigest) ||
 		(details.CleanupResult != migrationCleanupSucceeded && details.CleanupResult != migrationCleanupFailed) {
 		return fmt.Errorf("migration replay identity is invalid")
@@ -338,7 +341,7 @@ func migrationReplayPassingDetails(details MigrationReplayDetails) bool {
 	return details.InitialLedgerRows == 0 && details.FirstApply.Applied > 0 && details.FirstApply.Skipped == 0 &&
 		details.SecondApply.Applied == 0 && details.SecondApply.Skipped == details.FirstApply.Applied &&
 		details.FinalLedgerRows == details.FirstApply.Applied && details.StaticDigest == details.LedgerDigest &&
-		details.CleanupResult == migrationCleanupSucceeded
+		details.ResourceOwnership == migrationResourceOwnershipOwnedDisposable && details.CleanupResult == migrationCleanupSucceeded
 }
 
 func migrationReplayUnavailableDetails(details MigrationReplayDetails) bool {
@@ -350,6 +353,10 @@ func migrationReplayUnavailableDetails(details MigrationReplayDetails) bool {
 
 func validMigrationReplayMode(mode string) bool {
 	return mode == migrationReplayExternal || mode == migrationReplayDocker
+}
+
+func validMigrationResourceOwnership(ownership string) bool {
+	return ownership == migrationResourceOwnershipOwnedDisposable || ownership == migrationResourceOwnershipCallerOwned
 }
 
 func validateMigrationLedgerSnapshot(snapshot MigrationLedgerSnapshot) error {
