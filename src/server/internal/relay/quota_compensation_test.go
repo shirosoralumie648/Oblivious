@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"oblivious/server/internal/quota"
 )
 
 func TestQuotaCompensationMigrationShape(t *testing.T) {
@@ -361,4 +363,133 @@ func (s *memoryQuotaCompensationStore) RecordAPITokenQuotaRefundReceipt(_ contex
 	}
 	s.state.receipts[scopeKeyDigest] = memoryQuotaCompensationReceipt{apiTokenID: apiTokenID, amount: amount}
 	return true, nil
+}
+
+// --- Compensation coordinator tests (Task 2) ---
+
+type recordingQuotaManager struct {
+	refundCalls  int
+	refundErrors map[string]error // keyed by sessionID
+}
+
+func (m *recordingQuotaManager) PreConsume(_ context.Context, _, _ string, _ float64, _ string, _, _, _ string) (*quota.BillingSession, error) {
+	return nil, nil
+}
+func (m *recordingQuotaManager) Settle(_ context.Context, _, _ string, _ float64) error { return nil }
+func (m *recordingQuotaManager) Refund(_ context.Context, _ string, sessionID string) error {
+	m.refundCalls++
+	if m.refundErrors != nil {
+		if err, ok := m.refundErrors[sessionID]; ok {
+			return err
+		}
+	}
+	return nil
+}
+
+type recordingAPITokenRefundManager struct {
+	refundOnceCalls int
+	refundOnceFails bool
+}
+
+func (m *recordingAPITokenRefundManager) PreAuthorizeRelayAPITokenQuota(_ context.Context, _ string, _ float64) error {
+	return nil
+}
+func (m *recordingAPITokenRefundManager) SettleRelayAPITokenQuota(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}
+func (m *recordingAPITokenRefundManager) RefundRelayAPITokenQuota(_ context.Context, _ string, _ float64) error {
+	return nil
+}
+func (m *recordingAPITokenRefundManager) RefundRelayAPITokenQuotaOnce(_ context.Context, _ string, _ float64, _ string) error {
+	m.refundOnceCalls++
+	if m.refundOnceFails {
+		return errors.New("quota_store_unavailable")
+	}
+	return nil
+}
+
+func newTestCompensationRequest(routeAttemptID, sessionID, tokenID string, amount float64) QuotaCompensationRequest {
+	return QuotaCompensationRequest{
+		RouteAttemptID:   routeAttemptID,
+		Stage:            QuotaCompensationStageLateModelReadiness,
+		OrganizationID:   "org_test",
+		BillingSessionID: sessionID,
+		APITokenID:       tokenID,
+		Amount:           amount,
+	}
+}
+
+func TestRelayLateReadinessCompensationCoordinatorArmsJobBeforeRefund(t *testing.T) {
+	store := newMemoryQuotaCompensationStore()
+	orgMgr := &recordingQuotaManager{}
+	tokenMgr := &recordingAPITokenRefundManager{}
+	coordinator := NewQuotaCompensationCoordinator(store, orgMgr, tokenMgr)
+	readinessErr := errors.New("readiness_stale")
+
+	req := newTestCompensationRequest("attempt-1", "bill-session-1", "tok-1", 5.0)
+	result := coordinator.CompensateLateReadiness(context.Background(), readinessErr, req)
+	if result == nil || !errors.Is(result, readinessErr) {
+		t.Fatalf("expected readiness error in result, got %v", result)
+	}
+	if orgMgr.refundCalls != 1 {
+		t.Fatalf("expected 1 org refund, got %d", orgMgr.refundCalls)
+	}
+	if tokenMgr.refundOnceCalls != 1 {
+		t.Fatalf("expected 1 api-token refund, got %d", tokenMgr.refundOnceCalls)
+	}
+	// Job must be committed before refund completes (inspect via replay).
+	replayed, err := store.ArmQuotaCompensation(context.Background(), req)
+	if err != nil {
+		t.Fatalf("re-arm after compensation: %v", err)
+	}
+	if !replayed.OrganizationCompleted || !replayed.APITokenCompleted {
+		t.Fatalf("job scopes not marked succeeded: org=%v token=%v", replayed.OrganizationCompleted, replayed.APITokenCompleted)
+	}
+}
+
+func TestRelayLateReadinessCompensationCoordinatorReportsPartialFailure(t *testing.T) {
+	store := newMemoryQuotaCompensationStore()
+	orgMgr := &recordingQuotaManager{refundErrors: map[string]error{"bill-fail": errors.New("refund_failed")}}
+	tokenMgr := &recordingAPITokenRefundManager{}
+	coordinator := NewQuotaCompensationCoordinator(store, orgMgr, tokenMgr)
+	readinessErr := errors.New("readiness_stale")
+
+	req := newTestCompensationRequest("attempt-fail", "bill-fail", "tok-fail", 3.0)
+	result := coordinator.CompensateLateReadiness(context.Background(), readinessErr, req)
+	if result == nil || !errors.Is(result, readinessErr) {
+		t.Fatalf("expected readiness error in result, got %v", result)
+	}
+	// Org scope failure must be reported via a stable scope error.
+	var scopeErr *QuotaCompensationScopeError
+	found := false
+	for _, e := range unpackErrors(result) {
+		if errors.As(e, &scopeErr) && scopeErr.Scope == QuotaCompensationScopeOrganization {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected organization scope error in result, got %v", result)
+	}
+	// Token scope should still have been attempted and succeeded.
+	if tokenMgr.refundOnceCalls != 1 {
+		t.Fatalf("expected token refund attempted independently, got %d calls", tokenMgr.refundOnceCalls)
+	}
+}
+
+// unpackErrors flattens an errors.Join tree into its leaves.
+func unpackErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+	type joinErr interface {
+		Unwrap() []error
+	}
+	if j, ok := err.(joinErr); ok {
+		var out []error
+		for _, e := range j.Unwrap() {
+			out = append(out, unpackErrors(e)...)
+		}
+		return out
+	}
+	return []error{err}
 }

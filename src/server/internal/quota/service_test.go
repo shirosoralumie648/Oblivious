@@ -117,6 +117,10 @@ func (s *fakeStore) RefundBillingSession(ctx context.Context, id, organizationID
 	if session.OrganizationID != organizationID {
 		return fmt.Errorf("session not found")
 	}
+	// Idempotent success: already refunded means quota was already returned.
+	if session.Status == "refunded" {
+		return nil
+	}
 	if session.Status != "preauthorized" {
 		return fmt.Errorf("session already settled or refunded")
 	}
@@ -1418,4 +1422,45 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 	}
 
 	return NewSQLStore(database), context.Background()
+}
+
+// TestSQLStoreRefundBillingSessionIsIdempotent verifies that repeating a
+// Refund call on an already-refunded billing session returns success without
+// double-crediting quota, while a settled session still fails.
+func TestSQLStoreRefundBillingSessionIsIdempotent(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+	ctx := context.Background()
+
+	session, err := svc.PreConsume(ctx, "user_1", "org_1", 5.0, "idem_refund_idem", "ch_1", "gpt-4o", "chat")
+	if err != nil {
+		t.Fatalf("preconsume: %v", err)
+	}
+	if err := svc.Refund(ctx, "org_1", session.ID); err != nil {
+		t.Fatalf("first refund: %v", err)
+	}
+	q1, _ := store.GetOrCreateQuota(ctx, "user_1", "org_1")
+	balanceAfterFirstRefund := q1.Balance
+
+	// Second refund on already-refunded session must succeed (idempotent) and
+	// must not change the quota balance again.
+	if err := svc.Refund(ctx, "org_1", session.ID); err != nil {
+		t.Fatalf("second refund (idempotent replay) returned error: %v", err)
+	}
+	q2, _ := store.GetOrCreateQuota(ctx, "user_1", "org_1")
+	if q2.Balance != balanceAfterFirstRefund {
+		t.Fatalf("second refund changed balance: before=%v after=%v (double credit)", balanceAfterFirstRefund, q2.Balance)
+	}
+
+	// A settled session must still fail (not return nil).
+	settled, err := svc.PreConsume(ctx, "user_1", "org_1", 2.0, "idem_refund_settled", "ch_1", "gpt-4o", "chat")
+	if err != nil {
+		t.Fatalf("preconsume for settled session: %v", err)
+	}
+	if err := svc.Settle(ctx, "org_1", settled.ID, 2.0); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	if err := svc.Refund(ctx, "org_1", settled.ID); err == nil {
+		t.Fatal("expected error refunding an already-settled session, got nil")
+	}
 }

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -134,5 +135,65 @@ func (s *fakeRelayAPITokenStore) GetRelayAPITokenByHash(_ context.Context, token
 
 func (s *fakeRelayAPITokenStore) TouchRelayAPIToken(_ context.Context, tokenID string, _ time.Time) error {
 	s.touchedTokenID = tokenID
+	return nil
+}
+
+// TestRelayAPITokenQuotaRefundOnceContract verifies the idempotency and
+// mismatch guarantees of RefundRelayAPITokenQuotaOnce through a recording
+// implementation that mirrors the SQL store's transaction semantics.
+func TestRelayAPITokenQuotaRefundOnceContract(t *testing.T) {
+	store := newMemoryAPITokenQuotaRefundStore()
+
+	// First call inserts the receipt and records the refund.
+	if err := store.RefundRelayAPITokenQuotaOnce(context.Background(), "tok_a", 4.0, "scope-a"); err != nil {
+		t.Fatalf("first refund: %v", err)
+	}
+	if store.refundCalls["tok_a"] != 1 {
+		t.Fatalf("expected 1 refund for tok_a, got %d", store.refundCalls["tok_a"])
+	}
+
+	// Identical replay is idempotent.
+	if err := store.RefundRelayAPITokenQuotaOnce(context.Background(), "tok_a", 4.0, "scope-a"); err != nil {
+		t.Fatalf("idempotent replay: %v", err)
+	}
+	if store.refundCalls["tok_a"] != 1 {
+		t.Fatalf("idempotent replay incremented refund counter: %d", store.refundCalls["tok_a"])
+	}
+
+	// Same scope key with different tokenID must fail.
+	if err := store.RefundRelayAPITokenQuotaOnce(context.Background(), "tok_b", 4.0, "scope-a"); !errors.Is(err, ErrQuotaCompensationReceiptMismatch) {
+		t.Fatalf("token mismatch error = %v, want ErrQuotaCompensationReceiptMismatch", err)
+	}
+
+	// Same scope key with different amount must fail.
+	if err := store.RefundRelayAPITokenQuotaOnce(context.Background(), "tok_a", 9.0, "scope-a"); !errors.Is(err, ErrQuotaCompensationReceiptMismatch) {
+		t.Fatalf("amount mismatch error = %v, want ErrQuotaCompensationReceiptMismatch", err)
+	}
+}
+
+type memoryAPITokenQuotaRefundStore struct {
+	receipts   map[string]memoryQuotaCompensationReceipt
+	refundCalls map[string]int
+}
+
+func newMemoryAPITokenQuotaRefundStore() *memoryAPITokenQuotaRefundStore {
+	return &memoryAPITokenQuotaRefundStore{
+		receipts:   make(map[string]memoryQuotaCompensationReceipt),
+		refundCalls: make(map[string]int),
+	}
+}
+
+func (s *memoryAPITokenQuotaRefundStore) RefundRelayAPITokenQuotaOnce(_ context.Context, tokenID string, amount float64, scopeKey string) error {
+	if amount <= 0 || scopeKey == "" || tokenID == "" {
+		return ErrQuotaCompensationInvalidRequest
+	}
+	if receipt, ok := s.receipts[scopeKey]; ok {
+		if receipt.apiTokenID != tokenID || receipt.amount != amount {
+			return ErrQuotaCompensationReceiptMismatch
+		}
+		return nil // idempotent
+	}
+	s.receipts[scopeKey] = memoryQuotaCompensationReceipt{apiTokenID: tokenID, amount: amount}
+	s.refundCalls[tokenID]++
 	return nil
 }

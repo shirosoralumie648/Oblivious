@@ -959,6 +959,11 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id, organizationID 
 		return fmt.Errorf("get session: %w", err)
 	}
 
+	// Already-refunded sessions are idempotent success; the quota balance was
+	// already returned and no double-credit can occur.
+	if session.Status == "refunded" {
+		return nil
+	}
 	if session.Status != "preauthorized" {
 		return fmt.Errorf("session already settled or refunded")
 	}

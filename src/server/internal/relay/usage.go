@@ -54,6 +54,11 @@ type APITokenQuotaManager interface {
 	PreAuthorizeRelayAPITokenQuota(ctx context.Context, tokenID string, amount float64) error
 	SettleRelayAPITokenQuota(ctx context.Context, tokenID string, preauthorizedAmount, actualAmount float64) error
 	RefundRelayAPITokenQuota(ctx context.Context, tokenID string, amount float64) error
+	// RefundRelayAPITokenQuotaOnce decrements used_quota and records a
+	// compensation receipt in a single SQL transaction. Repeating the call with
+	// the same scopeKey is idempotent as long as tokenID and amount match; a
+	// mismatch returns ErrQuotaCompensationReceiptMismatch.
+	RefundRelayAPITokenQuotaOnce(ctx context.Context, tokenID string, amount float64, scopeKey string) error
 }
 
 type QuotaManager interface {

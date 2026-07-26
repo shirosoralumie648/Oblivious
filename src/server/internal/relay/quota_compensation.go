@@ -2,8 +2,10 @@ package relay
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -589,4 +591,263 @@ func scanQuotaCompensationJob(scanner interface{ Scan(dest ...any) error }) (Quo
 		job.CompletedAt = &value
 	}
 	return job, nil
+}
+
+// GenerateRouteAttemptID mints a cryptographically random route-attempt identity
+// that is mandatory before either quota preauthorization can begin.
+func GenerateRouteAttemptID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate route attempt identity: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// QuotaCompensationScopeError is a stable, sanitized error that identifies
+// a specific compensation scope and operation code. It never carries IDs or
+// raw storage details.
+type QuotaCompensationScopeError struct {
+	Scope string
+	Code  string
+}
+
+func (e *QuotaCompensationScopeError) Error() string {
+	return fmt.Sprintf("quota_compensation_%s_%s", e.Scope, e.Code)
+}
+
+// quotaCompensationScopeErr produces a stable scope error from any cause.
+// It sanitizes the cause to an allowlisted code without leaking raw details.
+func quotaCompensationScopeErr(scope string, cause error) *QuotaCompensationScopeError {
+	code := QuotaCompensationErrorCodeRefundFailed
+	if cause != nil {
+		switch {
+		case errors.Is(cause, ErrQuotaCompensationReceiptMismatch):
+			code = QuotaCompensationErrorCodeRefundFailed
+		case errors.Is(cause, ErrQuotaCompensationStoreUnavailable):
+			code = QuotaCompensationErrorCodePersistenceFailed
+		}
+	}
+	return &QuotaCompensationScopeError{Scope: scope, Code: code}
+}
+
+// QuotaCompensationCoordinator arms the durable job before any refund attempt
+// and then drives each required scope independently.
+type QuotaCompensationCoordinator struct {
+	store            QuotaCompensationStore
+	quotaManager     QuotaManager
+	apiTokenManager  APITokenQuotaManager
+}
+
+// NewQuotaCompensationCoordinator constructs a coordinator with the given
+// durable store and quota/API-token managers. A nil store means the coordinator
+// falls back to direct in-place refunds without durability.
+func NewQuotaCompensationCoordinator(
+	store QuotaCompensationStore,
+	quotaManager QuotaManager,
+	apiTokenManager APITokenQuotaManager,
+) *QuotaCompensationCoordinator {
+	return &QuotaCompensationCoordinator{
+		store:           store,
+		quotaManager:    quotaManager,
+		apiTokenManager: apiTokenManager,
+	}
+}
+
+// CompensateLateReadiness is the single entry point for late-readiness denial
+// compensation. It arms the durable job (if a store is configured), attempts
+// every required scope independently, and returns the original readiness error
+// joined with any stable compensation/persistence failures so callers can still
+// classify the root readiness code.
+func (c *QuotaCompensationCoordinator) CompensateLateReadiness(
+	ctx context.Context,
+	readinessErr error,
+	req QuotaCompensationRequest,
+) error {
+	if c == nil || c.store == nil {
+		// No durable store — fall back to direct best-effort refunds.
+		return c.directFallback(ctx, readinessErr, req)
+	}
+
+	job, armErr := c.store.ArmQuotaCompensation(ctx, req)
+	if armErr != nil {
+		// Arm failure: still attempt direct refunds and report persistence failure.
+		persistErr := &QuotaCompensationScopeError{Scope: "compensation-persistence", Code: QuotaCompensationErrorCodePersistenceFailed}
+		directErr := c.directFallback(ctx, nil, req)
+		if directErr != nil {
+			return errors.Join(readinessErr, persistErr, directErr)
+		}
+		return errors.Join(readinessErr, persistErr)
+	}
+
+	var scopeErrs []error
+	now := time.Now().UTC()
+
+	if job.OrganizationRequired && !job.OrganizationCompleted && c.quotaManager != nil {
+		if refundErr := c.quotaManager.Refund(ctx, req.OrganizationID, req.BillingSessionID); refundErr != nil {
+			if markErr := c.store.MarkQuotaCompensationScopeFailed(
+				ctx, job.JobKeyDigest, QuotaCompensationScopeOrganization, "",
+				QuotaCompensationErrorCodeRefundFailed, now.Add(time.Minute),
+			); markErr != nil {
+				scopeErrs = append(scopeErrs, &QuotaCompensationScopeError{Scope: QuotaCompensationScopeOrganization, Code: QuotaCompensationErrorCodeMarkFailed})
+			} else {
+				scopeErrs = append(scopeErrs, quotaCompensationScopeErr(QuotaCompensationScopeOrganization, refundErr))
+			}
+		} else {
+			_ = c.store.MarkQuotaCompensationScopeSucceeded(ctx, job.JobKeyDigest, QuotaCompensationScopeOrganization, "", now)
+		}
+	}
+
+	if job.APITokenRequired && !job.APITokenCompleted && c.apiTokenManager != nil && req.APITokenID != "" {
+		var refundErr error
+		if req.Amount > 0 {
+			refundErr = c.apiTokenManager.RefundRelayAPITokenQuotaOnce(ctx, req.APITokenID, req.Amount, job.APITokenScopeKeyDigest)
+		}
+		if refundErr != nil {
+			if markErr := c.store.MarkQuotaCompensationScopeFailed(
+				ctx, job.JobKeyDigest, QuotaCompensationScopeAPIToken, "",
+				QuotaCompensationErrorCodeRefundFailed, now.Add(time.Minute),
+			); markErr != nil {
+				scopeErrs = append(scopeErrs, &QuotaCompensationScopeError{Scope: QuotaCompensationScopeAPIToken, Code: QuotaCompensationErrorCodeMarkFailed})
+			} else {
+				scopeErrs = append(scopeErrs, quotaCompensationScopeErr(QuotaCompensationScopeAPIToken, refundErr))
+			}
+		} else if req.Amount > 0 {
+			_ = c.store.MarkQuotaCompensationScopeSucceeded(ctx, job.JobKeyDigest, QuotaCompensationScopeAPIToken, "", now)
+		}
+	}
+
+	if len(scopeErrs) == 0 {
+		return readinessErr
+	}
+	return errors.Join(append([]error{readinessErr}, scopeErrs...)...)
+}
+
+// directFallback performs best-effort in-place refunds when no durable store
+// is available.
+func (c *QuotaCompensationCoordinator) directFallback(ctx context.Context, readinessErr error, req QuotaCompensationRequest) error {
+	var scopeErrs []error
+	// Match original router behavior: refund whenever a billing session ID exists,
+	// regardless of whether organizationID is empty (some callers set only one).
+	if req.BillingSessionID != "" && c != nil && c.quotaManager != nil {
+		if err := c.quotaManager.Refund(ctx, req.OrganizationID, req.BillingSessionID); err != nil {
+			scopeErrs = append(scopeErrs, quotaCompensationScopeErr(QuotaCompensationScopeOrganization, err))
+		}
+	}
+	if req.APITokenID != "" && req.Amount > 0 && c != nil && c.apiTokenManager != nil {
+		if err := c.apiTokenManager.RefundRelayAPITokenQuota(ctx, req.APITokenID, req.Amount); err != nil {
+			scopeErrs = append(scopeErrs, quotaCompensationScopeErr(QuotaCompensationScopeAPIToken, err))
+		}
+	}
+	if readinessErr == nil && len(scopeErrs) == 0 {
+		return nil
+	}
+	if len(scopeErrs) == 0 {
+		return readinessErr
+	}
+	return errors.Join(append([]error{readinessErr}, scopeErrs...)...)
+}
+
+// --- Reconciliation worker ---
+
+const (
+	defaultQuotaCompensationWorkerInterval = 30 * time.Second
+	defaultQuotaCompensationWorkerLimit    = 10
+	defaultQuotaCompensationWorkerIDPrefix = "relay-quota-compensation-worker"
+)
+
+// QuotaCompensationWorkerConfig holds tunable worker parameters.
+type QuotaCompensationWorkerConfig struct {
+	Interval time.Duration
+	Limit    int
+	WorkerID string
+	Now      func() time.Time
+	OnError  func(error)
+}
+
+// QuotaCompensationWorker claims persisted compensation jobs and retries any
+// still-pending scopes through the same idempotent coordinator.
+type QuotaCompensationWorker struct {
+	coordinator *QuotaCompensationCoordinator
+	store       QuotaCompensationStore
+	config      QuotaCompensationWorkerConfig
+}
+
+// NewQuotaCompensationWorker constructs a worker that drives the given store
+// and coordinator. OnError receives any non-fatal per-batch errors.
+func NewQuotaCompensationWorker(store QuotaCompensationStore, coordinator *QuotaCompensationCoordinator, config QuotaCompensationWorkerConfig) *QuotaCompensationWorker {
+	if config.Interval <= 0 {
+		config.Interval = defaultQuotaCompensationWorkerInterval
+	}
+	if config.Limit <= 0 {
+		config.Limit = defaultQuotaCompensationWorkerLimit
+	}
+	if config.WorkerID == "" {
+		b := make([]byte, 4)
+		if _, err := rand.Read(b); err == nil {
+			config.WorkerID = defaultQuotaCompensationWorkerIDPrefix + "-" + hex.EncodeToString(b)
+		} else {
+			config.WorkerID = defaultQuotaCompensationWorkerIDPrefix
+		}
+	}
+	if config.Now == nil {
+		config.Now = func() time.Time { return time.Now().UTC() }
+	}
+	return &QuotaCompensationWorker{coordinator: coordinator, store: store, config: config}
+}
+
+// Run processes claimed jobs at every tick until ctx is cancelled.
+func (w *QuotaCompensationWorker) Run(ctx context.Context) {
+	if w == nil || w.store == nil {
+		return
+	}
+	ticker := time.NewTicker(w.config.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.processOnce(ctx); err != nil && w.config.OnError != nil {
+				w.config.OnError(err)
+			}
+		}
+	}
+}
+
+func (w *QuotaCompensationWorker) processOnce(ctx context.Context) error {
+	now := w.config.Now()
+	jobs, err := w.store.ClaimQuotaCompensationJobs(ctx, now, w.config.Limit, w.config.WorkerID)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		w.processJob(ctx, job, now)
+	}
+	return nil
+}
+
+func (w *QuotaCompensationWorker) processJob(ctx context.Context, job QuotaCompensationJob, now time.Time) {
+	c := w.coordinator
+
+	if job.OrganizationRequired && !job.OrganizationCompleted && c != nil && c.quotaManager != nil {
+		if refundErr := c.quotaManager.Refund(ctx, job.OrganizationID, job.BillingSessionID); refundErr != nil {
+			_ = w.store.MarkQuotaCompensationScopeFailed(
+				ctx, job.JobKeyDigest, QuotaCompensationScopeOrganization, w.config.WorkerID,
+				QuotaCompensationErrorCodeRetryFailed, now.Add(time.Minute),
+			)
+		} else {
+			_ = w.store.MarkQuotaCompensationScopeSucceeded(ctx, job.JobKeyDigest, QuotaCompensationScopeOrganization, w.config.WorkerID, now)
+		}
+	}
+
+	if job.APITokenRequired && !job.APITokenCompleted && c != nil && c.apiTokenManager != nil && job.Amount > 0 {
+		if refundErr := c.apiTokenManager.RefundRelayAPITokenQuotaOnce(ctx, job.APITokenID, job.Amount, job.APITokenScopeKeyDigest); refundErr != nil {
+			_ = w.store.MarkQuotaCompensationScopeFailed(
+				ctx, job.JobKeyDigest, QuotaCompensationScopeAPIToken, w.config.WorkerID,
+				QuotaCompensationErrorCodeRetryFailed, now.Add(time.Minute),
+			)
+		} else {
+			_ = w.store.MarkQuotaCompensationScopeSucceeded(ctx, job.JobKeyDigest, QuotaCompensationScopeAPIToken, w.config.WorkerID, now)
+		}
+	}
 }
