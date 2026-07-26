@@ -38,6 +38,12 @@ type relayBatchPollingWorkerRunner interface {
 
 type relayBatchPollingWorkerFactory func(relay.BatchPollingWorkerStore, relay.BatchStatusClient, relay.BatchPollingWorkerConfig) relayBatchPollingWorkerRunner
 
+type relayQuotaCompensationWorkerRunner interface {
+	Run(context.Context)
+}
+
+type relayQuotaCompensationWorkerFactory func(relay.QuotaCompensationStore, *relay.QuotaCompensationCoordinator, relay.QuotaCompensationWorkerConfig) relayQuotaCompensationWorkerRunner
+
 type shutdownRegistrar interface {
 	RegisterOnShutdown(func())
 }
@@ -299,6 +305,20 @@ func buildRuntimeWithRouter(
 	runners := []func(context.Context){}
 	if relayInstance != nil {
 		runners = append(runners, relayInstance.StartHealthChecks)
+	}
+	// Wire quota compensation worker whenever relay billing is active.  The
+	// worker is mandatory (no opt-out toggle) so that stranded reservations are
+	// always reconciled after a restart.
+	if relayInstance != nil && relayQuotaService != nil && relayAPITokenStore != nil && database != nil {
+		compensationStore := relay.NewSQLQuotaCompensationStore(database)
+		compensationCoordinator := relay.NewQuotaCompensationCoordinator(compensationStore, relayQuotaService, relayAPITokenStore)
+		relayInstance.Router().SetCompensationStore(compensationStore)
+		compensationWorker := relay.NewQuotaCompensationWorker(compensationStore, compensationCoordinator, relay.QuotaCompensationWorkerConfig{
+			OnError: func(err error) {
+				log.Printf("warning: relay quota compensation worker failed: %v", err)
+			},
+		})
+		runners = append(runners, compensationWorker.Run)
 	}
 	if cfg.ScheduleWorkerEnabled {
 		workerConfig := schedule.WorkerConfig{
@@ -877,4 +897,27 @@ func relayAliasTargetPath(method, path string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// startRelayQuotaCompensationWorker creates and starts a compensation worker,
+// returning a cancel function and whether the worker was started.
+// This is a testable entry-point separate from BuildRuntime construction.
+func startRelayQuotaCompensationWorker(
+	store relay.QuotaCompensationStore,
+	coordinator *relay.QuotaCompensationCoordinator,
+	config relay.QuotaCompensationWorkerConfig,
+	factory relayQuotaCompensationWorkerFactory,
+) (func(), bool) {
+	if store == nil || coordinator == nil {
+		return nil, false
+	}
+	if factory == nil {
+		factory = func(s relay.QuotaCompensationStore, c *relay.QuotaCompensationCoordinator, cfg relay.QuotaCompensationWorkerConfig) relayQuotaCompensationWorkerRunner {
+			return relay.NewQuotaCompensationWorker(s, c, cfg)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	worker := factory(store, coordinator, config)
+	go worker.Run(ctx)
+	return cancel, true
 }

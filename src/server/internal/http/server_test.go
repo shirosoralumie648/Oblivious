@@ -3631,3 +3631,96 @@ func TestMeRequiresSession(t *testing.T) {
 		t.Fatalf("expected 401, got %d", recorder.Code)
 	}
 }
+
+func TestBuildRuntimeStartsRelayQuotaCompensationWorker(t *testing.T) {
+	factory := &recordingRelayQuotaCompensationWorkerFactory{}
+	store := &recordingRelayQuotaCompensationStore{}
+	coordinator := relay.NewQuotaCompensationCoordinator(store, nil, nil)
+
+	cancel, started := startRelayQuotaCompensationWorker(
+		store, coordinator,
+		relay.QuotaCompensationWorkerConfig{OnError: func(error) {}},
+		factory.newWorker,
+	)
+	if !started {
+		t.Fatal("expected compensation worker to start")
+	}
+	if cancel == nil {
+		t.Fatal("expected shutdown cancel function")
+	}
+	if factory.worker == nil {
+		t.Fatal("expected factory to construct a worker")
+	}
+	select {
+	case <-factory.worker.startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for compensation worker to start")
+	}
+	cancel()
+	select {
+	case <-factory.worker.cancelledCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for compensation worker shutdown")
+	}
+}
+
+func TestStartRelayQuotaCompensationWorkerSkipsWhenNilStore(t *testing.T) {
+	factory := &recordingRelayQuotaCompensationWorkerFactory{}
+	cancel, started := startRelayQuotaCompensationWorker(nil, nil, relay.QuotaCompensationWorkerConfig{}, factory.newWorker)
+	if started {
+		t.Fatal("expected worker to stay stopped without a store")
+	}
+	if cancel != nil {
+		t.Fatal("expected no cancel without a store")
+	}
+	if factory.worker != nil {
+		t.Fatal("worker should not be constructed without a store")
+	}
+}
+
+type recordingRelayQuotaCompensationWorkerFactory struct {
+	worker *recordingRelayQuotaCompensationWorker
+	config relay.QuotaCompensationWorkerConfig
+}
+
+func (f *recordingRelayQuotaCompensationWorkerFactory) newWorker(_ relay.QuotaCompensationStore, _ *relay.QuotaCompensationCoordinator, config relay.QuotaCompensationWorkerConfig) relayQuotaCompensationWorkerRunner {
+	f.config = config
+	f.worker = &recordingRelayQuotaCompensationWorker{
+		startedCh:   make(chan struct{}),
+		cancelledCh: make(chan struct{}),
+	}
+	return f.worker
+}
+
+type recordingRelayQuotaCompensationWorker struct {
+	startedCh   chan struct{}
+	cancelledCh chan struct{}
+}
+
+func (w *recordingRelayQuotaCompensationWorker) Run(ctx context.Context) {
+	close(w.startedCh)
+	<-ctx.Done()
+	close(w.cancelledCh)
+}
+
+type recordingRelayQuotaCompensationStore struct{}
+
+func (s *recordingRelayQuotaCompensationStore) ArmQuotaCompensation(_ context.Context, _ relay.QuotaCompensationRequest) (relay.QuotaCompensationJob, error) {
+	return relay.QuotaCompensationJob{}, nil
+}
+
+func (s *recordingRelayQuotaCompensationStore) ClaimQuotaCompensationJobs(_ context.Context, _ time.Time, _ int, _ string) ([]relay.QuotaCompensationJob, error) {
+	return nil, nil
+}
+
+func (s *recordingRelayQuotaCompensationStore) MarkQuotaCompensationScopeSucceeded(_ context.Context, _, _, _ string, _ time.Time) error {
+	return nil
+}
+
+func (s *recordingRelayQuotaCompensationStore) MarkQuotaCompensationScopeFailed(_ context.Context, _, _, _, _ string, _ time.Time) error {
+	return nil
+}
+
+func (s *recordingRelayQuotaCompensationStore) RecordAPITokenQuotaRefundReceipt(_ context.Context, _, _ string, _ float64, _ time.Time) (bool, error) {
+	return false, nil
+}

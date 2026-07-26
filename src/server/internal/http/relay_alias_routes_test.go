@@ -370,6 +370,10 @@ func (m *requestLogJoinAPITokenQuotaManager) RefundRelayAPITokenQuota(context.Co
 	return nil
 }
 
+func (m *requestLogJoinAPITokenQuotaManager) RefundRelayAPITokenQuotaOnce(context.Context, string, float64, string) error {
+	return nil
+}
+
 func TestCombineHandlersDoesNotBroadenRelayAliasesToUnsupportedSurfaces(t *testing.T) {
 	tests := []struct {
 		method string
