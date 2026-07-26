@@ -493,3 +493,152 @@ func unpackErrors(err error) []error {
 	}
 	return []error{err}
 }
+
+// --- Task 3: Worker restart-recovery tests ---
+
+func TestQuotaCompensationWorkerRecoversPersistedFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		withOrg   bool
+		withToken bool
+	}{
+		{"organization-only", true, false},
+		{"token-only", false, true},
+		{"dual", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Step 1: arm a job representing an immediate failure.
+			store := newMemoryQuotaCompensationStore()
+			req := QuotaCompensationRequest{
+				RouteAttemptID:   "worker-restart-" + tc.name,
+				Stage:            QuotaCompensationStageLateModelReadiness,
+			}
+			if tc.withOrg {
+				req.OrganizationID = "org_worker"
+				req.BillingSessionID = "bill_worker"
+			}
+			if tc.withToken {
+				req.APITokenID = "tok_worker"
+				req.Amount = 3.0
+			}
+			job, err := store.ArmQuotaCompensation(context.Background(), req)
+			if err != nil {
+				t.Fatalf("arm: %v", err)
+			}
+			// Simulate immediate-attempt failure: mark scopes failed.
+			now := time.Now().UTC()
+			if tc.withOrg {
+				_ = store.MarkQuotaCompensationScopeFailed(context.Background(), job.JobKeyDigest, QuotaCompensationScopeOrganization, "", QuotaCompensationErrorCodeRefundFailed, now)
+			}
+			if tc.withToken {
+				_ = store.MarkQuotaCompensationScopeFailed(context.Background(), job.JobKeyDigest, QuotaCompensationScopeAPIToken, "", QuotaCompensationErrorCodeRefundFailed, now)
+			}
+
+			// Step 2: construct a fresh coordinator and worker (simulating restart).
+			orgMgr := &recordingQuotaManager{}
+			tokenMgr := &recordingAPITokenRefundManager{}
+			coordinator := NewQuotaCompensationCoordinator(store, orgMgr, tokenMgr)
+			config := QuotaCompensationWorkerConfig{
+				Interval: time.Millisecond,
+				Limit:    10,
+				Now:      func() time.Time { return time.Now().UTC() },
+				OnError:  func(err error) { t.Errorf("worker error: %v", err) },
+			}
+			worker := NewQuotaCompensationWorker(store, coordinator, config)
+
+			// Step 3: run one tick.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go worker.Run(ctx)
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(50 * time.Millisecond)
+				store.state.mu.Lock()
+				recovered := store.state.jobs[job.JobKeyDigest]
+				store.state.mu.Unlock()
+				if recovered.Status == QuotaCompensationJobStatusSucceeded {
+					break
+				}
+			}
+			cancel()
+			// Verify job is succeeded.
+			store.state.mu.Lock()
+			recovered := store.state.jobs[job.JobKeyDigest]
+			store.state.mu.Unlock()
+			if recovered.Status != QuotaCompensationJobStatusSucceeded {
+				t.Fatalf("job not succeeded after worker recovery: %+v", recovered)
+			}
+			// Verify exact-once refunds.
+			if tc.withOrg && orgMgr.refundCalls != 1 {
+				t.Fatalf("expected 1 org refund, got %d", orgMgr.refundCalls)
+			}
+			if tc.withToken && tokenMgr.refundOnceCalls != 1 {
+				t.Fatalf("expected 1 token refund, got %d", tokenMgr.refundOnceCalls)
+			}
+		})
+	}
+}
+
+func TestQuotaCompensationWorkerReplaysCrashWindowExactlyOnce(t *testing.T) {
+	// Simulates a crash: the refund succeeds but the job-mark fails.
+	// On restart the worker must not double-credit.
+	store := newMemoryQuotaCompensationStore()
+	req := QuotaCompensationRequest{
+		RouteAttemptID:   "crash-window-test",
+		Stage:            QuotaCompensationStageLateModelReadiness,
+		APITokenID:       "tok_crash",
+		Amount:           7.0,
+	}
+	job, err := store.ArmQuotaCompensation(context.Background(), req)
+	if err != nil {
+		t.Fatalf("arm: %v", err)
+	}
+	// Simulate crash after effect but before mark: leave scope in failed state.
+	now := time.Now().UTC()
+	_ = store.MarkQuotaCompensationScopeFailed(context.Background(), job.JobKeyDigest, QuotaCompensationScopeAPIToken, "", QuotaCompensationErrorCodeMarkFailed, now)
+
+	// The token refund store already recorded the receipt.
+	tokenStore := &memoryAPITokenQuotaRefundStore{
+		receipts:    make(map[string]memoryQuotaCompensationReceipt),
+		refundCalls: make(map[string]int),
+	}
+	// Pre-seed the receipt to simulate already-completed effect.
+	keys, _ := BuildQuotaCompensationKeys(req)
+	tokenStore.receipts[keys.APITokenScopeKeyDigest] = memoryQuotaCompensationReceipt{apiTokenID: "tok_crash", amount: 7.0}
+
+	// Worker uses a wrapped token manager that delegates to the receipt store.
+	coordinator := NewQuotaCompensationCoordinator(store, nil, tokenStore)
+	config := QuotaCompensationWorkerConfig{
+		Interval: time.Millisecond,
+		Limit:    10,
+		Now:      func() time.Time { return time.Now().UTC() },
+		OnError:  func(err error) { t.Errorf("worker error: %v", err) },
+	}
+	worker := NewQuotaCompensationWorker(store, coordinator, config)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go worker.Run(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		store.state.mu.Lock()
+		recovered := store.state.jobs[job.JobKeyDigest]
+		store.state.mu.Unlock()
+		if recovered.Status == QuotaCompensationJobStatusSucceeded {
+			break
+		}
+	}
+	cancel()
+	// Token refund call count must be 0: the receipt already exists so
+	// RefundRelayAPITokenQuotaOnce is idempotent and doesn't increment refundCalls.
+	if tokenStore.refundCalls["tok_crash"] != 0 {
+		t.Fatalf("expected 0 net refunds (receipt already present), got %d", tokenStore.refundCalls["tok_crash"])
+	}
+	store.state.mu.Lock()
+	recovered := store.state.jobs[job.JobKeyDigest]
+	store.state.mu.Unlock()
+	if recovered.Status != QuotaCompensationJobStatusSucceeded {
+		t.Fatalf("job not succeeded after crash-window replay: %+v", recovered)
+	}
+}

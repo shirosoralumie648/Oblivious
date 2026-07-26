@@ -197,3 +197,15 @@ func (s *memoryAPITokenQuotaRefundStore) RefundRelayAPITokenQuotaOnce(_ context.
 	s.refundCalls[tokenID]++
 	return nil
 }
+
+func (s *memoryAPITokenQuotaRefundStore) PreAuthorizeRelayAPITokenQuota(_ context.Context, _ string, _ float64) error {
+	return nil
+}
+
+func (s *memoryAPITokenQuotaRefundStore) SettleRelayAPITokenQuota(_ context.Context, _ string, _, _ float64) error {
+	return nil
+}
+
+func (s *memoryAPITokenQuotaRefundStore) RefundRelayAPITokenQuota(_ context.Context, _ string, _ float64) error {
+	return nil
+}
