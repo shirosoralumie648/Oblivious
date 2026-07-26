@@ -44,12 +44,28 @@ function emitBufferedChunks(buffer: string, onChunk: (chunk: string) => void, fl
   let remaining = buffer;
 
   while (true) {
-    const boundary = remaining.indexOf('\n\n');
-    if (boundary === -1) {
+    // Locate the next blank-line frame boundary.  SSE streams use either LF
+    // (\n\n, 2-byte delimiter) or CRLF (\r\n\r\n, 4-byte delimiter).  Neither
+    // sequence is a substring of the other, so both can be searched independently
+    // and the earlier one consumed with its exact length.
+    const crlfBoundary = remaining.indexOf('\r\n\r\n');
+    const lfBoundary = remaining.indexOf('\n\n');
+
+    let boundary: number;
+    let delimLen: number;
+
+    if (crlfBoundary === -1 && lfBoundary === -1) {
       break;
+    } else if (crlfBoundary !== -1 && (lfBoundary === -1 || crlfBoundary < lfBoundary)) {
+      boundary = crlfBoundary;
+      delimLen = 4;
+    } else {
+      boundary = lfBoundary;
+      delimLen = 2;
     }
+
     const frame = remaining.slice(0, boundary);
-    remaining = remaining.slice(boundary + 2);
+    remaining = remaining.slice(boundary + delimLen);
     emitFrame(frame, onChunk);
   }
 
