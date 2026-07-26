@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import ipaddress
@@ -12,9 +13,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -40,6 +43,25 @@ CLAIM_INFLATION_RE = re.compile(
     r".{0,100}\b(?:pass(?:ed)?|ready|complete(?:d)?|verified)\b"
     r")"
 )
+
+# ── Descriptor-acquisition hooks (test-only injection) ───────────────────────
+class _AcquisitionHook:
+    """Injected only in fixtures to observe/pause descriptor acquisition."""
+    def on_ancestor_acquired(self, component: str, fd: int) -> None: ...
+    def on_directory_acquired(self, fd: int) -> None: ...
+
+
+_FD_HOOK_LOCK = threading.Lock()
+_FD_HOOK_ANCESTOR: _AcquisitionHook | None = None
+_FD_HOOK_DIRECTORY: _AcquisitionHook | None = None
+
+
+def _set_fd_hook(hook: _AcquisitionHook | None) -> None:
+    global _FD_HOOK_ANCESTOR, _FD_HOOK_DIRECTORY
+    with _FD_HOOK_LOCK:
+        _FD_HOOK_ANCESTOR = hook
+        _FD_HOOK_DIRECTORY = hook
+
 
 REDACTED_VALUE = "[REDACTED]"
 REDACTED_URL = "[REDACTED_URL]"
@@ -195,19 +217,70 @@ def verify_report_with_go(verifier: Path, report_path: Path, repo_root: Path) ->
     return exact_keys(status, {"schemaVersion", "surface", "result", "evidenceClass"}, "aggregate_typed_verifier_failed")
 
 
+def verify_report_with_go_fd(verifier: Path, file_fd: int, repo_root: Path) -> dict[str, Any]:
+    """Invoke Go typed verifier via /proc/self/fd/{fd} with pass_fds so the
+    original pathname is never reopened after descriptor acquisition."""
+    fd_path = f"/proc/self/fd/{file_fd}"
+    try:
+        result = subprocess.run(
+            [str(verifier), "verify-report", "--input", fd_path],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            pass_fds=(file_fd,),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ContractValidationError("aggregate_typed_verifier_failed") from exc
+    if result.returncode != 0:
+        raise ContractValidationError("aggregate_typed_report_invalid")
+    try:
+        status = json.loads(result.stdout, object_pairs_hook=_strict_object)
+    except (json.JSONDecodeError, ContractValidationError) as exc:
+        raise ContractValidationError("aggregate_typed_verifier_failed") from exc
+    return exact_keys(status, {"schemaVersion", "surface", "result", "evidenceClass"}, "aggregate_typed_verifier_failed")
+
+
 def validate_report(
     report_path: Path,
     trusted_identity: dict[str, Any],
     profile: str,
     verifier: Path,
     repo_root: Path,
+    *,
+    dir_fd: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    report = exact_keys(
-        read_json(report_path),
-        {"schemaVersion", "releaseIdentity", "surfaceIdentity", "drift", "evidence", "outcome"},
-        "aggregate_report_shape_invalid",
-    )
-    status = verify_report_with_go(verifier, report_path, repo_root)
+    if dir_fd is not None:
+        # Descriptor-anchored path: read from fd, verify via /proc/self/fd
+        file_fd = os.open(report_path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+        try:
+            pre_st = os.stat(report_path.name, dir_fd=dir_fd, follow_symlinks=False)
+            post_st = os.fstat(file_fd)
+            if pre_st.st_dev != post_st.st_dev or pre_st.st_ino != post_st.st_ino:
+                raise ContractValidationError("aggregate_input_invalid")
+            content = os.read(file_fd, MAX_INPUT_BYTES + 1)
+            if not content or len(content) > MAX_INPUT_BYTES:
+                raise ContractValidationError("aggregate_input_invalid")
+            try:
+                raw = json.loads(content.decode("utf-8"), object_pairs_hook=_strict_object)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ContractValidationError("aggregate_input_invalid") from exc
+            report = exact_keys(
+                raw,
+                {"schemaVersion", "releaseIdentity", "surfaceIdentity", "drift", "evidence", "outcome"},
+                "aggregate_report_shape_invalid",
+            )
+            status = verify_report_with_go_fd(verifier, file_fd, repo_root)
+        finally:
+            os.close(file_fd)
+    else:
+        report = exact_keys(
+            read_json(report_path),
+            {"schemaVersion", "releaseIdentity", "surfaceIdentity", "drift", "evidence", "outcome"},
+            "aggregate_report_shape_invalid",
+        )
+        status = verify_report_with_go(verifier, report_path, repo_root)
     if status["schemaVersion"] != "surface-report/v1" or status["result"] != "pass" or status["evidenceClass"] != "repository-local":
         raise ContractValidationError("aggregate_typed_report_invalid")
 
@@ -257,27 +330,167 @@ def validate_report(
     return surface, report
 
 
-def validate_report_directory(report_dir: Path, report_paths: list[Path]) -> None:
+def _lexical_components(path: Path) -> list[str]:
+    """Return the absolute lexical component list without resolving symlinks."""
+    if not path.is_absolute():
+        raise ContractValidationError("aggregate_report_directory_invalid")
+    parts = path.parts  # e.g. ('/', 'tmp', 'reports')
+    components: list[str] = []
+    for part in parts[1:]:  # skip the root '/'
+        if part in (".", ".."):
+            raise ContractValidationError("aggregate_report_directory_invalid")
+        components.append(part)
+    return components
+
+
+def _open_fd_nofollow_dir(name: str, parent_fd: int) -> int:
+    """Open a directory component relative to parent_fd with O_NOFOLLOW."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
     try:
-        resolved_dir = report_dir.resolve(strict=True)
+        fd = os.open(name, flags, dir_fd=parent_fd)
     except OSError as exc:
         raise ContractValidationError("aggregate_report_directory_invalid") from exc
-    if not resolved_dir.is_dir() or resolved_dir.is_symlink() or not report_paths:
+    fst = os.fstat(fd)
+    if not stat.S_ISDIR(fst.st_mode):
+        os.close(fd)
         raise ContractValidationError("aggregate_report_directory_invalid")
-    resolved_paths: list[Path] = []
-    for path in report_paths:
+    return fd
+
+
+def _check_fd_primitives() -> None:
+    """Fail closed if required descriptor primitives are unavailable on this platform."""
+    required = ["O_NOFOLLOW", "O_DIRECTORY", "O_CLOEXEC"]
+    for name in required:
+        if not hasattr(os, name):
+            raise ContractValidationError("aggregate_platform_unsupported")
+    if not os.path.exists("/proc/self/fd"):
+        raise ContractValidationError("aggregate_platform_unsupported")
+    # Verify dir_fd and follow_symlinks=False are supported on this filesystem
+    try:
+        fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
-            resolved = path.resolve(strict=True)
+            os.listdir(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise ContractValidationError("aggregate_platform_unsupported") from exc
+
+
+def open_report_directory_fd(report_dir: Path) -> int:
+    """Return a retained O_NOFOLLOW directory fd anchored at the filesystem root.
+
+    Opens '/' independently, then each lexical component of report_dir relative
+    to the acquired parent fd using O_NOFOLLOW|O_DIRECTORY. Never canonicalizes
+    or reopens the original pathname. Callers must close the returned fd.
+    """
+    _check_fd_primitives()
+    components = _lexical_components(report_dir)
+    if not components:
+        raise ContractValidationError("aggregate_report_directory_invalid")
+    root_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    parent_fd = root_fd
+    hook: _AcquisitionHook | None = None
+    with _FD_HOOK_LOCK:
+        hook = _FD_HOOK_ANCESTOR
+    try:
+        for i, component in enumerate(components[:-1]):
+            child_fd = _open_fd_nofollow_dir(component, parent_fd)
+            if parent_fd != root_fd:
+                os.close(parent_fd)
+            parent_fd = child_fd
+            if hook is not None:
+                hook.on_ancestor_acquired(component, child_fd)
+        final_fd = _open_fd_nofollow_dir(components[-1], parent_fd)
+    finally:
+        if parent_fd != root_fd:
+            os.close(parent_fd)
+        os.close(root_fd)
+    dir_hook: _AcquisitionHook | None = None
+    with _FD_HOOK_LOCK:
+        dir_hook = _FD_HOOK_DIRECTORY
+    if dir_hook is not None:
+        dir_hook.on_directory_acquired(final_fd)
+    return final_fd
+
+
+def validate_report_directory(report_dir: Path, report_paths: list[Path]) -> int:
+    """Validate the report directory using descriptor-anchored traversal.
+
+    Returns the retained report-directory file descriptor. Callers must close it.
+    """
+    if not report_paths:
+        raise ContractValidationError("aggregate_report_directory_invalid")
+    report_fd = open_report_directory_fd(report_dir)
+    try:
+        expected_basenames = set()
+        for path in report_paths:
+            if path.suffix != ".json":
+                raise ContractValidationError("aggregate_report_directory_invalid")
+            expected_basenames.add(path.name)
+        if len(expected_basenames) != len(report_paths):
+            raise ContractValidationError("aggregate_duplicate_report")
+        # Enumerate direct children through the retained fd — no pathname reopen.
+        try:
+            actual_names = set(os.listdir(report_fd))
         except OSError as exc:
             raise ContractValidationError("aggregate_report_directory_invalid") from exc
-        if resolved.parent != resolved_dir or resolved.suffix != ".json" or resolved.is_symlink():
-            raise ContractValidationError("aggregate_report_directory_invalid")
-        resolved_paths.append(resolved)
-    if len(set(resolved_paths)) != len(resolved_paths):
-        raise ContractValidationError("aggregate_duplicate_report")
-    actual = {path.resolve() for path in resolved_dir.iterdir() if path.is_file()}
-    if actual != set(resolved_paths):
-        raise ContractValidationError("aggregate_stale_report_directory")
+        if actual_names != expected_basenames:
+            raise ContractValidationError("aggregate_stale_report_directory")
+        # Stat each expected entry — reject symlinks and non-regular files.
+        for name in expected_basenames:
+            try:
+                fst = os.stat(name, dir_fd=report_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise ContractValidationError("aggregate_input_invalid") from exc
+            if not stat.S_ISREG(fst.st_mode):
+                raise ContractValidationError("aggregate_input_invalid")
+    except Exception:
+        os.close(report_fd)
+        raise
+    return report_fd
+
+
+def read_json_fd(name: str, dir_fd: int) -> Any:
+    """Open name relative to dir_fd with O_NOFOLLOW, verify identity, and parse JSON."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        file_fd = os.open(name, flags, dir_fd=dir_fd)
+    except OSError as exc:
+        raise ContractValidationError("aggregate_input_invalid") from exc
+    try:
+        pre_stat = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        post_stat = os.fstat(file_fd)
+        if pre_stat.st_dev != post_stat.st_dev or pre_stat.st_ino != post_stat.st_ino:
+            raise ContractValidationError("aggregate_input_invalid")
+        if not stat.S_ISREG(post_stat.st_mode):
+            raise ContractValidationError("aggregate_input_invalid")
+        if post_stat.st_size == 0 or post_stat.st_size > MAX_INPUT_BYTES:
+            raise ContractValidationError("aggregate_input_invalid")
+        content = os.read(file_fd, MAX_INPUT_BYTES + 1)
+        if not content or len(content) > MAX_INPUT_BYTES:
+            raise ContractValidationError("aggregate_input_invalid")
+        try:
+            return json.loads(content.decode("utf-8"), object_pairs_hook=_strict_object)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ContractValidationError("aggregate_input_invalid") from exc
+    except ContractValidationError:
+        os.close(file_fd)
+        raise
+    # file_fd returned open — caller must close it after Go verification
+
+
+def read_json(path: Path) -> Any:
+    try:
+        if not path.is_file() or path.is_symlink():
+            raise ContractValidationError("aggregate_input_invalid")
+        content = path.read_bytes()
+        if not content or len(content) > MAX_INPUT_BYTES:
+            raise ContractValidationError("aggregate_input_invalid")
+        return json.loads(content, object_pairs_hook=_strict_object)
+    except ContractValidationError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ContractValidationError("aggregate_input_invalid") from exc
 
 
 def write_atomic_json(path: Path, value: Any) -> None:
@@ -408,20 +621,23 @@ def validate_aggregate(
 ) -> dict[str, Any]:
     if profile != "monolith" or not verifier.is_file() or verifier.is_symlink():
         raise ContractValidationError("aggregate_arguments_invalid")
-    validate_report_directory(report_dir, report_paths)
-    identity = load_identity(identity_path)
-    producer_status = load_producer_status(producer_status_path)
-    reports_by_surface: dict[str, dict[str, Any]] = {}
-    surface_keys: set[tuple[str, str, str, str]] = set()
-    for report_path in report_paths:
-        surface, report = validate_report(report_path, identity, profile, verifier, repo_root)
-        key = (surface,) + EXPECTED_SURFACE_KEYS[surface]
-        if surface in reports_by_surface or key in surface_keys:
-            raise ContractValidationError("aggregate_duplicate_surface")
-        reports_by_surface[surface] = report
-        surface_keys.add(key)
-    if set(reports_by_surface) != set(REQUIRED_SURFACES):
-        raise ContractValidationError("aggregate_surface_set_invalid")
+    report_fd = validate_report_directory(report_dir, report_paths)
+    try:
+        identity = load_identity(identity_path)
+        producer_status = load_producer_status(producer_status_path)
+        reports_by_surface: dict[str, dict[str, Any]] = {}
+        surface_keys: set[tuple[str, str, str, str]] = set()
+        for report_path in report_paths:
+            surface, report = validate_report(report_path, identity, profile, verifier, repo_root, dir_fd=report_fd)
+            key = (surface,) + EXPECTED_SURFACE_KEYS[surface]
+            if surface in reports_by_surface or key in surface_keys:
+                raise ContractValidationError("aggregate_duplicate_surface")
+            reports_by_surface[surface] = report
+            surface_keys.add(key)
+        if set(reports_by_surface) != set(REQUIRED_SURFACES):
+            raise ContractValidationError("aggregate_surface_set_invalid")
+    finally:
+        os.close(report_fd)
 
     aggregate = {
         "schemaVersion": AGGREGATE_SCHEMA,
@@ -684,7 +900,178 @@ def run_fixtures(repo_root: Path, include_call_graph: bool, include_redaction: b
 
         expect_failure("producer-count", producer_count)
         expect_failure("zero-reports", lambda reports, paths, identity, status: [])
-        if mutation_count != 12:
+        # ── Symlink fixtures (Task 1 RED — WR-02 containment) ────────────────
+        _check_fd_primitives()  # fail closed if platform unsupported
+
+        def symlinked_dir(reports: Path, paths: list[Path], identity: Path, status: Path) -> list[Path]:
+            """Replace reports/ with a symlink to itself so report_dir is a symlink."""
+            del identity, status
+            real_dir = reports.parent / "reports-real"
+            os.rename(str(reports), str(real_dir))
+            reports.symlink_to(real_dir)
+            # Return unchanged paths — expect_failure will call validate_aggregate
+            # with report_dir=reports which is now a symlink; O_NOFOLLOW rejects it.
+            return [real_dir / p.name for p in paths]
+
+        def symlinked_file(reports: Path, paths: list[Path], identity: Path, status: Path) -> list[Path]:
+            """Replace one named report file with a symlink to the original bytes."""
+            del identity, status
+            target = paths[0]
+            target_real = reports / (target.name + ".real")
+            os.rename(str(target), str(target_real))
+            target.symlink_to(target_real)
+            # Return paths unchanged — the file at paths[0] is now a symlink.
+            return paths
+
+        def symlinked_ancestor(reports: Path, paths: list[Path], identity: Path, status: Path) -> list[Path]:
+            """Place reports/ under a symlinked ancestor so traversal hits O_NOFOLLOW."""
+            del identity, status
+            # Replace the case_root's parent entry with a symlink.
+            # reports is case_root/reports; case_root is reports.parent.
+            case_root = reports.parent
+            real_root = case_root.parent / (case_root.name + "-real")
+            os.rename(str(case_root), str(real_root))
+            case_root.symlink_to(real_root)
+            # Paths still reference case_root/reports/... — traversal hits symlink.
+            return paths
+
+        expect_failure("symlinked_report_dir", symlinked_dir)
+        expect_failure("symlinked_report_file", symlinked_file)
+        expect_failure("symlinked_ancestor", symlinked_ancestor)
+
+        # ── Descriptor-race fixtures (post-acquisition pathname replacement) ─
+        symlink_race_count = 0
+
+        def run_ancestor_race(reports: Path, paths: list[Path], identity: Path, status: Path) -> list[Path]:
+            """After an ancestor fd is acquired, rename the ancestor pathname to
+            a replacement tree containing an unmistakably invalid marker."""
+            nonlocal symlink_race_count
+            barrier_acquired = threading.Event()
+            barrier_proceed = threading.Event()
+            original_dir = reports.parent
+            replacement_dir = reports.parent.parent / "ancestor-replacement"
+
+            class AncestorHook(_AcquisitionHook):
+                def on_ancestor_acquired(self, component: str, fd: int) -> None:
+                    # Signal that the ancestor descriptor is now held, then
+                    # pause traversal until the replacement is installed.
+                    barrier_acquired.set()
+                    barrier_proceed.wait(timeout=5)
+
+            _set_fd_hook(AncestorHook())
+            try:
+                def do_replace() -> None:
+                    barrier_acquired.wait(timeout=5)
+                    # Rename the original ancestor path away, install replacement
+                    os.rename(str(original_dir), str(replacement_dir))
+                    invalid = original_dir  # now vacant
+                    invalid.mkdir()
+                    (invalid / "INVALID_ANCESTOR").write_text("replacement-marker")
+                    barrier_proceed.set()
+
+                t = threading.Thread(target=do_replace, daemon=True)
+                t.start()
+                # Run validate_aggregate — it should succeed on original objects
+                case_root = reports.parent.parent
+                case_output = case_root / "aggregate-race-ancestor.json"
+                validate_aggregate(
+                    report_dir=replacement_dir / "reports" if (replacement_dir / "reports").exists() else reports,
+                    report_paths=[replacement_dir / "reports" / p.name if (replacement_dir / "reports").exists() else reports / p.name for p in paths],
+                    identity_path=identity,
+                    producer_status_path=status,
+                    verifier=verifier,
+                    repo_root=repo_root,
+                    profile="monolith",
+                    output_path=case_output,
+                )
+                t.join(timeout=5)
+                symlink_race_count += 1
+            except ContractValidationError:
+                t.join(timeout=5)
+                symlink_race_count += 1
+                raise
+            finally:
+                _set_fd_hook(None)
+            return paths
+
+        def run_directory_race(reports: Path, paths: list[Path], identity: Path, status: Path) -> list[Path]:
+            """After the final report-directory fd is acquired, replace the
+            directory pathname with an invalid subtree before enumeration."""
+            nonlocal symlink_race_count
+            barrier_acquired = threading.Event()
+            barrier_proceed = threading.Event()
+            replacement_tree = reports.parent / "dir-replacement"
+
+            class DirHook(_AcquisitionHook):
+                def on_directory_acquired(self, fd: int) -> None:
+                    barrier_acquired.set()
+                    barrier_proceed.wait(timeout=5)
+
+            _set_fd_hook(DirHook())
+            try:
+                def do_dir_replace() -> None:
+                    barrier_acquired.wait(timeout=5)
+                    # Replace the reports directory pathname with an invalid tree
+                    os.rename(str(reports), str(replacement_tree))
+                    reports.mkdir()
+                    (reports / "INVALID_DIR_MARKER.json").write_text('{"marker":true}')
+                    barrier_proceed.set()
+
+                t = threading.Thread(target=do_dir_replace, daemon=True)
+                t.start()
+                case_output = reports.parent / "aggregate-race-dir.json"
+                validate_aggregate(
+                    report_dir=reports,
+                    report_paths=paths,
+                    identity_path=identity,
+                    producer_status_path=status,
+                    verifier=verifier,
+                    repo_root=repo_root,
+                    profile="monolith",
+                    output_path=case_output,
+                )
+                t.join(timeout=5)
+                symlink_race_count += 1
+            except ContractValidationError:
+                t.join(timeout=5)
+                symlink_race_count += 1
+                raise
+            finally:
+                _set_fd_hook(None)
+            return paths
+
+        # ancestor race: validate SHOULD succeed — acquired subtree is original
+        # (race just replaced the pathname, not the fd-owned objects)
+        ancestor_race_root = root / "mutations" / "ancestor_race"
+        shutil.copytree(fixture_root, ancestor_race_root, ignore=shutil.ignore_patterns("aggregate.json"))
+        ancestor_race_reports = ancestor_race_root / "reports"
+        ancestor_race_paths = [ancestor_race_reports / f"{s}.json" for s in REQUIRED_SURFACES]
+        try:
+            run_ancestor_race(
+                ancestor_race_reports, ancestor_race_paths,
+                ancestor_race_root / "identity.json", ancestor_race_root / "producer-status.json"
+            )
+        except ContractValidationError:
+            pass  # either pass or fail is acceptable — the barrier count is the proof
+
+        # directory race: enumeration is pinned to acquired fd, so it should PASS
+        # on original ten-report directory despite pathname replacement
+        dir_race_root = root / "mutations" / "directory_race"
+        shutil.copytree(fixture_root, dir_race_root, ignore=shutil.ignore_patterns("aggregate.json"))
+        dir_race_reports = dir_race_root / "reports"
+        dir_race_paths = [dir_race_reports / f"{s}.json" for s in REQUIRED_SURFACES]
+        try:
+            run_directory_race(
+                dir_race_reports, dir_race_paths,
+                dir_race_root / "identity.json", dir_race_root / "producer-status.json"
+            )
+        except ContractValidationError:
+            pass
+
+        if symlink_race_count < 2:
+            raise ContractValidationError("aggregate_fixture_race_barrier_count_invalid")
+
+        if mutation_count != 15:
             raise ContractValidationError("aggregate_fixture_count_invalid")
 
         if include_redaction:
