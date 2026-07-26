@@ -50,13 +50,14 @@ type commandOptions struct {
 }
 
 type migrationReplayObservation struct {
-	SchemaVersion string                                `json:"schemaVersion"`
-	ReplayMode    string                                `json:"replayMode"`
-	CleanupResult string                                `json:"cleanupResult"`
-	Result        string                                `json:"result"`
-	Before        surfacereport.MigrationLedgerSnapshot `json:"before"`
-	AfterFirst    surfacereport.MigrationLedgerSnapshot `json:"afterFirst"`
-	AfterSecond   surfacereport.MigrationLedgerSnapshot `json:"afterSecond"`
+	SchemaVersion     string                                `json:"schemaVersion"`
+	ReplayMode        string                                `json:"replayMode"`
+	ResourceOwnership string                                `json:"resourceOwnership"`
+	CleanupResult     string                                `json:"cleanupResult"`
+	Result            string                                `json:"result"`
+	Before            surfacereport.MigrationLedgerSnapshot `json:"before"`
+	AfterFirst        surfacereport.MigrationLedgerSnapshot `json:"afterFirst"`
+	AfterSecond       surfacereport.MigrationLedgerSnapshot `json:"afterSecond"`
 }
 
 func main() {
@@ -176,6 +177,7 @@ func runReplayReport(ctx context.Context, options commandOptions, stdout, stderr
 			return writeDomainError(stderr, err)
 		}
 		details.ReplayMode = observation.ReplayMode
+		details.ResourceOwnership = observation.ResourceOwnership
 		details.CleanupResult = observation.CleanupResult
 		outcome = passingOutcome()
 	case surfacereport.MigrationReplayUnavailableCode:
@@ -183,7 +185,7 @@ func runReplayReport(ctx context.Context, options commandOptions, stdout, stderr
 			observation.Before.IdentityDigest != "" || observation.AfterFirst.IdentityDigest != "" || observation.AfterSecond.IdentityDigest != "" {
 			return writeDomainError(stderr, &surfacereport.ReportError{Code: surfacereport.ErrorSurfaceSchemaInvalid, Field: "observation.failureSnapshots"})
 		}
-		details = unavailableReplayDetails(inventory.IdentityDigest, observation.ReplayMode, observation.CleanupResult)
+		details = unavailableReplayDetails(inventory.IdentityDigest, observation.ReplayMode, observation.ResourceOwnership, observation.CleanupResult)
 		outcome = surfacereport.Outcome{
 			Result: surfacereport.ResultFail, ErrorCodes: []string{surfacereport.MigrationReplayUnavailableCode}, SkippedChecks: []string{},
 		}
@@ -209,10 +211,10 @@ func runReplayReport(ctx context.Context, options commandOptions, stdout, stderr
 	return 0
 }
 
-func unavailableReplayDetails(staticDigest, replayMode, cleanupResult string) surfacereport.MigrationReplayDetails {
+func unavailableReplayDetails(staticDigest, replayMode, resourceOwnership, cleanupResult string) surfacereport.MigrationReplayDetails {
 	unknown := surfacereport.MigrationApplyCounts{Applied: -1, Skipped: -1}
 	return surfacereport.MigrationReplayDetails{
-		DatabaseKind: "postgresql-pgvector", ReplayMode: replayMode, InitialLedgerRows: -1,
+		DatabaseKind: "postgresql-pgvector", ReplayMode: replayMode, ResourceOwnership: resourceOwnership, InitialLedgerRows: -1,
 		FirstApply: unknown, SecondApply: unknown, FinalLedgerRows: -1,
 		StaticDigest: staticDigest, LedgerDigest: staticDigest, CleanupResult: cleanupResult,
 	}

@@ -260,6 +260,7 @@ func TestMigrationReplaySurfaceContract(t *testing.T) {
 		t.Fatalf("derive replay observation: %v", err)
 	}
 	details.ReplayMode = migrationReplayDocker
+	details.ResourceOwnership = migrationResourceOwnershipOwnedDisposable
 	details.CleanupResult = migrationCleanupSucceeded
 	passing := Outcome{Result: ResultPass, ErrorCodes: []string{}, SkippedChecks: []string{}}
 
@@ -296,8 +297,8 @@ func TestMigrationReplaySurfaceContract(t *testing.T) {
 		if err := json.Unmarshal(report.Evidence.Details, &decoded); err != nil {
 			t.Fatalf("decode replay details: %v", err)
 		}
-		if len(decoded) != 9 {
-			t.Fatalf("replay details field count = %d, want 9: %#v", len(decoded), decoded)
+		if len(decoded) != 10 {
+			t.Fatalf("replay details field count = %d, want 10: %#v", len(decoded), decoded)
 		}
 	})
 
@@ -367,6 +368,9 @@ func TestMigrationReplaySurfaceContract(t *testing.T) {
 			{"final rows", func(value *MigrationReplayDetails) { value.FinalLedgerRows-- }},
 			{"static digest", func(value *MigrationReplayDetails) { value.StaticDigest = "sha256:" + strings.Repeat("0", 64) }},
 			{"mode", func(value *MigrationReplayDetails) { value.ReplayMode = "shared" }},
+			{"missing ownership", func(value *MigrationReplayDetails) { value.ResourceOwnership = "" }},
+			{"unknown ownership", func(value *MigrationReplayDetails) { value.ResourceOwnership = "forged" }},
+			{"caller owned pass", func(value *MigrationReplayDetails) { value.ResourceOwnership = migrationResourceOwnershipCallerOwned }},
 			{"cleanup", func(value *MigrationReplayDetails) { value.CleanupResult = migrationCleanupFailed }},
 		}
 		for _, mutation := range mutations {
@@ -420,7 +424,8 @@ func TestMigrationReplaySurfaceContract(t *testing.T) {
 		failureDetails := MigrationReplayDetails{
 			DatabaseKind: migrationDatabaseKind, ReplayMode: migrationReplayExternal, InitialLedgerRows: -1,
 			FirstApply: unknown, SecondApply: unknown, FinalLedgerRows: -1,
-			StaticDigest: inventory.IdentityDigest, LedgerDigest: inventory.IdentityDigest, CleanupResult: migrationCleanupFailed,
+			StaticDigest: inventory.IdentityDigest, LedgerDigest: inventory.IdentityDigest,
+			ResourceOwnership: migrationResourceOwnershipCallerOwned, CleanupResult: migrationCleanupFailed,
 		}
 		failure := Outcome{Result: ResultFail, ErrorCodes: []string{MigrationReplayUnavailableCode}, SkippedChecks: []string{}}
 		report, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", failureDetails, failure)
@@ -435,6 +440,13 @@ func TestMigrationReplaySurfaceContract(t *testing.T) {
 		}
 		if _, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", failureDetails, passing); err == nil {
 			t.Fatal("unavailable details were accepted as pass")
+		}
+		for _, ownership := range []string{migrationResourceOwnershipCallerOwned, migrationResourceOwnershipOwnedDisposable} {
+			candidate := failureDetails
+			candidate.ResourceOwnership = ownership
+			if _, err := NewMigrationReplayReport(context.Background(), identityProvider, profileResolver, repoRoot, "config/release/contract.v1.json", "config/release/contract.schema.json", "monolith", candidate, failure); err != nil {
+				t.Fatalf("unavailable ownership %q was rejected: %v", ownership, err)
+			}
 		}
 	})
 }
