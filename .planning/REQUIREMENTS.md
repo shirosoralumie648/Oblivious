@@ -29,6 +29,7 @@
 - [ ] **IDEN-07**: Owner 可以增删成员和修改角色，越权角色变更会被拒绝。
 - [ ] **IDEN-08**: 可信 actor 和 organization identity 一致贯穿 HTTP、gRPC、service、job、retry、vector 和 analytics。
 - [ ] **IDEN-09**: 对 SQL、向量、对象、队列、Admin 和分析数据的跨租户访问均被拒绝，且不泄露目标对象是否存在。
+- [ ] **IDEN-10**: 用户可以删除自己的账户，Owner 可以删除组织；删除会移除或匿名化关联数据、使会话与令牌立即失效，且不留部分可用身份。
 
 ### Relay Authority
 
@@ -144,6 +145,7 @@
 - [ ] **OPER-06**: 运营者可以对每个声明部署模式执行 migration、deploy 和 rollback。
 - [ ] **OPER-07**: 每个声明状态存储都完成 backup/restore drill，恢复后关键旅程和账务联查仍通过。
 - [ ] **OPER-08**: 每个公开声明的 monolith、dual 或 split 模式通过相同能力与 tenant-denial 测试；否则从发布承诺和默认配置中移除。
+- [ ] **OPER-09**: 组织 Owner/Admin 可以把本组织核心数据（成员、会话、知识库元数据、账单记录）导出为可移植格式，导出仅含本组织租户数据。
 
 ### Release And Evidence
 
@@ -230,6 +232,7 @@
 | IDEN-07 | Phase 32 | Pending |
 | IDEN-08 | Phase 32 | Pending |
 | IDEN-09 | Phase 32 | Pending |
+| IDEN-10 | Phase 32 | Pending |
 | RLAY-01 | Phase 34 | Pending |
 | RLAY-02 | Phase 34 | Pending |
 | RLAY-03 | Phase 34 | Pending |
@@ -310,6 +313,7 @@
 | OPER-06 | Phase 38 | Pending |
 | OPER-07 | Phase 37 | Pending |
 | OPER-08 | Phase 38 | Pending |
+| OPER-09 | Phase 37 | Pending |
 | RELS-01 | Phase 31, Phase 31.1 | Complete |
 | RELS-02 | Phase 31.2 | Complete |
 | RELS-03 | Phase 39 | Pending |
@@ -325,8 +329,8 @@
 
 **Coverage:**
 
-- v1 requirements: 101 total
-- Mapped to phases: 101
+- v1 requirements: 103 total
+- Mapped to phases: 103
 - Unmapped: 0
 - Orphaned: 0
 - Duplicate mappings: 0
