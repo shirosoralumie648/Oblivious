@@ -3,6 +3,7 @@
 > 生成于 2026-06-11，基于 4 份 fusion 设计文档的全量审计（33 agent 对抗验证）。
 > 用户决策（2026-06-11）：**架构按规格完全重写（由低成本模型执行）；功能差距 P1 + 全部 P2 都做。**
 > 执行纪律（goal.md）：按模块拆分；每个可验证步骤跑测试 → 更新文档 → git diff 自查 → commit → push；禁止无测试 push。
+> 注：上述 `goal.md` 引用与 `IMPLEMENTATION_PLAN.md` 已于 2026-07-26 弃用，当前权威见 `.planning/ROADMAP.md` + `.planning/EXECUTION-STRATEGY.md`。
 
 ## 审计结论摘要
 
