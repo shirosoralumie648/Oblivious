@@ -241,6 +241,7 @@ Cross-cutting constraints:
 
 ### Phase 32: 身份、租户与共享出站安全
 
+**Band/Track**: Band 0 地基 · 横切（IDEN/SECU），不分轨
 **Goal**: 组织成员可以安全完成身份与组织生命周期，所有同步、异步和外部边界都使用可信租户上下文。
 **Depends on**: Phase 31.2
 **Requirements**: IDEN-01, IDEN-02, IDEN-03, IDEN-04, IDEN-05, IDEN-06, IDEN-07, IDEN-08, IDEN-09, SECU-01, SECU-02, SECU-03
@@ -257,6 +258,7 @@ Cross-cutting constraints:
 
 ### Phase 33: 耐久执行、RAG Worker 与共享对象
 
+**Band/Track**: Band 0 地基 · 横切耐久执行原语（STOR/SECU-04,05 + AUTO 持久化底座），不分轨
 **Goal**: Knowledge、Agent、Workflow 和 Task 在重启与失败后仍可恢复、重放和审计，生产对象不依赖本地磁盘。
 **Depends on**: Phase 32
 **Requirements**: KNOW-02, KNOW-03, KNOW-04, KNOW-06, AUTO-02, AUTO-03, AUTO-05, AUTO-07, AUTO-08, AUTO-10, SECU-04, SECU-05, STOR-01, STOR-02
@@ -273,6 +275,7 @@ Cross-cutting constraints:
 
 ### Phase 34: Relay、Chat 与证据主链
 
+**Band/Track**: Band 1 并发 · Track A（RLAY-*, CHAT-*）
 **Goal**: 用户获得可取消、可结算、可追踪的真实 Chat 流式响应，所有可计费 AI 调用只有一个权威路径。
 **Depends on**: Phase 32, Phase 33
 **Requirements**: RLAY-01, RLAY-02, RLAY-03, RLAY-04, RLAY-05, RLAY-06, RLAY-07, RLAY-08, RLAY-09, RLAY-10, CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, CHAT-06
@@ -289,6 +292,7 @@ Cross-cutting constraints:
 
 ### Phase 35: 真实客户、Builder、Admin 与渠道旅程
 
+**Band/Track**: Band 1 并发 · Track B（KNOW-01/05/07）+ Track C（AUTO-01/04/06/09/11）+ Track D（ADMN-01/02/03/05/06）+ Track F（CHAN-*）
 **Goal**: 客户、Builder 和运营者可以通过真实 Web、Go、数据库、worker 与外部 rail 完成核心工作区和渠道操作。
 **Depends on**: Phase 34
 **Requirements**: KNOW-01, KNOW-05, KNOW-07, AUTO-01, AUTO-04, AUTO-06, AUTO-09, AUTO-11, CHAN-01, CHAN-02, CHAN-03, CHAN-04, CHAN-05, CHAN-06, ADMN-01, ADMN-02, ADMN-03, ADMN-05, ADMN-06, RELS-04, RELS-05, RELS-06
@@ -305,6 +309,7 @@ Cross-cutting constraints:
 
 ### Phase 36: 财务与 Marketplace 对账闭环
 
+**Band/Track**: Band 1 并发 · Track E（BILL-*, MRKT-*, ADMN-04）
 **Goal**: 客户、Publisher 和 Finance operator 可以完成可重放、可对账且不重复记账的真实资金与 Marketplace 生命周期。
 **Depends on**: Phase 34, Phase 35
 **Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05, BILL-06, BILL-07, BILL-08, BILL-09, MRKT-01, MRKT-02, MRKT-03, MRKT-04, MRKT-05, MRKT-06, MRKT-07, MRKT-08, MRKT-09, MRKT-10, ADMN-04, RELS-07
@@ -321,6 +326,7 @@ Cross-cutting constraints:
 
 ### Phase 37: 持久观测、SLO 与全状态恢复
 
+**Band/Track**: Band 2 收口 · 观测/恢复（OPER-01..04,07）
 **Goal**: 运营者可以从权威业务 identity 观测系统、接收和恢复告警，并证明所有声明状态可恢复。
 **Depends on**: Phase 36
 **Requirements**: OPER-01, OPER-02, OPER-03, OPER-04, OPER-07
@@ -335,6 +341,7 @@ Cross-cutting constraints:
 
 ### Phase 38: 声明部署模式能力对等
 
+**Band/Track**: Band 2 收口 · 部署对等（OPER-05,06,08）
 **Goal**: 运营者只会部署和宣传具备真实 readiness、回滚能力及相同租户语义的运行模式。
 **Depends on**: Phase 35, Phase 37
 **Requirements**: OPER-05, OPER-06, OPER-08
@@ -348,6 +355,7 @@ Cross-cutting constraints:
 
 ### Phase 39: 供应链与目标商业发布
 
+**Band/Track**: Band 2 收口 · 供应链/发布（RELS-*）
 **Goal**: 发布运营者可以从同一已 push commit 重复制品，并用外部 E3/E4 证据证明目标环境商业发布无 skip 完成。
 **Depends on**: Phase 38
 **Requirements**: RELS-03, RELS-08, RELS-09, RELS-10, RELS-11, RELS-12
