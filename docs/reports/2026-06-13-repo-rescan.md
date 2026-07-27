@@ -5,6 +5,7 @@
 - Branch: `main`; the dependency-security rescan started from pushed `HEAD` `884c276` before the local dependency slice.
 - The project is **not complete** against the four fusion specs. `docs/reports/2026-06-07-fusion-spec-completion-matrix.md` still has 4 `Proven` rows and 10 `Partial` rows.
 - The previous `Phase 2 complete / goal.md complete` statement in `docs/design/FUSION_GAP_CLOSURE_PLAN.md` has been corrected to a recovery/verification status.
+- 注：`IMPLEMENTATION_PLAN.md` 已于 2026-07-26 弃用，当前权威见 `.planning/ROADMAP.md` + `.planning/EXECUTION-STRATEGY.md`。
 - Current progress estimate after this rescan: **70/100**. Most repository-owned feature surfaces exist and have focused evidence; remaining progress is dominated by target-environment proof, DB-backed/commercial reruns, security/tenant-isolation depth, and release readiness.
 
 ## Verified In This Rescan Slice

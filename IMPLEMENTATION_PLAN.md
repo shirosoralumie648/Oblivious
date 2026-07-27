@@ -1,3 +1,10 @@
+> **⚠️ DEPRECATED (2026-07-26)**
+> 本文件是 2026-06 微服务改造计划的历史存档，已与现状脱节。
+> 当前规划权威见 `.planning/ROADMAP.md` + `.planning/EXECUTION-STRATEGY.md`，入口见 `goal.md`。
+> **请勿据此执行。** 正文保留仅供历史追溯。
+
+---
+
 # Oblivious 完成计划
 
 > 生成于 2026-06-11，基于 goal.md + 4 份设计文档 + 3 路架构侦察
