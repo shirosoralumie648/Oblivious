@@ -30,17 +30,18 @@ export function Pagination({ currentPage, totalPages, onPageChange, totalItems, 
   return (
     <div className="flex flex-col gap-3 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
       {start !== null && end !== null ? <p>{`Showing ${start}-${end} of ${totalItems}`}</p> : <span />}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="ghost" className="min-h-[44px]" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+      <nav aria-label="Pagination" className="flex flex-wrap items-center gap-2">
+        <Button type="button" aria-label="Go to previous page" variant="ghost" className="min-h-[44px]" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
           Previous
         </Button>
         {pages.map((page, index) => {
           const previous = pages[index - 1];
           return (
             <span key={page} className="flex items-center gap-2">
-              {previous !== undefined && page - previous > 1 ? <span className="px-1">...</span> : null}
+              {previous !== undefined && page - previous > 1 ? <span aria-hidden="true" className="px-1">...</span> : null}
               <Button
                 type="button"
+                aria-label={`Go to page ${page}`}
                 variant={page === currentPage ? 'default' : 'outline'}
                 className={cn('min-h-[44px] min-w-[44px]', page === currentPage && 'bg-primary text-primary-foreground')}
                 aria-current={page === currentPage ? 'page' : undefined}
@@ -51,10 +52,10 @@ export function Pagination({ currentPage, totalPages, onPageChange, totalItems, 
             </span>
           );
         })}
-        <Button type="button" variant="ghost" className="min-h-[44px]" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+        <Button type="button" aria-label="Go to next page" variant="ghost" className="min-h-[44px]" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
           Next
         </Button>
-      </div>
+      </nav>
     </div>
   );
 }
