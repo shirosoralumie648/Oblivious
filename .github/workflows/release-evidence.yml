@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download target evidence manifest
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ inputs.source_run_id }}
@@ -36,7 +36,7 @@ jobs:
           path: ${{ env.RELEASE_EVIDENCE_DIR }}/manifest
 
       - name: Download target artifact bodies
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ inputs.source_run_id }}
