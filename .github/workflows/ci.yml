@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: src/server/go.mod
       - uses: pnpm/action-setup@v4
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: src/server/go.mod
       - uses: pnpm/action-setup@v4
@@ -117,7 +117,7 @@ jobs:
       OBLIVIOUS_REQUIRE_TEST_DATABASE: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: src/server/go.mod
       - name: Run server checks
