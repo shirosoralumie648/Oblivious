@@ -1,0 +1,3 @@
+## 2026-07-30 - Enhance Pagination Component Accessibility
+**Learning:** Pagination components typically use a 'div' which lacks semantic meaning for screen readers. Using '<nav aria-label="Pagination">' combined with distinct 'aria-label' attributes for 'Previous', 'Next', and page number buttons provides much clearer navigation context. Setting 'aria-hidden="true"' on visual spacers (like ellipses) reduces noise for screen reader users.
+**Action:** Standardized pagination components should always use the '<nav>' element with 'aria-label="Pagination"' and explicitly label every interactive navigation element.
