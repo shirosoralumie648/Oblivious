@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DataTable, type DataTableColumn } from './DataTable';
+import { Pagination } from './Pagination';
 import { RatingStars } from './RatingStars';
 import { SearchBar } from './SearchBar';
 import { StatusBadge } from './StatusBadge';
@@ -104,5 +105,19 @@ describe('shared components', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: 'Rate 4 out of 5 stars' }));
     expect(onChange).toHaveBeenCalledWith(4);
+  });
+
+  it('renders Pagination accessibly', () => {
+    const onPageChange = vi.fn();
+    render(<Pagination currentPage={2} totalPages={5} totalItems={50} itemsPerPage={10} onPageChange={onPageChange} />);
+
+    expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to next page' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to page 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to page 2' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+    expect(onPageChange).toHaveBeenCalledWith(3);
   });
 });
