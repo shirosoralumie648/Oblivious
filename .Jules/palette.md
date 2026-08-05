@@ -1,0 +1,3 @@
+## 2026-08-05 - Pagination Accessibility
+**Learning:** Pagination components often lack semantic navigation structures and screen readers can announce visual elements like ellipses ('...') awkwardly. Using a `<nav>` with `aria-label="Pagination"` correctly groups the links, explicit `aria-label`s on buttons clarify their targets, and `aria-hidden="true"` on spacers prevents unnecessary noise for screen reader users.
+**Action:** When building or auditing pagination components, always wrap them in semantic `<nav>` elements, ensure all navigation buttons have descriptive `aria-label` attributes, and aggressively hide purely visual spacers from the accessibility tree.
