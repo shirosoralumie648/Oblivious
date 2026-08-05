@@ -19,5 +19,14 @@
     "dev:server": "if [ -d src/server/cmd/server ]; then GOCACHE=.tmp/go-build GOMODCACHE=.tmp/go-mod go run ./src/server/cmd/server; elif [ -d src/server/cmd/api ]; then GOCACHE=.tmp/go-build GOMODCACHE=.tmp/go-mod go run ./src/server/cmd/api; else echo '[dev:server] Skipping: src/server not present yet.'; fi",
     "test:server": "if [ -d src/server ]; then cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...; else echo '[test:server] Skipping: src/server not present yet.'; fi",
     "check:server": "if [ -d src/server ]; then cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...; else echo '[check:server] Skipping: src/server not present yet.'; fi"
+  },
+  "pnpm": {
+    "overrides": {
+      "react-router@>=6.0.0 <7.18.0": ">=7.18.0", "react-router-dom@>=6.30.2 <=6.30.4": ">=7.18.0", "react-router@>=7.12.0 <8.3.0": ">=8.3.0",
+      "react-router@>=6.4.0 <7.18.0": ">=7.18.0",
+      "postcss@<=8.5.17": ">=8.5.18",
+      "postcss@<=8.5.22": ">=8.5.23",
+      "undici@>=7.0.0 <7.29.0": ">=7.29.0"
+    }
   }
 }
