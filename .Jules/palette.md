@@ -1,0 +1,3 @@
+## 2024-08-07 - Improved Pagination Accessibility
+**Learning:** Pagination components often lack semantic navigation context for screen readers. Using a `<nav aria-label="Pagination">` wrapping the page buttons ensures the boundaries of the pagination control are clearly announced. Additionally, spacer elements (like ellipses) should be explicitly hidden using `aria-hidden="true"` so they aren't awkwardly read by screen readers. Furthermore, adding explicit `aria-label` attributes to pagination buttons (e.g. "Go to page X" instead of just "X") vastly improves context for assistive technologies.
+**Action:** Always wrap pagination controls in semantic `<nav>` elements, add descriptive `aria-label`s to buttons, and hide visual-only elements from screen readers.
