@@ -1,7 +1,7 @@
 ---
 quick_id: 260809-1s9
 status: gaps_found
-verified_at: 2026-08-08T21:49:55Z
+verified_at: 2026-08-08T21:59:31Z
 implementation_commit: ccf3ce3
 ---
 
@@ -29,6 +29,7 @@ implementation_commit: ccf3ce3
 ## External Provider Evidence
 
 - Luna probe: `timeout 30s codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="low"' ...` exited 124, emitted only SessionStart, and wrote no output file。
+- Priority probe: adding `-c 'service_tier="priority"'` still exited 124 after 30s with no output file。
 - Control probe: identical read-only invocation with `gpt-5.6-sol` exited 0 and returned `OK` under the same `newapi` provider。
 - Durable pipeline evidence: `/home/shirosora/.cache/oblivious-reference-intel/full-20260809/clean/errors/8b9467c58dec9bd73cb8b42cf5b6c98556893964b9b74c75201297c32f3381bf.json` records the low-effort 35s timeout; the older 240s error lacks the effort field and is therefore not considered current。
 
