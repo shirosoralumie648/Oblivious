@@ -165,6 +165,7 @@ None yet.
 | 260717-up4 | 审计当前未提交内容，完善 .gitignore，删除确认无关的生成内容，并按逻辑边界逐步提交 | 2026-07-17 | 5d43da8 | Verified | [260717-up4-gitignore](./quick/260717-up4-gitignore/) |
 | 260723-1ln | Document approved tiered reusable CI design | 2026-07-23 | 5add4de | Designed | [260723-1ln-document-approved-tiered-reusable-ci-des](./quick/260723-1ln-document-approved-tiered-reusable-ci-des/) |
 | 260723-1rx | Implement approved tiered reusable CI and push it | 2026-07-23 | 325e293 | Hosted quick verified | [260723-1rx-implement-approved-tiered-reusable-ci-an](./quick/260723-1rx-implement-approved-tiered-reusable-ci-an/) |
+| 260809-1s9 | Build a resumable GitHub reference intelligence pipeline with Luna cleaning | 2026-08-09 | ccf3ce3 | Incomplete: Luna provider timeout | [260809-1s9-build-a-resumable-github-reference-intel](./quick/260809-1s9-build-a-resumable-github-reference-intel/) |
 | Phase 31.1 P06 | 40 min | 3 tasks | 9 files |
 | Phase 31.1 P07 | 36 min | 3 tasks | 8 files |
 | Phase 31.1 P10 | 70 min | 2 tasks | 10 files |
