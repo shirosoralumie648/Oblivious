@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reference feature cleaning result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_classification",
+    "capabilities",
+    "needs_review",
+    "review_reason"
+  ],
+  "properties": {
+    "record_classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "confidence"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "implementation_bearing",
+            "planning_only",
+            "discussion",
+            "documentation_only",
+            "metadata_only",
+            "unknown"
+          ]
+        },
+        "reason": {"type": "string"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "name",
+          "summary_zh",
+          "capability_type",
+          "module",
+          "implementation_status",
+          "user_visible",
+          "confidence",
+          "evidence_excerpt",
+          "evidence_reason",
+          "version",
+          "breaking_change",
+          "security_relevant",
+          "keywords"
+        ],
+        "properties": {
+          "key": {"type": "string"},
+          "name": {"type": "string"},
+          "summary_zh": {"type": "string"},
+          "capability_type": {
+            "type": "string",
+            "enum": [
+              "feature",
+              "integration",
+              "security",
+              "operations",
+              "performance",
+              "bugfix",
+              "compatibility",
+              "migration",
+              "deprecation",
+              "other"
+            ]
+          },
+          "module": {
+            "type": "string",
+            "enum": [
+              "relay_gateway",
+              "chat",
+              "knowledge_rag",
+              "agent",
+              "workflow",
+              "task_scheduler",
+              "mcp_tools",
+              "billing_quota",
+              "admin",
+              "marketplace",
+              "channels",
+              "auth_tenant",
+              "observability",
+              "deployment_operations",
+              "cli_sdk_bridge",
+              "provider_registry",
+              "other"
+            ]
+          },
+          "implementation_status": {
+            "type": "string",
+            "enum": ["implemented", "fixed", "planned", "removed", "deprecated", "unknown"]
+          },
+          "user_visible": {"type": "boolean"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "evidence_excerpt": {"type": "string", "maxLength": 500},
+          "evidence_reason": {"type": "string"},
+          "version": {"type": "string"},
+          "breaking_change": {"type": "boolean"},
+          "security_relevant": {"type": "boolean"},
+          "keywords": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "needs_review": {"type": "boolean"},
+    "review_reason": {"type": "string"}
+  }
+}
