@@ -103,7 +103,7 @@ bash scripts/reference-intel.sh materialize-sample \
 
 目标 workdir 必须为空且位于 Git 仓库外。输出的 `sample-selection.json` 会记录原 selection 摘要、materialized raw hash、关联 PR 富化状态和最终 unit 数。
 
-## 全量 raw v3 与当前清洗
+## 全量 raw v3 与未过滤清洗
 
 保留的旧 full raw 目录没有被原地改写。已从本地 SQLite/JSONL 快照物化出新的目录：
 
@@ -123,19 +123,22 @@ target: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3
 
 tag 保留在 raw 时间线中，但默认不发送给模型。上表数值应以 `status` 的对应字段为准；不要从旧 clean v1 manifest 推断当前调用量。
 
-在一次真实单元探针通过后，candidate-only 的 `gpt-5.4-mini`、`low`、confidence `0.80` 清洗已放入具名 tmux：
+在一次真实单元探针通过后，最初的 candidate-only `gpt-5.4-mini`、`low`、confidence `0.80` 清洗于 `2026-08-09T06:12:18Z` 放入具名 tmux。随后根据全召回授权，于 `2026-08-09T07:01:07Z` 在保留 116 个 item checkpoint、0 个 error checkpoint 的前提下，优雅停止旧 writer 并切换到未过滤范围：
 
 ```text
 session: oblivious-reference-gpt54mini-full-v3-20260809
-runner: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run-full-v3.sh
+runner: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run-full-v3-unfiltered.sh
+log: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run-full-v3-unfiltered.log
 ```
 
-runner 严格按 `clean -> aggregate -> status` 执行，缺少 `--allow-clean-errors`；clean 有 error 或 pending 时返回非零，`aggregate` 不会运行。`clean/progress.json` 是原子 checkpoint，包含 schema/prompt/model/effort、source scope、position、调用数、错误数、每调用耗时和 ETA。当前只证明任务可恢复且正在运行，不证明全量清洗完成，也不证明已经得到所有实现功能。监控命令：
+未过滤范围比 candidate 范围多 `179,669 - 91,273 = 88,396` 个 unit。replacement runner 不创建独立的 delta corpus，而是扫描全部 179,669 个 unit，并按 unit ID、raw/chunk hash、schema、prompt、model 和 effort 复用当前结果；candidate filter mode 不属于 checkpoint identity。因此已经完成的 candidate checkpoint 不会重复计费，候选余量和新增 88,396-unit 范围会在同一个严格 clean 中闭合。
+
+runner 严格按 `clean -> aggregate -> status` 执行，缺少 `--allow-clean-errors` 和 `--allow-incomplete-clean`；clean 有 error 或 pending 时返回非零，`aggregate` 不会运行。`clean/progress.json` 是原子 checkpoint，包含 schema/prompt/model/effort、source scope、position、调用数、错误数、每调用耗时和 ETA。启动验证确认只有一个 `pipeline.py clean` writer，progress 报告 `implementation_candidates_only=false`、178,377 records / 179,669 units，既有 checkpoint 样本哈希未变，item 数继续增长且 error 为 0。当前只证明未过滤任务可恢复且正在运行，不证明全量清洗或 catalog 已完成，也不证明已经得到所有实现功能。监控命令：
 
 ```bash
 tmux attach -t oblivious-reference-gpt54mini-full-v3-20260809
 bash scripts/reference-intel.sh status --workdir /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3
-tail -f /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run.log
+tail -f /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run-full-v3-unfiltered.log
 ```
 
 ## 数据目录
@@ -198,6 +201,6 @@ Raw record 的 `content_sha256` 由稳定来源字段计算；模型不能覆盖
 
 `gpt-5.4-mini` 的 v3 27-repository、54-unit 同 record-ID 样本已完成。54/54 unit 成功，144 条模型 claim 被完整分区为 120 accepted、10 review-held、14 excluded；review unit 从首轮 22/54 降至 7/54，accepted 与 review queue 零重叠。17/17 issue 均补齐关联 merged PR 上下文，针对 issue、PR、release 的人工 spot check 未发现会推翻样本门禁的误收录。
 
-因此当前结论是：**有界跨仓库样本质量门禁通过，仍标记为 SAMPLE_ONLY；全量 raw v3 已通过物化门禁，candidate-only 清洗正在运行。** 旧 full manifest 的 94,097-unit / 20-successful 数字属于 clean v1 历史进度，不能与当前 v2/prompt v3 checkpoint 混用。candidate-only 仍是召回边界；若要支持“所有实现功能”的无保留说法，必须在候选清洗完成后补跑未过滤范围或提供独立 recall 验证。catalog 只有在完整、无 error 的 clean 后才会生成。
+因此当前结论是：**有界跨仓库样本质量门禁通过，仍标记为 SAMPLE_ONLY；全量 raw v3 已通过物化门禁，179,669-unit 未过滤清洗正在运行。** 旧 full manifest 的 94,097-unit / 20-successful 数字属于 clean v1 历史进度，不能与当前 v2/prompt v3 checkpoint 混用。candidate-only 的 88,396-unit 召回缺口已经纳入当前运行范围，但只有全部 unit 完成、0 error 且严格 aggregation 通过后，才能生成待语义审计的 catalog；启动全量运行本身仍不能支持“已经获取所有实现功能”的完成声明。
 
 完整范围、统计、摘要校验值和下一门禁见 [GPT-5.4 Mini cross-repository sample](./reference-intelligence-gpt54mini-cross-repo-sample.md)。
