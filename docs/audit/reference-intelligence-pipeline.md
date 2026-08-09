@@ -138,3 +138,9 @@ Raw record 的 `content_sha256` 由稳定来源字段计算；模型不能覆盖
 - API key、GitHub token 和 Codex credential 不会写入 raw、clean、catalog 或日志。
 - 全历史数据可能产生大量 Luna 调用。先用 `--max-records-per-kind` 和 `--limit` 做样本校验，再启动全量 tmux 任务。
 - `features.json` 的 evidence class 固定为 `upstream-metadata`，不能被引用为 Oblivious repository-local、target 或 live 实现证明。
+
+## 当前跨仓库样本门禁
+
+`gpt-5.4-mini` 的 27-repository、54-unit 样本已完成，模型调用、schema、provenance 和确定性 grounding 门禁通过，但语义自动发布门禁未通过。154 条 provisional accepted claims 中有 51 条来自模型自己标记为 `needs_review` 的记录，因此不能把当前 catalog 直接视为已验证功能清单，也不能据此启动 94,077-unit 全量清洗。
+
+完整范围、统计、摘要校验值和下一门禁见 [GPT-5.4 Mini cross-repository sample](./reference-intelligence-gpt54mini-cross-repo-sample.md)。
