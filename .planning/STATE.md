@@ -6,9 +6,9 @@ current_phase: 31.2
 current_phase_name: contract-surface-parity-gate
 status: executing
 stopped_at: Phase 31.2 verification found 2 blocking gaps
-last_updated: "2026-07-26T03:55:44.138Z"
-last_activity: 2026-07-26
-last_activity_desc: Phase 31.2 execution started
+last_updated: "2026-08-09T07:14:00Z"
+last_activity: 2026-08-09
+last_activity_desc: Launched unfiltered 179669-unit reference cleaning with checkpoint reuse
 progress:
   total_phases: 11
   completed_phases: 2
@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-14)
 Phase: 31.2 (contract-surface-parity-gate) — EXECUTING
 Plan: 3 of 23
 Status: Ready to execute
-Last activity: 2026-07-26 — Phase 31.2 execution started
+Last activity: 2026-08-09 — Launched unfiltered 179669-unit reference cleaning with checkpoint reuse
 
 Progress: [██████████] 100%
 
@@ -167,6 +167,7 @@ None yet.
 | 260723-1rx | Implement approved tiered reusable CI and push it | 2026-07-23 | 325e293 | Hosted quick verified | [260723-1rx-implement-approved-tiered-reusable-ci-an](./quick/260723-1rx-implement-approved-tiered-reusable-ci-an/) |
 | 260809-1s9 | Build a resumable GitHub reference intelligence pipeline with Luna cleaning | 2026-08-09 | ccf3ce3 | Verified sample: v3 cross-repo 54/54; full run requires explicit authorization | [260809-1s9-build-a-resumable-github-reference-intel](./quick/260809-1s9-build-a-resumable-github-reference-intel/) |
 | 260809-imx | Upgrade retained full reference corpus and launch resumable GPT-5.4 mini cleaning | 2026-08-09 | ec0e11e | Raw v3 verified; candidate clean running, catalog pending | [260809-imx-upgrade-retained-full-reference-corpus-t](./quick/260809-imx-upgrade-retained-full-reference-corpus-t/) |
+| 260809-ko0 | Expand full reference cleaning from candidate-only to all 179669 unfiltered units while reusing current checkpoints | 2026-08-09 | f13dc6c | Unfiltered clean running; strict catalog pending | [260809-ko0-expand-full-reference-cleaning-from-cand](./quick/260809-ko0-expand-full-reference-cleaning-from-cand/) |
 | Phase 31.1 P06 | 40 min | 3 tasks | 9 files |
 | Phase 31.1 P07 | 36 min | 3 tasks | 8 files |
 | Phase 31.1 P10 | 70 min | 2 tasks | 10 files |
