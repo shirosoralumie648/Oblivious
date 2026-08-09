@@ -35,6 +35,8 @@ bash scripts/reference-intel.sh status --workdir "$run_dir"
 
 `status` 还会显示基于 strong/medium 证据的候选 record 和预计 model unit 数，适合在付费清洗前做规模确认。
 
+当前 status 会同时报告两种范围：`unfiltered_cleanable_*` 是 issue、merged PR、release、changelog 的未过滤模型范围；`implementation_candidate_*` 是 strong/medium 证据并经过确定性候选过滤后的范围。两者必须分开记录，candidate-only 运行不能被描述成完整召回。
+
 `--limit` 只限制本次新增模型调用。上例的 clean scope 只有一个 release unit，因此可以通过默认的完整聚合门禁。若对多条输入使用 `--limit`，聚合会拒绝不完整 clean；只有显式 `--allow-incomplete-clean` 才能生成不可发布的诊断目录。
 
 成功记录保存在独立 checkpoint 中，重复执行不会再次计费。schema、prompt、model、effort、source record hash 或 chunk hash 变化时，旧 checkpoint 不再视为当前结果。
@@ -101,17 +103,54 @@ bash scripts/reference-intel.sh materialize-sample \
 
 目标 workdir 必须为空且位于 Git 仓库外。输出的 `sample-selection.json` 会记录原 selection 摘要、materialized raw hash、关联 PR 富化状态和最终 unit 数。
 
+## 全量 raw v3 与当前清洗
+
+保留的旧 full raw 目录没有被原地改写。已从本地 SQLite/JSONL 快照物化出新的目录：
+
+```text
+source: /home/shirosora/.cache/oblivious-reference-intel/full-20260809
+target: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3
+```
+
+物化结果为 190,299 条记录（changelog 25、issue 88,920、merged PR 80,137、release 9,295、tag 11,922）。12,827 个 issue 解析出 14,321 个关联 merged-PR 内容上下文并重算 issue hash；其中 12,677 个 issue 达到 strong evidence，另外 150 个仍保持 open/weak，不能仅凭 issue 状态形成 strong 声明。所有非 issue 记录的内容 hash 与源快照一致，源 manifest/index 在物化前后也保持一致。目标 `raw/manifest.json` 和 `corpus-materialization.json` 保存源/目标哈希及计数。
+
+物化后的当前 scope（`max_prompt_chars=12,000`）是：
+
+| 范围 | records | units |
+| --- | ---: | ---: |
+| 未过滤 issue/PR/release/changelog | 178,377 | 179,669 |
+| evidence-eligible candidate | 90,444 | 91,273 |
+
+tag 保留在 raw 时间线中，但默认不发送给模型。上表数值应以 `status` 的对应字段为准；不要从旧 clean v1 manifest 推断当前调用量。
+
+在一次真实单元探针通过后，candidate-only 的 `gpt-5.4-mini`、`low`、confidence `0.80` 清洗已放入具名 tmux：
+
+```text
+session: oblivious-reference-gpt54mini-full-v3-20260809
+runner: /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run-full-v3.sh
+```
+
+runner 严格按 `clean -> aggregate -> status` 执行，缺少 `--allow-clean-errors`；clean 有 error 或 pending 时返回非零，`aggregate` 不会运行。`clean/progress.json` 是原子 checkpoint，包含 schema/prompt/model/effort、source scope、position、调用数、错误数、每调用耗时和 ETA。当前只证明任务可恢复且正在运行，不证明全量清洗完成，也不证明已经得到所有实现功能。监控命令：
+
+```bash
+tmux attach -t oblivious-reference-gpt54mini-full-v3-20260809
+bash scripts/reference-intel.sh status --workdir /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3
+tail -f /home/shirosora/.cache/oblivious-reference-intel/full-20260809-v3/run.log
+```
+
 ## 数据目录
 
 ```text
 <workdir>/
   sample-selection.json        # materialized sample only
+  corpus-materialization.json  # materialized full corpus only
   raw/
     manifest.json
     records.jsonl
     repos/<owner-repo>/*.jsonl
   clean/
     manifest.json
+    progress.json
     records.jsonl
     items/<unit-hash>.json
     errors/<unit-hash>.json
@@ -159,6 +198,6 @@ Raw record 的 `content_sha256` 由稳定来源字段计算；模型不能覆盖
 
 `gpt-5.4-mini` 的 v3 27-repository、54-unit 同 record-ID 样本已完成。54/54 unit 成功，144 条模型 claim 被完整分区为 120 accepted、10 review-held、14 excluded；review unit 从首轮 22/54 降至 7/54，accepted 与 review queue 零重叠。17/17 issue 均补齐关联 merged PR 上下文，针对 issue、PR、release 的人工 spot check 未发现会推翻样本门禁的误收录。
 
-因此当前结论是：**有界跨仓库样本质量门禁通过，但仍是 SAMPLE_ONLY**。它不是全历史召回率或统计精度证明，也不授权全量模型调用。旧 full manifest 的 94,097-unit / 20-successful 数字属于 clean v1；当前代码在旧 raw 上给出的候选估算为 85,448，但 full issue raw 尚未按新契约富化。显式授权全量运行前必须先升级 raw、重新计算最终 scope/成本，并确认是候选优先还是未过滤的高召回运行。
+因此当前结论是：**有界跨仓库样本质量门禁通过，仍标记为 SAMPLE_ONLY；全量 raw v3 已通过物化门禁，candidate-only 清洗正在运行。** 旧 full manifest 的 94,097-unit / 20-successful 数字属于 clean v1 历史进度，不能与当前 v2/prompt v3 checkpoint 混用。candidate-only 仍是召回边界；若要支持“所有实现功能”的无保留说法，必须在候选清洗完成后补跑未过滤范围或提供独立 recall 验证。catalog 只有在完整、无 error 的 clean 后才会生成。
 
 完整范围、统计、摘要校验值和下一门禁见 [GPT-5.4 Mini cross-repository sample](./reference-intelligence-gpt54mini-cross-repo-sample.md)。

@@ -423,6 +423,26 @@ class ReferenceIntelTests(unittest.TestCase):
                     },
                 },
             )
+            pipeline.atomic_write_json(
+                workdir / "clean" / "progress.json",
+                {
+                    "schema_version": "oblivious-reference-intel/clean/v1",
+                    "prompt_version": "reference-feature-cleaner/v1",
+                    "model": "gpt-5.4-mini",
+                    "model_reasoning_effort": "low",
+                    "running": True,
+                    "started_at": "2026-01-03T00:00:00Z",
+                    "updated_at": "2026-01-03T00:01:00Z",
+                    "sources": ["release"],
+                    "repositories": [],
+                    "implementation_candidates_only": True,
+                    "max_prompt_chars": 1000,
+                    "min_confidence": 0.8,
+                    "source_records": 1,
+                    "source_units": 1,
+                    "last_position": 1,
+                },
+            )
             with patch("builtins.print"):
                 status = pipeline.status_command(
                     argparse.Namespace(repo_root=repo_root, workdir=workdir)
@@ -433,8 +453,10 @@ class ReferenceIntelTests(unittest.TestCase):
         self.assertEqual(status["clean_schema_version"], "oblivious-reference-intel/clean/v1")
         self.assertEqual(status["expected_clean_schema_version"], pipeline.CLEAN_SCHEMA_VERSION)
         self.assertEqual(status["expected_clean_prompt_version"], pipeline.PROMPT_VERSION)
+        self.assertFalse(status["clean_progress_current"])
+        self.assertEqual(status["clean_progress"], {})
 
-    def test_candidate_filter_keeps_feature_pr_and_drops_docs_only_pr(self) -> None:
+    def test_candidate_filter_keeps_neutral_pr_and_drops_deterministic_non_features(self) -> None:
         repo = sample_repository()
         feature = pipeline.make_record(
             repo,
@@ -469,7 +491,19 @@ class ReferenceIntelTests(unittest.TestCase):
             {"merge_commit_sha": "d" * 40, "merged_at": "2026-01-02T00:00:00Z", "labels": []},
             "2026-01-03T00:00:00Z",
         )
+        neutral = pipeline.make_record(
+            repo,
+            "pull_request",
+            "11",
+            "Handle cancelled streams gracefully",
+            "Prevents duplicate completion after a cancelled response.",
+            "https://github.com/example/sample/pull/11",
+            "merged",
+            {"merge_commit_sha": "e" * 40, "merged_at": "2026-01-02T00:00:00Z", "labels": []},
+            "2026-01-03T00:00:00Z",
+        )
         self.assertTrue(pipeline.is_implementation_candidate(feature))
+        self.assertTrue(pipeline.is_implementation_candidate(neutral))
         self.assertFalse(pipeline.is_implementation_candidate(docs))
         self.assertFalse(pipeline.is_implementation_candidate(tests_only))
 
@@ -525,6 +559,11 @@ class ReferenceIntelTests(unittest.TestCase):
             pipeline.clean_command(args, cleaner=first)
             second = FakeCleaner()
             pipeline.clean_command(args, cleaner=second)
+            progress = pipeline.read_json(workdir / "clean" / "progress.json")
+            with patch("builtins.print"):
+                status = pipeline.status_command(
+                    argparse.Namespace(repo_root=repo_root, workdir=workdir)
+                )
             catalog = pipeline.aggregate_command(
                 argparse.Namespace(
                     repo_root=repo_root,
@@ -535,6 +574,12 @@ class ReferenceIntelTests(unittest.TestCase):
             )
         self.assertEqual(first.calls, 1)
         self.assertEqual(second.calls, 0)
+        self.assertTrue(pipeline.clean_progress_contract_current(progress))
+        self.assertFalse(progress["running"])
+        self.assertEqual(progress["last_position"], 1)
+        self.assertEqual(progress["final_counts"]["successful_units"], 1)
+        self.assertTrue(status["clean_progress_current"])
+        self.assertEqual(status["clean_progress"]["model"], "luna-test")
         self.assertEqual(catalog["coverage"]["accepted_groups"], 1)
         self.assertEqual(catalog["features"][0]["evidence"][0]["source_content_sha256"], record["content_sha256"])
         self.assertEqual(catalog["features"][0]["evidence"][0]["model_reasoning_effort"], "low")
@@ -686,6 +731,213 @@ class ReferenceIntelTests(unittest.TestCase):
         self.assertNotEqual(materialized["content_sha256"], issue["content_sha256"])
         self.assertEqual(sample_manifest["selected_records"], 1)
         self.assertEqual(sample_manifest["linked_pr_context_records"], 1)
+
+    def test_materialize_full_corpus_preserves_source_and_reports_both_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as work_temporary:
+            repo_root = Path(repo_temporary)
+            work_root = Path(work_temporary)
+            source_workdir = work_root / "full-v1"
+            corpus_workdir = work_root / "full-v3"
+            repo = sample_repository()
+            neutral_pull = pipeline.make_record(
+                repo,
+                "pull_request",
+                "8",
+                "Handle cancelled streams gracefully",
+                "Prevents duplicate completion after a cancelled response.",
+                "https://github.com/example/sample/pull/8",
+                "merged",
+                {
+                    "number": 8,
+                    "merge_commit_sha": "b" * 40,
+                    "merged_at": "2026-01-02T00:00:00Z",
+                    "labels": [],
+                },
+                "2026-01-03T00:00:00Z",
+            )
+            docs_pull = pipeline.make_record(
+                repo,
+                "pull_request",
+                "9",
+                "docs: clarify stream cancellation",
+                "Documentation wording only.",
+                "https://github.com/example/sample/pull/9",
+                "merged",
+                {
+                    "number": 9,
+                    "merge_commit_sha": "c" * 40,
+                    "merged_at": "2026-01-02T00:00:00Z",
+                    "labels": [],
+                },
+                "2026-01-03T00:00:00Z",
+            )
+            linked_issue = pipeline.make_record(
+                repo,
+                "issue",
+                "12",
+                "Cancelled stream completion",
+                "A cancelled stream can complete twice.",
+                "https://github.com/example/sample/issues/12",
+                "closed",
+                {
+                    "number": 12,
+                    "closed_at": "2026-01-02T00:00:00Z",
+                    "linked_merged_pull_requests": [
+                        {
+                            "number": 8,
+                            "url": neutral_pull["url"],
+                            "merge_commit_sha": neutral_pull["source"]["merge_commit_sha"],
+                            "merged_at": neutral_pull["source"]["merged_at"],
+                        }
+                    ],
+                },
+                "2026-01-03T00:00:00Z",
+            )
+            weak_issue = pipeline.make_record(
+                repo,
+                "issue",
+                "13",
+                "Add another stream mode",
+                "This request has no merged implementation evidence.",
+                "https://github.com/example/sample/issues/13",
+                "closed",
+                {
+                    "number": 13,
+                    "closed_at": "2026-01-02T00:00:00Z",
+                    "linked_merged_pull_requests": [],
+                },
+                "2026-01-03T00:00:00Z",
+            )
+            release = pipeline.make_record(
+                repo,
+                "release",
+                "1",
+                "v1.0.0",
+                "Cancelled streams now finish exactly once.",
+                "https://github.com/example/sample/releases/tag/v1.0.0",
+                "published",
+                {"tag_name": "v1.0.0"},
+                "2026-01-03T00:00:00Z",
+            )
+            changelog = pipeline.make_record(
+                repo,
+                "changelog",
+                "CHANGELOG.md",
+                "CHANGELOG.md",
+                "Added cancellation handling.",
+                "https://github.com/example/sample/blob/main/CHANGELOG.md",
+                "tracked",
+                {"path": "CHANGELOG.md", "snapshot_sha": "a" * 40},
+                "2026-01-03T00:00:00Z",
+            )
+            tag = pipeline.make_record(
+                repo,
+                "tag",
+                "v1.0.0",
+                "v1.0.0",
+                "",
+                "https://github.com/example/sample/releases/tag/v1.0.0",
+                "published",
+                {"tag_name": "v1.0.0"},
+                "2026-01-03T00:00:00Z",
+            )
+            source_records = [
+                linked_issue,
+                weak_issue,
+                neutral_pull,
+                docs_pull,
+                release,
+                changelog,
+                tag,
+            ]
+            raw_dir = source_workdir / "raw" / "repos" / "example-sample"
+            for kind in ("issue", "pull_request", "release", "changelog", "tag"):
+                pipeline.atomic_write_jsonl(
+                    raw_dir / f"{kind}.jsonl",
+                    [record for record in source_records if record["kind"] == kind],
+                )
+            pipeline.atomic_write_json(raw_dir / "repository.json", repo.as_dict())
+            source_index, source_counts = pipeline.rebuild_raw_index(source_workdir)
+            source_manifest_path = source_workdir / "raw" / "manifest.json"
+            pipeline.atomic_write_json(
+                source_manifest_path,
+                {
+                    "schema_version": pipeline.RAW_SCHEMA_VERSION,
+                    "repositories": [repo.as_dict()],
+                    "counts": dict(sorted(source_counts.items())),
+                    "failures": [],
+                    "records_path": str(source_index),
+                },
+            )
+            source_manifest_sha = pipeline.sha256_file(source_manifest_path)
+            source_index_sha = pipeline.sha256_file(source_index)
+            source_by_id = {record["record_id"]: record for record in source_records}
+
+            args = pipeline.build_parser().parse_args(
+                [
+                    "materialize-corpus",
+                    "--repo-root",
+                    str(repo_root),
+                    "--source-workdir",
+                    str(source_workdir),
+                    "--workdir",
+                    str(corpus_workdir),
+                ]
+            )
+            corpus_manifest = args.handler(args)
+            materialized_records = list(
+                pipeline.iter_jsonl(corpus_workdir / "raw" / "records.jsonl")
+            )
+            materialized_by_id = {
+                record["record_id"]: record for record in materialized_records
+            }
+            materialization = pipeline.read_json(
+                corpus_workdir / "corpus-materialization.json"
+            )
+            with patch("builtins.print"):
+                status = pipeline.status_command(
+                    argparse.Namespace(repo_root=repo_root, workdir=corpus_workdir)
+                )
+
+            self.assertEqual(pipeline.sha256_file(source_manifest_path), source_manifest_sha)
+            self.assertEqual(pipeline.sha256_file(source_index), source_index_sha)
+
+        self.assertEqual(len(materialized_records), len(source_records))
+        self.assertEqual(corpus_manifest["counts"], dict(sorted(source_counts.items())))
+        self.assertEqual(materialization["record_count"], len(source_records))
+        self.assertEqual(materialization["linked_pr_context_records"], 1)
+        linked = materialized_by_id[linked_issue["record_id"]]["source"][
+            "linked_merged_pull_requests"
+        ][0]
+        self.assertEqual(linked["record_id"], neutral_pull["record_id"])
+        self.assertEqual(linked["content_sha256"], neutral_pull["content_sha256"])
+        self.assertIn("duplicate completion", linked["body"])
+        self.assertNotEqual(
+            materialized_by_id[linked_issue["record_id"]]["content_sha256"],
+            linked_issue["content_sha256"],
+        )
+        self.assertEqual(
+            materialized_by_id[weak_issue["record_id"]]["content_sha256"],
+            weak_issue["content_sha256"],
+        )
+        for record_id, source_record in source_by_id.items():
+            if source_record["kind"] != "issue":
+                self.assertEqual(
+                    materialized_by_id[record_id]["content_sha256"],
+                    source_record["content_sha256"],
+                )
+        self.assertEqual(
+            status["unfiltered_cleanable_records"],
+            {"changelog": 1, "issue": 2, "pull_request": 2, "release": 1},
+        )
+        self.assertEqual(status["unfiltered_cleanable_units"], 6)
+        self.assertEqual(
+            status["implementation_candidate_records"],
+            {"changelog": 1, "issue": 1, "pull_request": 1, "release": 1},
+        )
+        self.assertEqual(status["implementation_candidate_units"], 4)
+        self.assertFalse(status["clean_progress_current"])
+        self.assertEqual(status["clean_progress"], {})
 
 
 if __name__ == "__main__":
