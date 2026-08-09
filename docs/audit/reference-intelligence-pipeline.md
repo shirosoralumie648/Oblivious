@@ -1,13 +1,13 @@
 # Reference GitHub Intelligence Pipeline
 
-这条管线用于补充现有 `docs/audit/reference-*` 源码审计：从 `reference/` 中每个嵌套仓库的 Git origin 自动发现 GitHub 项目，采集 issue、已合并 PR、release、tag 和本地 changelog，再用 Luna 逐条清洗为带来源的能力声明。
+这条管线用于补充现有 `docs/audit/reference-*` 源码审计：从 `reference/` 中每个嵌套仓库的 Git origin 自动发现 GitHub 项目，采集 issue、已合并 PR、release、tag 和本地 changelog，再用指定 Codex 模型逐条清洗为带来源的能力声明。默认模型仍是 Luna；当前跨仓库质量样本按用户指示使用 `gpt-5.4-mini`、`low` effort。
 
 它只生成 **上游参考项目能力情报**。结果不证明 Oblivious 已实现对应能力，也不等同于 target/live 或商业发布证据。历史 merge/release 也不能单独证明能力仍存在于上游当前 HEAD。
 
 ## 前置条件
 
 - `gh auth status` 成功；采集器通过 GitHub CLI 使用现有凭据，不读取或保存 token。
-- `codex exec --model gpt-5.6-luna -c 'model_reasoning_effort="low"'` 可用；管线默认使用 `low`，避免继承工作区的高推理配置。
+- 所选 Codex 模型可用。管线默认模型为 `gpt-5.6-luna`、默认 effort 为 `low`，也可显式传入 `gpt-5.4-mini`；模型与 effort 都会进入 checkpoint 身份。
 - 输出目录由调用者显式指定，并保持在 Git 仓库外。
 
 ## 快速验证
@@ -18,11 +18,8 @@ run_dir=/var/tmp/oblivious-reference-intel-smoke
 bash scripts/reference-intel.sh collect \
   --workdir "$run_dir" \
   --repo new-api \
-  --source issue \
-  --source pull_request \
   --source release \
-  --source changelog \
-  --max-records-per-kind 2
+  --max-records-per-kind 1
 
 bash scripts/reference-intel.sh clean \
   --workdir "$run_dir" \
@@ -38,7 +35,9 @@ bash scripts/reference-intel.sh status --workdir "$run_dir"
 
 `status` 还会显示基于 strong/medium 证据的候选 record 和预计 model unit 数，适合在付费清洗前做规模确认。
 
-`--limit` 只限制本次新增模型调用。成功记录保存在独立 checkpoint 中，重复执行不会再次计费。
+`--limit` 只限制本次新增模型调用。上例的 clean scope 只有一个 release unit，因此可以通过默认的完整聚合门禁。若对多条输入使用 `--limit`，聚合会拒绝不完整 clean；只有显式 `--allow-incomplete-clean` 才能生成不可发布的诊断目录。
+
+成功记录保存在独立 checkpoint 中，重复执行不会再次计费。schema、prompt、model、effort、source record hash 或 chunk hash 变化时，旧 checkpoint 不再视为当前结果。
 
 ## 全量运行
 
@@ -58,13 +57,14 @@ bash scripts/reference-intel.sh run \
 - 采集所有 30 个可识别的 GitHub 仓库，不使用手工项目清单。
 - GitHub 采集默认单路执行以限制 `gh --paginate` 的峰值内存；有足够内存时可显式提高 `--collect-workers`。Luna 清洗严格单条、串行执行。
 - issue、merged PR、release 和 changelog 进入 Luna；tag 被采集用于版本时间线，但默认不消耗模型调用。
+- issue 的实现证据会附带 closing merged PR 的 record ID、content hash、标题、正文、URL、merge SHA 与合并时间；issue 请求文本与 PR 实现文本在提示词中保持分区。
 - 长正文按 12,000 字符切成稳定 chunk，每个 chunk 独立 checkpoint。
 - 任一采集失败会 fail closed；重新运行会复用已完成的仓库/来源。
 - raw index 使用 SQLite 旁路索引，clean 和 aggregate 按记录流式扫描，不会把完整历史 corpus 一次性装入内存。
 - 模型错误达到 20 条后停止；修复原因后使用 `--retry-errors` 恢复。
 - `model` 与 `model_reasoning_effort` 都是 clean checkpoint 的身份字段；切换 effort 会使旧成功/错误结果失效并重新尝试，不会把不同配置混入同一个 clean index。
 
-当历史 issue/PR 数量过大时，可显式启用 `--implementation-candidates-only`：它会跳过无合并关联的 weak issue，以及标题和正文都明显属于文档、测试、依赖或纯重构的 PR。该选项减少模型调用但牺牲召回率，默认关闭；全量结果应优先保留未过滤的 raw 数据，之后再按需要补跑候选集。
+当历史 issue/PR 数量过大时，可显式启用 `--implementation-candidates-only`：它会跳过无合并关联的 weak issue，以及标题和正文都明显属于文档、测试、依赖或纯重构的 PR。该选项减少模型调用但牺牲召回率，默认关闭；如果目标是“获取所有实现功能”，不能仅凭候选集声明完整召回，必须保留未过滤 raw 并另行验证过滤器召回率或补跑未过滤 clean scope。
 
 长时间任务应放在命名 tmux 会话中：
 
@@ -86,10 +86,26 @@ bash scripts/reference-intel.sh aggregate --workdir "$run_dir"
 
 使用 `--refresh` 重新拉取 GitHub 来源。默认 collection fingerprint 包含仓库、来源、`--since`、正文上限、采样上限，以及 changelog 对应的本地 snapshot SHA。
 
+更新到 issue→merged PR 富化契约后，旧 issue collection fingerprint 会失效。必须先重新执行 `collect`，再以 `status` 的 `clean_contract_current=true` 和最终 unit 数为准；旧 clean v1 数量只能作为历史进度，不能作为可恢复的 v2 checkpoint。
+
+## 固定样本复现
+
+已有 selection manifest 时，可在不改动原始全量目录的前提下重建完全相同的 record-ID 样本，并从全量 raw PR 记录补齐 issue 的关联实现上下文：
+
+```bash
+bash scripts/reference-intel.sh materialize-sample \
+  --source-workdir /var/tmp/oblivious-reference-intel-full \
+  --selection-manifest /path/to/sample-selection.json \
+  --workdir /var/tmp/oblivious-reference-intel-sample-v3
+```
+
+目标 workdir 必须为空且位于 Git 仓库外。输出的 `sample-selection.json` 会记录原 selection 摘要、materialized raw hash、关联 PR 富化状态和最终 unit 数。
+
 ## 数据目录
 
 ```text
 <workdir>/
+  sample-selection.json        # materialized sample only
   raw/
     manifest.json
     records.jsonl
@@ -127,9 +143,9 @@ Raw record 的 `content_sha256` 由稳定来源字段计算；模型不能覆盖
 - claim 状态为 `implemented` 或 `fixed`；
 - 来源等级为 `strong` 或 `medium`；
 - `evidence_excerpt` 能在输入标题或正文中逐字定位；
-- confidence 达到默认阈值 `0.70`。
+- confidence 达到默认阈值 `0.80`。
 
-未满足条件的记录进入 `excluded-claims.jsonl`；证据摘录无法回指、来源漂移或模型主动标记歧义的记录进入 `review-queue.jsonl`。
+模型将 unit 标记为 `needs_review` 时，其中即使通过其他确定性条件的候选 claim 也只进入 `review-queue.jsonl`，不会进入 `features.*`。其余未满足条件的 claim 进入 `excluded-claims.jsonl`，并强制写入 `accepted_for_inventory=false`。聚合还会重新校验 clean-to-raw hash、schema 和 prompt；默认拒绝任何 error 或 pending unit。
 
 ## 安全与成本边界
 
@@ -141,6 +157,8 @@ Raw record 的 `content_sha256` 由稳定来源字段计算；模型不能覆盖
 
 ## 当前跨仓库样本门禁
 
-`gpt-5.4-mini` 的 27-repository、54-unit 样本已完成，模型调用、schema、provenance 和确定性 grounding 门禁通过，但语义自动发布门禁未通过。154 条 provisional accepted claims 中有 51 条来自模型自己标记为 `needs_review` 的记录，因此不能把当前 catalog 直接视为已验证功能清单，也不能据此启动 94,077-unit 全量清洗。
+`gpt-5.4-mini` 的 v3 27-repository、54-unit 同 record-ID 样本已完成。54/54 unit 成功，144 条模型 claim 被完整分区为 120 accepted、10 review-held、14 excluded；review unit 从首轮 22/54 降至 7/54，accepted 与 review queue 零重叠。17/17 issue 均补齐关联 merged PR 上下文，针对 issue、PR、release 的人工 spot check 未发现会推翻样本门禁的误收录。
+
+因此当前结论是：**有界跨仓库样本质量门禁通过，但仍是 SAMPLE_ONLY**。它不是全历史召回率或统计精度证明，也不授权全量模型调用。旧 full manifest 的 94,097-unit / 20-successful 数字属于 clean v1；当前代码在旧 raw 上给出的候选估算为 85,448，但 full issue raw 尚未按新契约富化。显式授权全量运行前必须先升级 raw、重新计算最终 scope/成本，并确认是候选优先还是未过滤的高召回运行。
 
 完整范围、统计、摘要校验值和下一门禁见 [GPT-5.4 Mini cross-repository sample](./reference-intelligence-gpt54mini-cross-repo-sample.md)。
