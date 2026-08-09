@@ -166,6 +166,7 @@ None yet.
 | 260723-1ln | Document approved tiered reusable CI design | 2026-07-23 | 5add4de | Designed | [260723-1ln-document-approved-tiered-reusable-ci-des](./quick/260723-1ln-document-approved-tiered-reusable-ci-des/) |
 | 260723-1rx | Implement approved tiered reusable CI and push it | 2026-07-23 | 325e293 | Hosted quick verified | [260723-1rx-implement-approved-tiered-reusable-ci-an](./quick/260723-1rx-implement-approved-tiered-reusable-ci-an/) |
 | 260809-1s9 | Build a resumable GitHub reference intelligence pipeline with Luna cleaning | 2026-08-09 | ccf3ce3 | Verified sample: v3 cross-repo 54/54; full run requires explicit authorization | [260809-1s9-build-a-resumable-github-reference-intel](./quick/260809-1s9-build-a-resumable-github-reference-intel/) |
+| 260809-imx | Upgrade retained full reference corpus and launch resumable GPT-5.4 mini cleaning | 2026-08-09 | ec0e11e | Raw v3 verified; candidate clean running, catalog pending | [260809-imx-upgrade-retained-full-reference-corpus-t](./quick/260809-imx-upgrade-retained-full-reference-corpus-t/) |
 | Phase 31.1 P06 | 40 min | 3 tasks | 9 files |
 | Phase 31.1 P07 | 36 min | 3 tasks | 8 files |
 | Phase 31.1 P10 | 70 min | 2 tasks | 10 files |
