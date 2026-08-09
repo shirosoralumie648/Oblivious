@@ -32,12 +32,14 @@ RAW_SCHEMA_VERSION = "oblivious-reference-intel/raw/v1"
 CLEAN_SCHEMA_VERSION = "oblivious-reference-intel/clean/v2"
 CATALOG_SCHEMA_VERSION = "oblivious-reference-intel/catalog/v2"
 SAMPLE_SCHEMA_VERSION = "oblivious-reference-intel/sample/v2"
+CORPUS_SCHEMA_VERSION = "oblivious-reference-intel/corpus/v1"
 PROMPT_VERSION = "reference-feature-cleaner/v3"
 DEFAULT_MODEL = "gpt-5.6-luna"
 DEFAULT_MODEL_REASONING_EFFORT = "low"
 DEFAULT_MIN_CONFIDENCE = 0.80
 MODEL_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 DEFAULT_SOURCES = ("issue", "pull_request", "release", "tag", "changelog")
+DEFAULT_CLEAN_SOURCES = ("issue", "pull_request", "release", "changelog")
 IMPLEMENTED_STATUSES = frozenset({"implemented", "fixed"})
 MODEL_MODULES = frozenset(
     {
@@ -132,6 +134,14 @@ def canonical_json(value: Any) -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def log(message: str) -> None:
@@ -1444,6 +1454,180 @@ def materialize_sample_command(args: argparse.Namespace) -> dict[str, Any]:
     return raw_manifest
 
 
+def materialize_corpus_command(args: argparse.Namespace) -> dict[str, Any]:
+    """Build a full raw snapshot with linked PR context, without refetching GitHub."""
+    repo_root = args.repo_root.resolve()
+    source_workdir = validate_workdir(args.source_workdir.resolve(), repo_root)
+    workdir = validate_workdir(args.workdir.resolve(), repo_root)
+    if source_workdir == workdir:
+        raise PipelineError("Corpus workdir must differ from the source workdir")
+    if workdir.exists():
+        raise PipelineError(f"Corpus workdir must not already exist: {workdir}")
+
+    source_manifest_path = source_workdir / "raw" / "manifest.json"
+    source_index_path = source_workdir / "raw" / "records.jsonl"
+    source_repos_root = source_workdir / "raw" / "repos"
+    if (
+        not source_manifest_path.exists()
+        or not source_index_path.exists()
+        or not source_repos_root.is_dir()
+    ):
+        raise PipelineError(f"Source raw corpus is incomplete: {source_workdir}")
+    source_manifest_text = source_manifest_path.read_text(encoding="utf-8")
+    source_manifest_sha256 = sha256_text(source_manifest_text)
+    source_records_sha256 = sha256_file(source_index_path)
+    source_manifest = read_json(source_manifest_path)
+    if not isinstance(source_manifest, dict):
+        raise PipelineError("Source raw manifest must be a JSON object")
+    if source_manifest.get("failures"):
+        raise PipelineError("Source raw corpus contains collection failures")
+    source_counts = source_manifest.get("counts")
+    if not isinstance(source_counts, dict) or any(
+        not isinstance(value, int) or value < 0 for value in source_counts.values()
+    ):
+        raise PipelineError("Source raw manifest counts are invalid")
+
+    workdir.parent.mkdir(parents=True, exist_ok=True)
+    staging = workdir.with_name(f".{workdir.name}.materializing-{os.getpid()}")
+    if staging.exists():
+        raise PipelineError(f"Corpus staging directory already exists: {staging}")
+    staging.mkdir(parents=True)
+
+    raw_store = RawRecordStore(source_workdir)
+    counts: Counter[str] = Counter()
+    issue_records = 0
+    enriched_issue_records = 0
+    linked_pull_request_contexts = 0
+    changed_issue_hashes = 0
+    try:
+        source_repo_dirs = sorted(path for path in source_repos_root.iterdir() if path.is_dir())
+        for source_repo_dir in source_repo_dirs:
+            destination_repo_dir = staging / "raw" / "repos" / source_repo_dir.name
+            repository_value = read_json(source_repo_dir / "repository.json")
+            if not isinstance(repository_value, dict):
+                raise PipelineError(f"Repository metadata is missing: {source_repo_dir}")
+            atomic_write_json(destination_repo_dir / "repository.json", repository_value)
+
+            for source_path in sorted(source_repo_dir.glob("*.jsonl")):
+                destination_path = destination_repo_dir / source_path.name
+
+                def transformed_records(path: Path = source_path) -> Iterator[dict[str, Any]]:
+                    nonlocal issue_records
+                    nonlocal enriched_issue_records
+                    nonlocal linked_pull_request_contexts
+                    nonlocal changed_issue_hashes
+                    for record in iter_jsonl(path):
+                        kind = str(record.get("kind") or "")
+                        counts[kind] += 1
+                        if kind != "issue":
+                            yield record
+                            continue
+
+                        issue_records += 1
+                        source = dict(record.get("source", {}))
+                        linked_values = source.get("linked_merged_pull_requests", [])
+                        if not isinstance(linked_values, list):
+                            raise PipelineError(
+                                f"Issue linked PR evidence is invalid: {record.get('record_id')}"
+                            )
+                        enriched_links: list[dict[str, Any]] = []
+                        repository = str(record.get("repository", {}).get("full_name") or "")
+                        for linked in linked_values:
+                            if not isinstance(linked, dict) or linked.get("number") is None:
+                                raise PipelineError(
+                                    f"Issue linked PR identity is invalid: {record.get('record_id')}"
+                                )
+                            pull_id = str(
+                                linked.get("record_id")
+                                or f"github:{repository}:pull_request:{linked['number']}"
+                            )
+                            pull_record = raw_store.get(pull_id)
+                            if pull_record is None or pull_record.get("kind") != "pull_request":
+                                raise PipelineError(
+                                    f"Cannot resolve linked merged PR {pull_id} "
+                                    f"for {record.get('record_id')}"
+                                )
+                            enriched_links.append(linked_pull_request_context(pull_record))
+                        source["linked_merged_pull_requests"] = enriched_links
+                        enriched = replace_record_source(record, source)
+                        if enriched_links:
+                            enriched_issue_records += 1
+                            linked_pull_request_contexts += len(enriched_links)
+                        if enriched["content_sha256"] != record.get("content_sha256"):
+                            changed_issue_hashes += 1
+                        yield enriched
+
+                atomic_write_jsonl(destination_path, transformed_records())
+
+        expected_total = raw_store.count()
+        index_path, rebuilt_counts = rebuild_raw_index(staging)
+        actual_total = sum(rebuilt_counts.values())
+        if actual_total != expected_total:
+            raise PipelineError(
+                f"Materialized corpus count mismatch: expected={expected_total}, actual={actual_total}"
+            )
+        normalized_source_counts = {str(key): int(value) for key, value in source_counts.items()}
+        if dict(sorted(rebuilt_counts.items())) != dict(sorted(normalized_source_counts.items())):
+            raise PipelineError("Materialized corpus kind counts differ from the source raw manifest")
+        if dict(sorted(counts.items())) != dict(sorted(rebuilt_counts.items())):
+            raise PipelineError("Materialized corpus stream counts differ from the rebuilt raw index")
+        if sha256_text(source_manifest_path.read_text(encoding="utf-8")) != source_manifest_sha256:
+            raise PipelineError("Source raw manifest changed during corpus materialization")
+        if sha256_file(source_index_path) != source_records_sha256:
+            raise PipelineError("Source raw record index changed during corpus materialization")
+
+        generated_at = utc_now()
+        materialized_records_sha256 = sha256_file(index_path)
+        raw_manifest = {
+            "schema_version": RAW_SCHEMA_VERSION,
+            "generated_at": generated_at,
+            "materialized": True,
+            "materialization_schema_version": CORPUS_SCHEMA_VERSION,
+            "source_workdir": str(source_workdir),
+            "source_manifest_sha256": source_manifest_sha256,
+            "source_records_sha256": source_records_sha256,
+            "materialized_records_sha256": materialized_records_sha256,
+            "linked_pr_context_enriched": True,
+            "issue_records": issue_records,
+            "enriched_issue_records": enriched_issue_records,
+            "linked_pr_context_records": linked_pull_request_contexts,
+            "changed_issue_hashes": changed_issue_hashes,
+            "repositories": source_manifest.get("repositories", []),
+            "counts": dict(sorted(rebuilt_counts.items())),
+            "failures": [],
+            "records_path": str(workdir / "raw" / "records.jsonl"),
+        }
+        materialization = {
+            "schema_version": CORPUS_SCHEMA_VERSION,
+            "generated_at": generated_at,
+            "source_workdir": str(source_workdir),
+            "workdir": str(workdir),
+            "source_manifest_sha256": source_manifest_sha256,
+            "source_records_sha256": source_records_sha256,
+            "materialized_records_sha256": materialized_records_sha256,
+            "record_count": actual_total,
+            "counts": dict(sorted(rebuilt_counts.items())),
+            "issue_records": issue_records,
+            "enriched_issue_records": enriched_issue_records,
+            "linked_pr_context_records": linked_pull_request_contexts,
+            "changed_issue_hashes": changed_issue_hashes,
+        }
+        atomic_write_json(staging / "raw" / "manifest.json", raw_manifest)
+        atomic_write_json(staging / "corpus-materialization.json", materialization)
+    except Exception:
+        log(f"[corpus] failed; partial staging preserved at {staging}")
+        raise
+    finally:
+        raw_store.close()
+
+    os.replace(staging, workdir)
+    log(
+        f"[corpus] records={actual_total} issues={issue_records} "
+        f"enriched_issues={enriched_issue_records} linked_pr_context={linked_pull_request_contexts}"
+    )
+    return raw_manifest
+
+
 def split_text(value: str, max_chars: int) -> list[str]:
     if max_chars <= 0 or len(value) <= max_chars:
         return [value]
@@ -1878,7 +2062,7 @@ def is_implementation_candidate(record: dict[str, Any]) -> bool:
         text = f"{record.get('title', '')}\n{record.get('body', '')}\n{labels}"
         if NON_FEATURE_PR_RE.search(str(record.get("title", ""))) and not FEATURE_SIGNAL_RE.search(text):
             return False
-        return bool(FEATURE_SIGNAL_RE.search(text))
+        return True
     return False
 
 
@@ -1980,7 +2164,7 @@ def clean_command(
     if not raw_index.exists():
         raise PipelineError(f"Raw record index not found: {raw_index}; run collect first")
 
-    clean_sources = tuple(args.clean_source or ("issue", "pull_request", "release", "changelog"))
+    clean_sources = tuple(args.clean_source or DEFAULT_CLEAN_SOURCES)
     candidates_only = bool(getattr(args, "implementation_candidates_only", False))
     source_records, total_units = count_clean_units(
         raw_index,
@@ -2012,6 +2196,52 @@ def clean_command(
     new_errors = 0
     calls = 0
     started = time.monotonic()
+    progress_started_at = utc_now()
+    successful_calls = 0
+    progress_path = clean_root / "progress.json"
+
+    def write_progress(
+        *,
+        running: bool,
+        position: int,
+        source_unit_id: str | None,
+        final_counts: dict[str, int] | None = None,
+    ) -> None:
+        elapsed = max(time.monotonic() - started, 0.0)
+        seconds_per_call = elapsed / calls if calls else None
+        remaining = max(0, total_units - position)
+        eta_seconds = int(seconds_per_call * remaining) if seconds_per_call is not None else None
+        value: dict[str, Any] = {
+            "schema_version": CLEAN_SCHEMA_VERSION,
+            "prompt_version": PROMPT_VERSION,
+            "model": args.model,
+            "model_reasoning_effort": reasoning_effort,
+            "running": running,
+            "started_at": progress_started_at,
+            "updated_at": utc_now(),
+            "sources": list(clean_sources),
+            "repositories": list(args.repo),
+            "implementation_candidates_only": candidates_only,
+            "max_prompt_chars": args.max_prompt_chars,
+            "min_confidence": args.min_confidence,
+            "source_records": source_records,
+            "source_units": total_units,
+            "last_position": position,
+            "last_source_unit_id": source_unit_id,
+            "calls_this_run": calls,
+            "successful_calls_this_run": successful_calls,
+            "failed_calls_this_run": new_errors,
+            "elapsed_seconds": round(elapsed, 3),
+            "seconds_per_call": round(seconds_per_call, 3)
+            if seconds_per_call is not None
+            else None,
+            "eta_seconds": eta_seconds,
+        }
+        if final_counts is not None:
+            value["final_counts"] = final_counts
+        atomic_write_json(progress_path, value)
+
+    write_progress(running=True, position=0, source_unit_id=None)
     log(
         f"[clean] units={total_units} model={args.model} reasoning_effort={reasoning_effort} "
         "sequential=true memory_mode=stream"
@@ -2061,6 +2291,7 @@ def clean_command(
                 atomic_write_json(item_path, grounded)
                 error_path.unlink(missing_ok=True)
                 success = True
+                successful_calls += 1
                 break
             except (PipelineError, OSError, subprocess.SubprocessError) as exc:
                 last_error = redact_error(str(exc))
@@ -2082,6 +2313,12 @@ def clean_command(
                     "error": last_error,
                     "failed_at": utc_now(),
                 },
+            )
+        if calls == 1 or calls % args.progress_every == 0 or not success:
+            write_progress(
+                running=True,
+                position=position,
+                source_unit_id=unit["source_unit_id"],
             )
         if args.sleep_seconds > 0:
             time.sleep(args.sleep_seconds)
@@ -2122,6 +2359,12 @@ def clean_command(
         "records_path": str(index_path),
     }
     atomic_write_json(clean_root / "manifest.json", manifest)
+    write_progress(
+        running=False,
+        position=total_units - pending,
+        source_unit_id=None,
+        final_counts=manifest["counts"],
+    )
     log(
         f"[clean] successful={current_successes}/{total_units} errors={current_errors} "
         f"pending={pending} calls={calls}"
@@ -2446,26 +2689,86 @@ def discover_command(args: argparse.Namespace) -> dict[str, Any]:
     return value
 
 
+def clean_progress_contract_current(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    def nonnegative_int(field: str) -> bool:
+        candidate = value.get(field)
+        return isinstance(candidate, int) and not isinstance(candidate, bool) and candidate >= 0
+
+    sources = value.get("sources")
+    repositories = value.get("repositories")
+    confidence = value.get("min_confidence")
+    prompt_chars = value.get("max_prompt_chars")
+    source_records = value.get("source_records")
+    source_units = value.get("source_units")
+    last_position = value.get("last_position")
+    return bool(
+        value.get("schema_version") == CLEAN_SCHEMA_VERSION
+        and value.get("prompt_version") == PROMPT_VERSION
+        and isinstance(value.get("model"), str)
+        and value.get("model")
+        and value.get("model_reasoning_effort") in MODEL_REASONING_EFFORTS
+        and isinstance(value.get("running"), bool)
+        and isinstance(value.get("started_at"), str)
+        and isinstance(value.get("updated_at"), str)
+        and isinstance(sources, list)
+        and sources
+        and all(isinstance(source, str) and source in DEFAULT_SOURCES for source in sources)
+        and isinstance(repositories, list)
+        and all(isinstance(repository, str) for repository in repositories)
+        and isinstance(value.get("implementation_candidates_only"), bool)
+        and isinstance(prompt_chars, int)
+        and not isinstance(prompt_chars, bool)
+        and prompt_chars > 0
+        and isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and 0.0 <= confidence <= 1.0
+        and nonnegative_int("source_records")
+        and nonnegative_int("source_units")
+        and nonnegative_int("last_position")
+        and source_records <= source_units
+        and last_position <= source_units
+    )
+
+
 def status_command(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = args.repo_root.resolve()
     workdir = validate_workdir(args.workdir.resolve(), repo_root)
     raw_manifest = read_json(workdir / "raw" / "manifest.json", {})
     clean_manifest = read_json(workdir / "clean" / "manifest.json", {})
+    clean_progress_value = read_json(workdir / "clean" / "progress.json", {})
     catalog = read_json(workdir / "catalog" / "features.json", {})
     clean_contract_current = bool(
         isinstance(clean_manifest, dict)
         and clean_manifest.get("schema_version") == CLEAN_SCHEMA_VERSION
         and clean_manifest.get("prompt_version") == PROMPT_VERSION
     )
+    clean_progress_current = clean_progress_contract_current(clean_progress_value)
+    current_progress = clean_progress_value if clean_progress_current else {}
+    cleanable_counts: Counter[str] = Counter()
+    cleanable_units = 0
     candidate_counts: Counter[str] = Counter()
     candidate_units = 0
-    prompt_chars = int(clean_manifest.get("max_prompt_chars", 12_000)) if isinstance(clean_manifest, dict) else 12_000
+    if current_progress:
+        prompt_chars = int(current_progress["max_prompt_chars"])
+    elif clean_contract_current:
+        prompt_chars = int(clean_manifest.get("max_prompt_chars", 12_000))
+    else:
+        prompt_chars = 12_000
     raw_index = workdir / "raw" / "records.jsonl"
     if raw_index.exists():
         for record in iter_jsonl(raw_index):
+            kind = str(record.get("kind"))
+            if kind not in DEFAULT_CLEAN_SOURCES:
+                continue
+            unit_count = sum(1 for _ in iter_source_units(record, prompt_chars))
+            cleanable_counts[kind] += 1
+            cleanable_units += unit_count
             if is_implementation_candidate(record):
-                candidate_counts[str(record.get("kind"))] += 1
-                candidate_units += len(make_source_units(record, prompt_chars))
+                candidate_counts[kind] += 1
+                candidate_units += unit_count
     value = {
         "workdir": str(workdir),
         "raw": raw_manifest.get("counts", {}) if isinstance(raw_manifest, dict) else {},
@@ -2485,6 +2788,11 @@ def status_command(args: argparse.Namespace) -> dict[str, Any]:
         "expected_clean_prompt_version": PROMPT_VERSION,
         "clean_contract_current": clean_contract_current,
         "clean_complete": bool(clean_contract_current and clean_manifest.get("complete", False)),
+        "clean_progress_current": clean_progress_current,
+        "clean_progress": current_progress,
+        "scope_max_prompt_chars": prompt_chars,
+        "unfiltered_cleanable_records": dict(sorted(cleanable_counts.items())),
+        "unfiltered_cleanable_units": cleanable_units,
         "implementation_candidate_records": dict(sorted(candidate_counts.items())),
         "implementation_candidate_units": candidate_units,
         "catalog": catalog.get("coverage", {}) if isinstance(catalog, dict) else {},
@@ -2593,6 +2901,15 @@ def build_parser() -> argparse.ArgumentParser:
     collect = subparsers.add_parser("collect", help="Collect raw GitHub and changelog records")
     add_collection_args(collect)
     collect.set_defaults(handler=collect_command)
+
+    corpus = subparsers.add_parser(
+        "materialize-corpus",
+        help="Upgrade an existing full raw corpus with linked merged-PR context",
+    )
+    corpus.add_argument("--repo-root", type=Path, default=Path.cwd(), help="Oblivious repository root")
+    corpus.add_argument("--source-workdir", type=Path, required=True, help="Existing full raw corpus")
+    corpus.add_argument("--workdir", type=Path, required=True, help="New full corpus output directory")
+    corpus.set_defaults(handler=materialize_corpus_command)
 
     sample = subparsers.add_parser(
         "materialize-sample",
