@@ -6,12 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
-	"strings"
 )
-
-func escapeIdentifier(identifier string) string {
-	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
-}
 
 // Validator 验证旧库和新库数据一致性
 type Validator interface {
@@ -38,7 +33,7 @@ type Rows interface {
 func ValidateTableRowCount(ctx context.Context, legacyDB, newDB DB, tableName string) error {
 	var legacyCount, newCount int64
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", escapeIdentifier(tableName))
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
 
 	if err := legacyDB.QueryRow(ctx, query).Scan(&legacyCount); err != nil {
 		return fmt.Errorf("query legacy row count: %w", err)
@@ -75,7 +70,7 @@ func ValidateTableChecksum(ctx context.Context, legacyDB, newDB DB, tableName st
 }
 
 func computeTableChecksum(ctx context.Context, db DB, tableName string, pkColumn string) (string, error) {
-	query := fmt.Sprintf("SELECT * FROM %s ORDER BY %s", escapeIdentifier(tableName), escapeIdentifier(pkColumn))
+	query := fmt.Sprintf("SELECT * FROM %s ORDER BY %s", tableName, pkColumn)
 	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return "", err
