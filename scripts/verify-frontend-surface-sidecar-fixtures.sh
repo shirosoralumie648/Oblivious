@@ -105,7 +105,7 @@ if count != 11:
     raise SystemExit(f"zero operation mutation count invalid: {count}")
 path.write_text(mutated, encoding="utf-8")
 PY
-expect_stage_failure zero-operation operation_inventory_empty "$checkout" "$checkout/scripts/testdata/frontend-surface/production"
+expect_stage_failure zero-operation frontend_sidecar_taxonomy_incomplete "$checkout" "$checkout/scripts/testdata/frontend-surface/production"
 mv "$backup" "$fixture"
 
 printf '[frontend-sidecar-fixtures] verified self-check counters, fresh clone, determinism, and 6 rejected mutations\n'

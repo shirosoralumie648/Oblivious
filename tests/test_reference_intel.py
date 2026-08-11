@@ -939,6 +939,612 @@ class ReferenceIntelTests(unittest.TestCase):
         self.assertFalse(status["clean_progress_current"])
         self.assertEqual(status["clean_progress"], {})
 
+    def _seed_release_corpus(self, workdir: Path, count: int) -> None:
+        repo = sample_repository()
+        records = [
+            pipeline.make_record(
+                repo,
+                "release",
+                str(index),
+                f"Feature {index}",
+                f"Feature {index} is available.",
+                f"https://github.com/example/sample/releases/tag/v{index}.0.0",
+                "published",
+                {"tag_name": f"v{index}.0.0"},
+                "2026-01-03T00:00:00Z",
+            )
+            for index in range(1, count + 1)
+        ]
+        pipeline.atomic_write_jsonl(
+            workdir / "raw" / "repos" / "example-sample" / "release.jsonl", records
+        )
+        pipeline.rebuild_raw_index(workdir)
+
+    @staticmethod
+    def _clean_args(repo_root: Path, workdir: Path, **overrides) -> argparse.Namespace:
+        args = argparse.Namespace(
+            repo_root=repo_root,
+            workdir=workdir,
+            clean_source=["release"],
+            repo=[],
+            max_prompt_chars=1000,
+            model="luna-test",
+            model_reasoning_effort="low",
+            codex_bin="codex",
+            model_timeout=10,
+            max_attempts=1,
+            clean_workers=1,
+            sleep_seconds=0,
+            progress_every=1,
+            min_confidence=0.7,
+            limit=0,
+            max_clean_errors=0,
+            retry_errors=False,
+            allow_clean_errors=False,
+            implementation_candidates_only=False,
+        )
+        for key, value in overrides.items():
+            setattr(args, key, value)
+        return args
+
+    def test_concurrent_clean_matches_sequential_checkpoints(self) -> None:
+        """Concurrent cleaning must produce the same item set and counts as sequential."""
+
+        class ThreadSafeFakeCleaner:
+            def __init__(self) -> None:
+                self.lock = __import__("threading").Lock()
+                self.calls = 0
+                self.max_in_flight = 0
+                self.in_flight = 0
+
+            def clean(self, prompt: str, response_path: Path) -> dict:
+                with self.lock:
+                    self.calls += 1
+                    self.in_flight += 1
+                    self.max_in_flight = max(self.max_in_flight, self.in_flight)
+                excerpt = prompt.split("Feature ")[-1].split(" ")[0].strip()
+                try:
+                    __import__("time").sleep(0.02)
+                    return sample_model_result(f"Feature {excerpt}")
+                finally:
+                    with self.lock:
+                        self.in_flight -= 1
+
+        sequential_items: set[str] = set()
+        concurrent_items: set[str] = set()
+        for workers, sink in ((1, sequential_items), (4, concurrent_items)):
+            with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as work_temporary:
+                repo_root = Path(repo_temporary)
+                workdir = Path(work_temporary)
+                self._seed_release_corpus(workdir, 12)
+                args = self._clean_args(repo_root, workdir, clean_workers=workers)
+                cleaner = ThreadSafeFakeCleaner()
+                manifest = pipeline.clean_command(args, cleaner=cleaner)
+
+                self.assertEqual(cleaner.calls, 12)
+                self.assertEqual(manifest["counts"]["successful_units"], 12)
+                self.assertEqual(manifest["counts"]["error_units"], 0)
+                self.assertEqual(manifest["counts"]["pending_units"], 0)
+                self.assertTrue(manifest["complete"])
+                self.assertEqual(manifest["clean_workers"], workers)
+                self.assertEqual(manifest["sequential"], workers == 1)
+
+                progress = pipeline.read_json(workdir / "clean" / "progress.json")
+                self.assertFalse(progress["running"])
+                self.assertEqual(progress["clean_workers"], workers)
+                self.assertEqual(progress["successful_calls_this_run"], 12)
+                self.assertEqual(progress["failed_calls_this_run"], 0)
+                self.assertTrue(pipeline.clean_progress_contract_current(progress))
+
+                if workers == 1:
+                    self.assertEqual(cleaner.max_in_flight, 1)
+                else:
+                    self.assertGreater(cleaner.max_in_flight, 1)
+                    self.assertLessEqual(cleaner.max_in_flight, workers)
+
+                for item in (workdir / "clean" / "items").glob("*.json"):
+                    sink.add(pipeline.read_json(item)["source_unit_id"])
+
+        self.assertEqual(len(sequential_items), 12)
+        self.assertEqual(sequential_items, concurrent_items)
+
+    def test_concurrent_clean_resumes_and_respects_limit(self) -> None:
+        """A bounded concurrent run honours --limit and reuses prior checkpoints."""
+        with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as work_temporary:
+            repo_root = Path(repo_temporary)
+            workdir = Path(work_temporary)
+            self._seed_release_corpus(workdir, 10)
+
+            first = FakeCleaner()
+            pipeline.clean_command(
+                self._clean_args(
+                    repo_root, workdir, clean_workers=3, limit=4, allow_clean_errors=True
+                ),
+                cleaner=first,
+            )
+            self.assertGreaterEqual(first.calls, 4)
+            self.assertLessEqual(first.calls, 4 + 3)
+            done_after_first = len(list((workdir / "clean" / "items").glob("*.json")))
+            self.assertEqual(done_after_first, first.calls)
+
+            second = FakeCleaner()
+            manifest = pipeline.clean_command(
+                self._clean_args(repo_root, workdir, clean_workers=3), cleaner=second
+            )
+            self.assertEqual(second.calls, 10 - done_after_first)
+            self.assertEqual(manifest["counts"]["successful_units"], 10)
+            self.assertTrue(manifest["complete"])
+
+            third = FakeCleaner()
+            pipeline.clean_command(
+                self._clean_args(repo_root, workdir, clean_workers=3), cleaner=third
+            )
+            self.assertEqual(third.calls, 0)
+
+    def test_concurrent_clean_records_errors_without_stale_heartbeat(self) -> None:
+        """Concurrent failures are checkpointed and never leave running=true behind."""
+
+        class FailingCleaner:
+            def __init__(self) -> None:
+                self.lock = __import__("threading").Lock()
+                self.calls = 0
+
+            def clean(self, prompt: str, response_path: Path) -> dict:
+                with self.lock:
+                    self.calls += 1
+                raise pipeline.PipelineError("Luna call failed: token=SECRETVALUE upstream 500")
+
+        with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as work_temporary:
+            repo_root = Path(repo_temporary)
+            workdir = Path(work_temporary)
+            self._seed_release_corpus(workdir, 6)
+            args = self._clean_args(
+                repo_root, workdir, clean_workers=3, allow_clean_errors=True
+            )
+            cleaner = FailingCleaner()
+            manifest = pipeline.clean_command(args, cleaner=cleaner)
+
+            self.assertEqual(cleaner.calls, 6)
+            self.assertEqual(manifest["counts"]["successful_units"], 0)
+            self.assertEqual(manifest["counts"]["error_units"], 6)
+            self.assertFalse(manifest["complete"])
+
+            progress = pipeline.read_json(workdir / "clean" / "progress.json")
+            self.assertFalse(progress["running"])
+            self.assertEqual(progress["failed_calls_this_run"], 6)
+            self.assertEqual(
+                progress["calls_this_run"],
+                progress["successful_calls_this_run"] + progress["failed_calls_this_run"],
+            )
+
+            errors = list((workdir / "clean" / "errors").glob("*.json"))
+            self.assertEqual(len(errors), 6)
+            for error_path in errors:
+                self.assertNotIn("SECRETVALUE", error_path.read_text(encoding="utf-8"))
+
+    def test_product_rollup_drops_ungrounded_citations(self) -> None:
+        """A synthesized feature may only cite claim keys that actually exist."""
+        allowed = {
+            "real-a": {
+                "key": "real-a",
+                "versions": ["v1.0.0"],
+                "source_url": "https://example.test/a",
+            },
+            "real-b": {"key": "real-b", "versions": [], "source_url": None},
+            "real-c": {"key": "real-c", "versions": ["v2.0.0"], "source_url": None},
+        }
+        raw = {
+            "product_features": [
+                {
+                    "key": "kept",
+                    "name": "保留的能力",
+                    "summary_zh": "摘要",
+                    "capability_scope": "core",
+                    "user_value_zh": "价值",
+                    "maturity": "established",
+                    "user_visible": True,
+                    "security_relevant": False,
+                    # one real key, one hallucinated key
+                    "source_claim_keys": ["real-a", "totally-invented"],
+                    "representative_versions": ["v9.9.9-model-invented"],
+                },
+                {
+                    "key": "dropped-entirely",
+                    "name": "凭空生成的能力",
+                    "summary_zh": "摘要",
+                    "capability_scope": "core",
+                    "user_value_zh": "价值",
+                    "maturity": "introduced",
+                    "user_visible": True,
+                    "security_relevant": False,
+                    "source_claim_keys": ["ghost-1", "ghost-2"],
+                    "representative_versions": [],
+                },
+            ],
+            "dropped_claim_keys": ["real-b", "not-a-real-key"],
+            "notes": "备注",
+        }
+        grounded = pipeline.ground_product_rollup(
+            pipeline.validate_product_rollup(raw), "example/sample", "chat", allowed
+        )
+        # The all-hallucinated feature is gone; the partially grounded one survives
+        # with only its resolvable citation.
+        self.assertEqual([f["key"] for f in grounded["product_features"]], ["kept"])
+        kept = grounded["product_features"][0]
+        self.assertEqual(kept["source_claim_keys"], ["real-a"])
+        self.assertEqual(kept["claim_count"], 1)
+        # Versions come from deterministic claim records, not the model's invention.
+        self.assertEqual(kept["representative_versions"], ["v1.0.0"])
+        self.assertEqual(kept["source_urls"], ["https://example.test/a"])
+        self.assertEqual(grounded["ungrounded_citation_count"], 3)
+        self.assertEqual(grounded["dropped_claim_keys"], ["real-b"])
+        self.assertEqual(grounded["uncited_claim_keys"], ["real-c"])
+        self.assertEqual(grounded["input_claim_count"], 3)
+
+    def test_landscape_cannot_overstate_product_coverage(self) -> None:
+        """Coverage counts are recomputed from grounded entries, never trusted."""
+        allowed = {
+            "example/one": {"feat-x"},
+            "example/two": {"feat-y"},
+        }
+        raw = {
+            "baseline_features": [
+                {
+                    "key": "shared",
+                    "name": "共有能力",
+                    "summary_zh": "摘要",
+                    "commonality": "table_stakes",
+                    "capability_scope": "core",
+                    "user_visible": True,
+                    "security_relevant": False,
+                    "product_coverage": [
+                        {
+                            "repository": "example/one",
+                            "product_feature_keys": ["feat-x"],
+                            "variant_zh": "做法一",
+                        },
+                        {
+                            "repository": "example/two",
+                            "product_feature_keys": ["feat-y"],
+                            "variant_zh": "做法二",
+                        },
+                        # Product that was never in the input at all.
+                        {
+                            "repository": "example/never-seen",
+                            "product_feature_keys": ["feat-z"],
+                            "variant_zh": "凭空生成",
+                        },
+                        # Real product, but a feature key it does not own.
+                        {
+                            "repository": "example/one",
+                            "product_feature_keys": ["feat-y"],
+                            "variant_zh": "错配",
+                        },
+                    ],
+                },
+                {
+                    "key": "all-invented",
+                    "name": "凭空能力",
+                    "summary_zh": "摘要",
+                    "commonality": "niche",
+                    "capability_scope": "supporting",
+                    "user_visible": False,
+                    "security_relevant": False,
+                    "product_coverage": [
+                        {
+                            "repository": "example/ghost",
+                            "product_feature_keys": ["ghost"],
+                            "variant_zh": "凭空",
+                        }
+                    ],
+                },
+            ],
+            "unmatched_product_feature_keys": [],
+            "notes": "备注",
+        }
+        grounded = pipeline.ground_landscape(
+            pipeline.validate_landscape(raw), "chat", allowed
+        )
+        self.assertEqual([f["key"] for f in grounded["baseline_features"]], ["shared"])
+        shared = grounded["baseline_features"][0]
+        # 2 grounded products, not the 4 the model claimed.
+        self.assertEqual(shared["product_count"], 2)
+        self.assertEqual(
+            [entry["repository"] for entry in shared["product_coverage"]],
+            ["example/one", "example/two"],
+        )
+        self.assertEqual(grounded["ungrounded_coverage_count"], 3)
+        self.assertEqual(grounded["input_product_count"], 2)
+        self.assertEqual(grounded["input_feature_count"], 2)
+        # Commonality is derived from grounded coverage, not the model's label.
+        self.assertEqual(shared["coverage_ratio"], 1.0)
+        self.assertEqual(shared["commonality"], "table_stakes")
+        self.assertEqual(shared["commonality_model"], "table_stakes")
+
+    def test_commonality_is_derived_not_trusted(self) -> None:
+        """A model label that contradicts grounded coverage is overridden."""
+        self.assertEqual(pipeline.derive_commonality(1, 30), "niche")
+        self.assertEqual(pipeline.derive_commonality(3, 30), "differentiator")
+        self.assertEqual(pipeline.derive_commonality(9, 30), "common")
+        self.assertEqual(pipeline.derive_commonality(20, 30), "table_stakes")
+        self.assertEqual(pipeline.derive_commonality(0, 30), "niche")
+        self.assertEqual(pipeline.derive_commonality(1, 0), "niche")
+
+        allowed = {"example/one": {"feat-x"}}
+        raw = {
+            "baseline_features": [
+                {
+                    "key": "solo",
+                    "name": "单产品能力",
+                    "summary_zh": "摘要",
+                    # Model overstates adoption; only one product actually has it.
+                    "commonality": "table_stakes",
+                    "capability_scope": "core",
+                    "user_visible": True,
+                    "security_relevant": False,
+                    "product_coverage": [
+                        {
+                            "repository": "example/one",
+                            "product_feature_keys": ["feat-x"],
+                            "variant_zh": "做法",
+                        }
+                    ],
+                }
+            ],
+            "unmatched_product_feature_keys": [],
+            "notes": "",
+        }
+        grounded = pipeline.ground_landscape(
+            pipeline.validate_landscape(raw), "chat", allowed
+        )
+        feature = grounded["baseline_features"][0]
+        self.assertEqual(feature["commonality"], "niche")
+        self.assertEqual(feature["commonality_model"], "table_stakes")
+
+    def test_claim_grouping_collapses_repeated_keys(self) -> None:
+        """The same capability key across records becomes one claim with merged versions."""
+        claims = [
+            {
+                "repository": "example/sample",
+                "module": "chat",
+                "key": "streaming",
+                "name": "流式响应",
+                "summary_zh": "低置信版本",
+                "capability_type": "feature",
+                "implementation_status": "implemented",
+                "user_visible": False,
+                "security_relevant": False,
+                "confidence": 0.81,
+                "version": "v1.0.0",
+                "keywords": ["stream"],
+                "source_url": "u1",
+                "source_record_id": "r1",
+            },
+            {
+                "repository": "example/sample",
+                "module": "chat",
+                "key": "streaming",
+                "name": "流式响应（增强）",
+                "summary_zh": "高置信版本",
+                "capability_type": "feature",
+                "implementation_status": "implemented",
+                "user_visible": True,
+                "security_relevant": True,
+                "confidence": 0.97,
+                "version": "v2.0.0",
+                "keywords": ["sse"],
+                "source_url": "u2",
+                "source_record_id": "r2",
+            },
+            {
+                "repository": "example/sample",
+                "module": "relay_gateway",
+                "key": "routing",
+                "name": "路由",
+                "summary_zh": "摘要",
+                "capability_type": "feature",
+                "implementation_status": "implemented",
+                "user_visible": True,
+                "security_relevant": False,
+                "confidence": 0.9,
+                "version": "",
+                "keywords": [],
+                "source_url": "u3",
+                "source_record_id": "r3",
+            },
+        ]
+        grouped = pipeline.group_claims_by_product_module(claims)
+        self.assertEqual(
+            sorted(grouped), [("example/sample", "chat"), ("example/sample", "relay_gateway")]
+        )
+        chat = grouped[("example/sample", "chat")]
+        self.assertEqual(len(chat), 1)
+        merged = chat[0]
+        self.assertEqual(merged["occurrences"], 2)
+        # Highest-confidence wording wins; boolean flags are OR-ed; versions union.
+        self.assertEqual(merged["summary_zh"], "高置信版本")
+        self.assertEqual(merged["confidence"], 0.97)
+        self.assertTrue(merged["user_visible"])
+        self.assertTrue(merged["security_relevant"])
+        self.assertEqual(sorted(merged["versions"]), ["v1.0.0", "v2.0.0"])
+        self.assertEqual(sorted(merged["keywords"]), ["sse", "stream"])
+
+    def test_synthesize_end_to_end_with_fake_model(self) -> None:
+        """Synthesis produces both levels, a landscape file, and markdown."""
+        with tempfile.TemporaryDirectory() as repo_temporary, tempfile.TemporaryDirectory() as work_temporary:
+            repo_root = Path(repo_temporary)
+            workdir = Path(work_temporary)
+            items_dir = workdir / "clean" / "items"
+            items_dir.mkdir(parents=True)
+            for index, (module, key) in enumerate(
+                [("chat", "streaming"), ("chat", "history"), ("relay_gateway", "routing")]
+            ):
+                pipeline.atomic_write_json(
+                    items_dir / f"item{index}.json",
+                    {
+                        "schema_version": pipeline.CLEAN_SCHEMA_VERSION,
+                        "prompt_version": pipeline.PROMPT_VERSION,
+                        "model": "luna-test",
+                        "model_reasoning_effort": "low",
+                        "repository": "example/sample",
+                        "source_url": f"https://example.test/{index}",
+                        "source_record_id": f"rec-{index}",
+                        "needs_review": False,
+                        "capabilities": [
+                            {
+                                "accepted_for_inventory": True,
+                                "module": module,
+                                "key": key,
+                                "name": f"能力 {key}",
+                                "summary_zh": "摘要",
+                                "capability_type": "feature",
+                                "implementation_status": "implemented",
+                                "user_visible": True,
+                                "security_relevant": False,
+                                "confidence": 0.9,
+                                "version": "v1.0.0",
+                                "keywords": [key],
+                            }
+                        ],
+                    },
+                )
+
+            class FakeSynth:
+                def __init__(self, kind: str) -> None:
+                    self.kind = kind
+                    self.calls = 0
+
+                def run(self, prompt: str, response_path: Path) -> dict:
+                    self.calls += 1
+                    if self.kind == "product":
+                        keys = [
+                            k
+                            for k in ("streaming", "history", "routing")
+                            if f'"key": "{k}"' in prompt
+                        ]
+                        return {
+                            "product_features": [
+                                {
+                                    "key": f"pf-{keys[0]}",
+                                    "name": "产品级能力",
+                                    "summary_zh": "摘要",
+                                    "capability_scope": "core",
+                                    "user_value_zh": "价值",
+                                    "maturity": "established",
+                                    "user_visible": True,
+                                    "security_relevant": False,
+                                    "source_claim_keys": keys,
+                                    "representative_versions": [],
+                                }
+                            ],
+                            "dropped_claim_keys": [],
+                            "notes": "",
+                        }
+                    repos = ["example/sample"]
+                    pf_keys = [
+                        k
+                        for k in ("pf-streaming", "pf-history", "pf-routing")
+                        if f'"key": "{k}"' in prompt
+                    ]
+                    return {
+                        "baseline_features": [
+                            {
+                                "key": "baseline-1",
+                                "name": "品类基线能力",
+                                "summary_zh": "摘要",
+                                "commonality": "table_stakes",
+                                "capability_scope": "core",
+                                "user_visible": True,
+                                "security_relevant": False,
+                                "product_coverage": [
+                                    {
+                                        "repository": repos[0],
+                                        "product_feature_keys": pf_keys or ["pf-streaming"],
+                                        "variant_zh": "做法",
+                                    }
+                                ],
+                            }
+                        ],
+                        "unmatched_product_feature_keys": [],
+                        "notes": "",
+                    }
+
+            synths: dict[str, FakeSynth] = {}
+
+            def factory(schema_name: str) -> FakeSynth:
+                kind = "product" if "product_feature" in schema_name else "landscape"
+                synths.setdefault(kind, FakeSynth(kind))
+                return synths[kind]
+
+            args = argparse.Namespace(
+                repo_root=repo_root,
+                workdir=workdir,
+                model="luna-test",
+                model_reasoning_effort="low",
+                codex_bin="codex",
+                model_timeout=10,
+                synthesis_workers=1,
+                claims_per_batch=100,
+                module=None,
+                refresh=False,
+            )
+            landscape = pipeline.synthesize_command(args, synthesizer_factory=factory)
+
+            self.assertEqual(landscape["coverage"]["products"], 1)
+            self.assertEqual(landscape["coverage"]["modules"], 2)
+            self.assertEqual(landscape["schema_version"], pipeline.SYNTHESIS_SCHEMA_VERSION)
+            self.assertFalse(landscape["evidence_boundary"]["oblivious_implementation_proof"])
+            self.assertFalse(landscape["evidence_boundary"]["current_upstream_head_verified"])
+            self.assertTrue((workdir / "synthesis" / "landscape.json").exists())
+            markdown = (workdir / "synthesis" / "LANDSCAPE.md").read_text(encoding="utf-8")
+            self.assertIn("品类基线能力", markdown)
+            self.assertIn("Evidence boundary", markdown)
+            self.assertEqual(len(list((workdir / "synthesis" / "products").glob("*.json"))), 2)
+            self.assertEqual(len(list((workdir / "synthesis" / "landscape").glob("*.json"))), 2)
+
+            # Second run reuses checkpoints and makes no new model calls.
+            before = synths["product"].calls + synths["landscape"].calls
+            pipeline.synthesize_command(args, synthesizer_factory=factory)
+            self.assertEqual(synths["product"].calls + synths["landscape"].calls, before)
+
+    def test_redact_error_keeps_diagnostic_tail(self) -> None:
+        """The real failure is at the end of codex stderr, so the tail must survive."""
+        banner = "OpenAI Codex v0.147.0\n" + ("echoed prompt line\n" * 400)
+        real_error = "stream disconnected before completion: upstream 429 rate limited"
+        redacted = pipeline.redact_error(banner + real_error)
+        self.assertLessEqual(len(redacted), 1200)
+        # Tail preserved: this is the only part that identifies the failure.
+        self.assertIn(real_error, redacted)
+        # A short head is kept so the failing component is still identifiable.
+        self.assertTrue(redacted.startswith("OpenAI Codex"))
+        self.assertIn("<elided>", redacted)
+
+        short = "boom"
+        self.assertEqual(pipeline.redact_error(short), "boom")
+        self.assertNotIn("<elided>", pipeline.redact_error(short))
+
+        secret = "x" * 2000 + " api_key=SUPERSECRETVALUE trailing failure"
+        cleaned = pipeline.redact_error(secret)
+        self.assertNotIn("SUPERSECRETVALUE", cleaned)
+        self.assertIn("trailing failure", cleaned)
+
+    def test_clean_workers_must_be_positive(self) -> None:
+        """The CLI exposes --clean-workers and rejects a non-positive worker count."""
+        parser = pipeline.build_parser()
+        parsed = parser.parse_args(
+            ["clean", "--workdir", "/tmp/does-not-matter", "--clean-workers", "8"]
+        )
+        self.assertEqual(parsed.clean_workers, 8)
+        self.assertEqual(
+            parser.parse_args(["clean", "--workdir", "/tmp/does-not-matter"]).clean_workers, 1
+        )
+        for invalid in ("0", "-4"):
+            with patch("sys.stderr"):
+                with self.assertRaises(SystemExit):
+                    pipeline.main(
+                        ["clean", "--workdir", "/tmp/does-not-matter", "--clean-workers", invalid]
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

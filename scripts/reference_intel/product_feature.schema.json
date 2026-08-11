@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reference product-level feature rollup",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["product_features", "dropped_claim_keys", "notes"],
+  "properties": {
+    "product_features": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "name",
+          "summary_zh",
+          "capability_scope",
+          "user_value_zh",
+          "maturity",
+          "user_visible",
+          "security_relevant",
+          "source_claim_keys",
+          "representative_versions"
+        ],
+        "properties": {
+          "key": {"type": "string"},
+          "name": {"type": "string"},
+          "summary_zh": {"type": "string"},
+          "capability_scope": {
+            "type": "string",
+            "enum": ["core", "supporting", "operational", "compatibility"]
+          },
+          "user_value_zh": {"type": "string"},
+          "maturity": {
+            "type": "string",
+            "enum": ["established", "evolving", "introduced", "deprecated", "unknown"]
+          },
+          "user_visible": {"type": "boolean"},
+          "security_relevant": {"type": "boolean"},
+          "source_claim_keys": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {"type": "string"}
+          },
+          "representative_versions": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "dropped_claim_keys": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {"type": "string"}
+    },
+    "notes": {"type": "string"}
+  }
+}

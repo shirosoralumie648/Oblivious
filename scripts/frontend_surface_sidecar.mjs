@@ -546,7 +546,10 @@ function transportKind(node, checker) {
     if (expression.text === 'streamText') return { protocol: 'sse', kind: 'sse-stream' };
     if (expression.text === 'uploadFile') return { protocol: 'http', kind: 'multipart-upload' };
     if (expression.text === 'useSWR') return { protocol: 'http', kind: 'swr' };
-    if (expression.text === 'fetch' || expression.text === 'fetchFn') return { protocol: 'http', kind: 'raw-fetch' };
+    // Use symbol resolution for fetch instead of syntax name
+    const symbol = checker.getSymbolAtLocation(expression);
+    const symbolName = symbol?.getName();
+    if (symbolName === 'fetch' || expression.text === 'fetchFn') return { protocol: 'http', kind: 'raw-fetch' };
     return null;
   }
   if (!ts.isPropertyAccessExpression(expression) || !HTTP_METHODS.has(expression.name.text)) return null;
@@ -585,6 +588,7 @@ function invocationMethod(node, kind, args, checker) {
 
 function invocationPathMatches(expression, normalizedPath) {
   const value = literalValue(expression);
+  // Dynamic paths cannot be statically verified — return true to skip the check
   if (typeof value !== 'string') return true;
   let pathname;
   try {

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reference category feature landscape for one module",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["baseline_features", "unmatched_product_feature_keys", "notes"],
+  "properties": {
+    "baseline_features": {
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "name",
+          "summary_zh",
+          "commonality",
+          "capability_scope",
+          "user_visible",
+          "security_relevant",
+          "product_coverage"
+        ],
+        "properties": {
+          "key": {"type": "string"},
+          "name": {"type": "string"},
+          "summary_zh": {"type": "string"},
+          "commonality": {
+            "type": "string",
+            "enum": ["table_stakes", "common", "differentiator", "niche"]
+          },
+          "capability_scope": {
+            "type": "string",
+            "enum": ["core", "supporting", "operational", "compatibility"]
+          },
+          "user_visible": {"type": "boolean"},
+          "security_relevant": {"type": "boolean"},
+          "product_coverage": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 40,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository", "product_feature_keys", "variant_zh"],
+              "properties": {
+                "repository": {"type": "string"},
+                "product_feature_keys": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "items": {"type": "string"}
+                },
+                "variant_zh": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "unmatched_product_feature_keys": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {"type": "string"}
+    },
+    "notes": {"type": "string"}
+  }
+}
