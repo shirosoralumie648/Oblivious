@@ -104,7 +104,7 @@ jobs:
           case "$manifest_digest" in sha256:????????????????????????????????????????????????????????????????) ;; *) exit 1 ;; esac
           echo "digest=${manifest_digest#sha256:}" >> "$GITHUB_OUTPUT"
       - name: Cache pinned protobuf tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .tmp/protobuf-tools/bin
           key: protobuf-tools-${{ runner.os }}-${{ runner.arch }}-${{ steps.protobuf-toolchain.outputs.digest }}
@@ -204,7 +204,7 @@ jobs:
           setup-node: "true"
           install-dependencies: "true"
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .tmp/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
