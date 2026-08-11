@@ -307,6 +307,7 @@ start_docker_database() {
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
   database_url="postgres://${database_user}:${database_password}@127.0.0.1:${port}/${database_name}?sslmode=disable"
   replay_mode="docker-ephemeral"
+  resource_ownership="owned-disposable"
 }
 
 prepare_external_database() {
@@ -390,14 +391,18 @@ capture_ledger_snapshot() {
   else
     return 1
   fi
-  python3 - "$rows_file" "$destination" <<'PY'
+  # ADDED: Capture table count to detect non-fresh databases without a ledger
+  local table_count
+  table_count=$(psql_scalar "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'") || return 1
+  python3 - "$rows_file" "$destination" "$table_count" <<'PY'
 import hashlib
 import json
 import os
 import re
 import sys
 
-rows_path, output_path = sys.argv[1:]
+rows_path, output_path, table_count = sys.argv[1:]
+table_count = int(table_count)
 identities = []
 with open(rows_path, "r", encoding="utf-8") as handle:
     for line in handle:
@@ -414,7 +419,7 @@ versions = [item["version"] for item in identities]
 if versions != sorted(versions) or len(versions) != len(set(versions)):
     raise SystemExit("migration_replay_snapshot_invalid")
 encoded = json.dumps(identities, separators=(",", ":"), ensure_ascii=True).encode("ascii")
-value = {"identities": identities, "identityDigest": "sha256:" + hashlib.sha256(encoded).hexdigest()}
+value = {"identities": identities, "identityDigest": "sha256:" + hashlib.sha256(encoded).hexdigest(), "tableCount": table_count}
 temporary = output_path + ".tmp"
 with open(temporary, "w", encoding="utf-8") as handle:
     json.dump(value, handle, separators=(",", ":"))
@@ -562,6 +567,9 @@ import sys
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     snapshot = json.load(handle)
 if snapshot["identities"] != []:
+    raise SystemExit("migration_replay_database_not_fresh")
+# ADDED: Reject databases with existing tables even if ledger is absent
+if snapshot.get("tableCount", 0) > 0:
     raise SystemExit("migration_replay_database_not_fresh")
 PY
   run_migrate "$work_root/first-migrate.log" || { fail_session; return 1; }

@@ -84,6 +84,7 @@ type MigrationReplayDetails struct {
 type MigrationLedgerSnapshot struct {
 	Identities     []migrations.MigrationIdentity `json:"identities"`
 	IdentityDigest string                         `json:"identityDigest"`
+	TableCount     int                            `json:"tableCount"`
 }
 
 func RegisterMigrationDetails(registry *DetailsRegistry) error {
