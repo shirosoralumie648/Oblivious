@@ -1,0 +1,4 @@
+## 2024-08-12 - Prevent SQL Injection with escapeIdentifier in Dynamic Queries
+**Vulnerability:** SQL injection risks existed in `src/server/internal/migration/validator.go` and `src/server/internal/migration/secret_storage_audit.go` because table names, column names, and primary keys were directly concatenated into dynamic SQL queries via `fmt.Sprintf` without any escaping.
+**Learning:** `pq.QuoteIdentifier()` shouldn't be used to escape identifiers because importing `github.com/lib/pq` registers the Postgres driver globally, which breaks database agnosticism. Standard double-quoting logic must be used manually instead.
+**Prevention:** Use an `escapeIdentifier` function based on standard ANSI double-quoting and replacing embedded quotes to safely construct dynamic SQL identifiers like table or column names, avoiding string interpolation directly into query structures.
