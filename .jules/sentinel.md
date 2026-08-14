@@ -1,0 +1,4 @@
+## 2024-05-18 - Prevent SQL Injection via unparameterized identifiers in schema migration/validation
+**Vulnerability:** Found unescaped table names and column names concatenated directly into SQL queries using `fmt.Sprintf` in migration utilities (`src/server/internal/migration/secret_storage_audit.go` and `src/server/internal/migration/validator.go`).
+**Learning:** `fmt.Sprintf("SELECT %s FROM %s", col, table)` allows SQL injection if the table or column name can be influenced by an attacker (or even if a developer makes a mistake creating a table name with spaces or quotes).
+**Prevention:** In Go standard SQL, while values can be parameterized via `$1, $2`, schema identifiers (table names, column names) cannot be. We must explicitly escape them by quoting (e.g. `"` in Postgres) and replacing internal quotes with double-quotes.
