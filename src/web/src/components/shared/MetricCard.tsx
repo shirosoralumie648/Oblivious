@@ -15,6 +15,10 @@ export type MetricCardProps = {
   className?: string;
 };
 
+// Optimization: Declare Intl.NumberFormat instances as module-level constants to prevent expensive repeated instantiations on every render
+// Measurement: Reduces CPU overhead and object creation during frequent re-renders of MetricCards
+const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
 function formatValue(value: string | number, format: MetricCardProps['format'] = 'number') {
   if (typeof value === 'string') {
     return value;
@@ -22,7 +26,7 @@ function formatValue(value: string | number, format: MetricCardProps['format'] =
 
   switch (format) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+      return usdFormatter.format(value);
     case 'percentage':
       return `${value}%`;
     case 'duration':
