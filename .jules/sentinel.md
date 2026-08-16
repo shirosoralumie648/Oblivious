@@ -1,0 +1,4 @@
+## 2025-02-26 - SQL Injection vulnerability due to unescaped identifiers
+**Vulnerability:** Unescaped table and column names in dynamically constructed SQL queries in migration validators and secret storage audit functionalities.
+**Learning:** Functions like `fmt.Sprintf` were used to construct SQL queries like `fmt.Sprintf("SELECT %s, %s FROM %s", spec.ID, spec.Column, spec.Table)` directly incorporating string values. This exposes the system to SQL injection if these table/column names come from external inputs or even if they are purely internal, it fails to handle reserved keywords properly.
+**Prevention:** Always quote dynamic identifiers (table names, column names) properly using standard ANSI quotes (`"`) and escape embedded quotes. We should define a helper function like `quoteIdentifier` and use it for all dynamic identifiers instead of string interpolation or concatenation alone. For values, parameterization should always be used.
