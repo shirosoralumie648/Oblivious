@@ -190,12 +190,20 @@ const settlementCycleLabels: Record<SettlementCycle, string> = {
   quarterly: 'Quarterly',
 };
 
+// Optimization: Reusing Intl.NumberFormat instance is significantly faster than recreating it on every format call.
+// Measurement: Reduces formatting overhead when rendering settlement values.
+const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+// Optimization: Reusing Intl.NumberFormat instance is significantly faster than recreating it on every format call.
+// Measurement: Reduces formatting overhead when rendering standard numbers.
+const numberFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
 function formatUSD(amount: number | undefined) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount ?? 0);
+  return usdFormatter.format(amount ?? 0);
 }
 
 function formatNumber(value: number | undefined) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value ?? 0);
+  return numberFormatter.format(value ?? 0);
 }
 
 function templateTags(value: string) {
