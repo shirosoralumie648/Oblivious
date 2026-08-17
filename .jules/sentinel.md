@@ -1,0 +1,4 @@
+## 2024-08-17 - Fix SQL Injection via Identifier Quoting in Database Queries
+**Vulnerability:** SQL Injection in dynamic database queries where table or column names were injected directly via string formatting (e.g., `fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)`). This was found in the `migration` package.
+**Learning:** Table and column names cannot be parameterized with placeholders like `$1` or `?`. Injecting them directly using string formatting creates an SQL injection vulnerability.
+**Prevention:** To prevent SQL injection when dealing with dynamic table or column names, manually quote the identifiers using ANSI SQL standard format (double quotes) and escape internal double quotes by doubling them up. For example: ``func quoteIdentifier(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }``. Apply this when passing identifiers to functions before they are embedded into SQL strings.
