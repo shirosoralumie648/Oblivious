@@ -73,7 +73,7 @@ func NewChatRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	if err := registerConversationAliasRouteSurfaces(routeSurfaceRegistrar, chatHandler); err != nil {
 		panic(err)
 	}
-	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+	return applyMiddleware(authMiddleware.securityGuard(mux), withSecurityHeaders, withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
 }
 
 type RouterOptions struct {
@@ -1813,7 +1813,7 @@ func newRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 	})
 
-	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins)), nil
+	return applyMiddleware(authMiddleware.securityGuard(mux), withSecurityHeaders, withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins)), nil
 }
 
 func readinessHandler(cfg config.Config, database *sql.DB) stdhttp.HandlerFunc {
