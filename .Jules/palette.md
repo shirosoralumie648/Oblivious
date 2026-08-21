@@ -1,0 +1,3 @@
+## 2024-08-21 - Pagination Components Require Semantic Boundaries and Explicit Context
+**Learning:** Reusable pagination components across the repository, especially when iterating over page numbers, need semantic bounds (`<nav aria-label="Pagination">`) rather than raw `<div>` wrappers. Screen reader users can easily lose context if numbers are not prefixed with `aria-label="Go to page X"`. Additionally, visual spacers like ellipses (`...`) between disjoint page ranges add cognitive noise unless explicitly hidden via `aria-hidden="true"`.
+**Action:** When implementing or modifying list/table controls, verify that pagination wrappers use `<nav>`, action buttons have descriptive `aria-label`s, and non-interactive text tokens are hidden from screen readers.
