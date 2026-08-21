@@ -702,7 +702,7 @@ func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 
 	request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/user_1", strings.NewReader(`{"balance":42.5}`)).
 		WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
-	request.Header.Set("X-Forwarded-For", "203.0.113.10, 198.51.100.2")
+	request.Header.Set("X-Forwarded-For", "198.51.100.2, 203.0.113.10")
 	recorder := httptest.NewRecorder()
 
 	handler.updateUserQuota(recorder, request, "user_1")
@@ -810,7 +810,7 @@ func TestAdminUserQuotaRoutePersistsWithPostgres(t *testing.T) {
 
 	request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/"+targetUserID, strings.NewReader(`{"balance":2500.75}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Forwarded-For", "203.0.113.25, 198.51.100.2")
+	request.Header.Set("X-Forwarded-For", "198.51.100.2, 203.0.113.25")
 	request.AddCookie(adminCookie)
 	addCSRF(request, adminCSRF)
 	recorder := httptest.NewRecorder()
