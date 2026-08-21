@@ -74,7 +74,7 @@ func TestAdminPricingCatalogHandlerCreateApproveRejectRollbackAndList(t *testing
 			"unitCost": 0.003
 		}]
 	}`, session)
-	createRequest.Header.Set("X-Forwarded-For", "203.0.113.10, 198.51.100.2")
+	createRequest.Header.Set("X-Forwarded-For", "198.51.100.2, 203.0.113.10")
 	createRecorder := httptest.NewRecorder()
 	handler.createRelayPricingCatalogImport(createRecorder, createRequest)
 	if createRecorder.Code != stdhttp.StatusCreated {
