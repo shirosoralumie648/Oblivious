@@ -1,0 +1,3 @@
+## 2026-08-26 - Pagination Accessibility
+**Learning:** Pagination components are critical for navigation, but are often confusing for screen readers if not properly marked up. Replacing a generic wrapper with a semantic `<nav aria-label="Pagination">`, adding `aria-label` to "Previous"/"Next" and specific page buttons, and using `aria-hidden="true"` on visual spacers (like ellipses) significantly improves keyboard and screen-reader accessibility.
+**Action:** Always implement pagination using a semantic `<nav>` tag with a descriptive label and ensure all functional buttons have explicit ARIA labels and visual spacers are hidden from assistive technology.
