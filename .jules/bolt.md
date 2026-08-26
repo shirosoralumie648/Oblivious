@@ -1,0 +1,3 @@
+## 2024-08-26 - Memoize DataTable selection calculations
+**Learning:** The `DataTable` component calculates selection state (`selectableRows`, `allSelected`, `partiallySelected`) on every render by mapping and filtering the entire dataset. In most usages (as seen across `AdminUsersPage`, `MarketplaceMyAgentsPage`, etc.), the table is not selectable (`selectable` prop defaults to `false`). This meant O(N) operations were unnecessarily running on every render for non-selectable tables.
+**Action:** Always check if expensive component state calculations depend on a feature flag or boolean prop (like `selectable`), and if so, memoize the calculation with an early return to bypass it entirely when the feature is disabled.
