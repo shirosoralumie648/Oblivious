@@ -1,0 +1,4 @@
+## 2024-05-18 - Fix IP spoofing vulnerability in X-Forwarded-For parsing
+**Vulnerability:** The codebase was vulnerable to IP spoofing because it incorrectly extracted the left-most IP address from the `X-Forwarded-For` header. Malicious users could prepend fake IPs to spoof their origin.
+**Learning:** The right-most IP in the `X-Forwarded-For` header is appended by the last trusted edge proxy and is therefore the correct, authenticated client IP.
+**Prevention:** Always extract the right-most IP (e.g., `parts[len(parts)-1]`) from `X-Forwarded-For` when retrieving client IPs behind trusted proxies to prevent spoofing.
