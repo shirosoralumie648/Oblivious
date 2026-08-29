@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -33,10 +32,10 @@ describe('ConsoleLayout', () => {
           children: [{ index: true, element: <h1>Usage page</h1> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/console/usage'] }
+      { initialEntries: ['/console/usage'] }
     );
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Console' })).toBeInTheDocument();
     expect(await screen.findByText('Current workspace scope')).toBeInTheDocument();
@@ -61,10 +60,10 @@ describe('ConsoleLayout', () => {
           children: [{ index: true, element: <p>Overview page</p> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/console'] }
+      { initialEntries: ['/console'] }
     );
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     await screen.findByRole('heading', { name: 'Console' });
 

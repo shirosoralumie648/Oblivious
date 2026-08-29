@@ -128,7 +128,7 @@ The strict-verifier artifact in the refreshed manifest may reference the immedia
 | Gate | Command | Required env | Evidence |
 | --- | --- | --- | --- |
 | Docs and release assets | `bash scripts/check.sh docs` | none | Command output or CI `release-gates` URL |
-| Dependency security audit | `bash scripts/check.sh security` | network access to `https://registry.npmjs.org` and Go vulnerability data; `OBLIVIOUS_SECURITY_GOTOOLCHAIN=go1.26.5` by default | `pnpm audit` and `govulncheck` output or CI `security` URL |
+| Dependency security audit | `bash scripts/check.sh security` | network access to `https://registry.npmjs.org` and Go vulnerability data; `OBLIVIOUS_SECURITY_GOTOOLCHAIN=go1.26.6` by default | `pnpm audit` and `govulncheck` output or CI `security` URL |
 | Web production build | `bash scripts/check.sh web` | `COREPACK_HOME=.tmp/corepack` optional | Command output or CI `web` URL |
 | Server release checks | `bash scripts/check.sh server` | `GOCACHE=.tmp/go-build` and `GOMODCACHE=.tmp/go-mod` optional | Compile-check command output or CI `server` URL |
 | Web Vitest suite | `bash scripts/test.sh web` | `COREPACK_HOME=.tmp/corepack` optional | Command output or CI `web` URL |

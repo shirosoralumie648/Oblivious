@@ -2,13 +2,12 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 import { HomePage } from './HomePage';
 
 describe('HomePage', () => {
   it('presents commercial product entry points and route map', () => {
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <HomePage />
       </MemoryRouter>
     );

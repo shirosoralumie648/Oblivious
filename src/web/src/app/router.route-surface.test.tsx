@@ -2,7 +2,6 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from './routerFuture';
 
 vi.mock('../app/providers', () => ({
   useAppContext: () => ({
@@ -205,7 +204,7 @@ describe('app route surface', () => {
   it.each(appRouteEntries)('renders $samplePath through the $area shell', async (entry) => {
     const router = createAppRouter([entry.samplePath]);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const generated = entry.capabilityId === undefined ? null : getGeneratedReleaseCapability(entry.capabilityId);
     if (generated?.disposition === 'conditional') {

@@ -338,7 +338,7 @@ Admin Billing is read-only inspection for these records.
 | Gate | Command | Notes |
 | --- | --- | --- |
 | Docs and release assets | `bash scripts/check.sh docs` | Verifies docs, contracts, release assets, env contract, and workspace boundaries |
-| Dependency security audit | `bash scripts/check.sh security` | Runs `pnpm audit` against `https://registry.npmjs.org` and `govulncheck` with `OBLIVIOUS_SECURITY_GOTOOLCHAIN` defaulting to `go1.26.5` |
+| Dependency security audit | `bash scripts/check.sh security` | Runs `pnpm audit` against `https://registry.npmjs.org` and `govulncheck` with `OBLIVIOUS_SECURITY_GOTOOLCHAIN` defaulting to `go1.26.6` |
 | Web build | `bash scripts/check.sh web` | Runs `pnpm --dir src/web build` |
 | Server release checks | `bash scripts/check.sh server` | Compiles all server packages with `go test ./... -run '^$' -count=1`; execution tests live in `scripts/test.sh server` |
 | Web tests | `bash scripts/test.sh web` | Vitest suite |

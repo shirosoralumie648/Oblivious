@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const getAccess = vi.fn();
 const listApiTokens = vi.fn();
@@ -46,7 +45,7 @@ describe('AccessPage', () => {
     listApiTokens.mockResolvedValue([]);
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <AccessPage />
       </MemoryRouter>
     );
@@ -95,7 +94,7 @@ describe('AccessPage', () => {
     });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <AccessPage />
       </MemoryRouter>
     );
@@ -166,7 +165,7 @@ describe('AccessPage', () => {
     ]);
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <AccessPage />
       </MemoryRouter>
     );

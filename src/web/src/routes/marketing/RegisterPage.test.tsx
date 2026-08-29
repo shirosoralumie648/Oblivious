@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const navigate = vi.fn();
 const bootstrapAuth = vi.fn();
@@ -46,7 +45,7 @@ describe('RegisterPage', () => {
 
   it('posts founder credentials to the register route and starts onboarding', async () => {
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <RegisterPage />
       </MemoryRouter>
     );

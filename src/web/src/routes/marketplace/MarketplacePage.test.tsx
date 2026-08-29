@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const searchAgents = vi.fn();
 const getCategories = vi.fn();
@@ -250,8 +249,8 @@ function resetMarketplaceMocks() {
 }
 
 function renderRoute(element: ReactNode, path = '/', initialEntry = '/') {
-  const router = createMemoryRouter([{ path, element }], { future: routerFuture, initialEntries: [initialEntry] });
-  return render(<RouterProvider future={routerFuture} router={router} />);
+  const router = createMemoryRouter([{ path, element }], { initialEntries: [initialEntry] });
+  return render(<RouterProvider  router={router} />);
 }
 
 describe('Marketplace pages', () => {
@@ -495,9 +494,9 @@ describe('Marketplace pages', () => {
         { path: '/', element: <MarketplacePublishPage /> },
         { path: '/marketplace/agents/:agentId', element: <div>Published</div> },
       ],
-      { future: routerFuture, initialEntries: ['/'] }
+      { initialEntries: ['/'] }
     );
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Research Agent' } });
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Helps with research workflows' } });

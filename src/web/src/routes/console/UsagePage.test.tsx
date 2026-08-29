@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const getAccess = vi.fn();
 const getUsage = vi.fn();
@@ -37,7 +36,7 @@ describe('UsagePage', () => {
     getUsage.mockRejectedValue(new Error('usage unavailable'));
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <UsagePage />
       </MemoryRouter>
     );
@@ -82,7 +81,7 @@ describe('UsagePage', () => {
     });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <UsagePage />
       </MemoryRouter>
     );
@@ -121,7 +120,7 @@ describe('UsagePage', () => {
     });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <UsagePage />
       </MemoryRouter>
     );

@@ -3,7 +3,6 @@ import { RouterProvider } from 'react-router-dom';
 
 import { AppProviders } from './providers';
 import { createAppRouter } from './router';
-import { routerFuture } from './routerFuture';
 import { GsapMotionProvider } from '../features/motion/GsapMotionProvider';
 
 export function App() {
@@ -13,7 +12,7 @@ export function App() {
     <AppProviders>
       <div className="theme min-h-screen">
         <GsapMotionProvider>
-          <RouterProvider future={routerFuture} router={router} />
+          <RouterProvider  router={router} />
         </GsapMotionProvider>
       </div>
     </AppProviders>

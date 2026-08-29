@@ -2,13 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 import { AdminSidebar } from './AdminSidebar';
 
 describe('AdminSidebar', () => {
   it('renders grouped admin modules with active route highlighting', () => {
     render(
-      <MemoryRouter initialEntries={['/admin/channels']} future={routerFuture}>
+      <MemoryRouter initialEntries={['/admin/channels']} >
         <AdminSidebar />
       </MemoryRouter>
     );
@@ -24,7 +23,7 @@ describe('AdminSidebar', () => {
 
   it('filters modules by label and keyword and supports collapsed mode', () => {
     render(
-      <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+      <MemoryRouter initialEntries={['/admin']} >
         <AdminSidebar />
       </MemoryRouter>
     );
@@ -42,7 +41,7 @@ describe('AdminSidebar', () => {
 
   it('filters API token management by token and key keywords', () => {
     render(
-      <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+      <MemoryRouter initialEntries={['/admin']} >
         <AdminSidebar />
       </MemoryRouter>
     );
@@ -55,7 +54,7 @@ describe('AdminSidebar', () => {
 
   it('filters model inventory by model and provider keywords', () => {
     render(
-      <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+      <MemoryRouter initialEntries={['/admin']} >
         <AdminSidebar />
       </MemoryRouter>
     );

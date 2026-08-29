@@ -7,7 +7,7 @@ server_dir="$repo_root/src/server"
 corepack_home="${COREPACK_HOME:-$repo_root/.tmp/corepack}"
 go_cache="${GOCACHE:-$repo_root/.tmp/go-build}"
 go_mod_cache="${GOMODCACHE:-$repo_root/.tmp/go-mod}"
-go_toolchain="${COMMERCIAL_COMPLETION_GOTOOLCHAIN:-go1.26.5}"
+go_toolchain="${COMMERCIAL_COMPLETION_GOTOOLCHAIN:-go1.26.6}"
 postgres_image="${OBLIVIOUS_POSTGRES_IMAGE:-pgvector/pgvector:pg16}"
 playwright_browsers_path="${PLAYWRIGHT_BROWSERS_PATH:-$repo_root/.tmp/ms-playwright}"
 windows_corepack_node="/mnt/c/Program Files/nodejs/node.exe"
@@ -52,7 +52,7 @@ Optional:
   COREPACK_HOME, GOCACHE, GOMODCACHE
     Override local tool caches.
   COMMERCIAL_COMPLETION_GOTOOLCHAIN
-    Override the Go toolchain used by the final verifier. Defaults to go1.26.5.
+    Override the Go toolchain used by the final verifier. Defaults to go1.26.6.
   BACKUP_SMOKE_SOURCE_DATABASE_URL, BACKUP_SMOKE_RESTORE_DATABASE_URL
     External disposable databases for backup/restore smoke.
   COMMERCIAL_COMPLETION_DB_SERVER_SUITE_DATABASE_URL
