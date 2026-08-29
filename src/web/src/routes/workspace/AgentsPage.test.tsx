@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { routerFuture } from '../../app/routerFuture';
 
 const listAgents = vi.fn();
 const createAgent = vi.fn();
@@ -29,7 +28,7 @@ import { AgentsPage } from './AgentsPage';
 
 function renderAgentsPage() {
   return render(
-    <MemoryRouter future={routerFuture}>
+    <MemoryRouter >
       <AgentsPage />
     </MemoryRouter>
   );

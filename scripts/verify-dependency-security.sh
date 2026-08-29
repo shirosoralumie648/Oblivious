@@ -6,7 +6,7 @@ server_dir="$repo_root/src/server"
 web_dir="$repo_root/src/web"
 npm_registry="${OBLIVIOUS_SECURITY_NPM_REGISTRY:-https://registry.npmjs.org}"
 npm_audit_level="${OBLIVIOUS_SECURITY_AUDIT_LEVEL:-moderate}"
-go_toolchain="${OBLIVIOUS_SECURITY_GOTOOLCHAIN:-go1.26.5}"
+go_toolchain="${OBLIVIOUS_SECURITY_GOTOOLCHAIN:-go1.26.6}"
 govulncheck_version="${OBLIVIOUS_SECURITY_GOVULNCHECK_VERSION:-v1.3.0}"
 
 command_works() {

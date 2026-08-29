@@ -39,12 +39,11 @@ vi.mock('../../features/agents/planStepsApi', () => ({
 }));
 
 import { AgentPlanStepsPage } from './AgentPlanStepsPage';
-import { routerFuture } from '../../app/routerFuture';
 
 function renderPage(planSteps: unknown[] = []) {
   render(
     <MemoryRouter
-      future={routerFuture}
+
       initialEntries={[
         {
           pathname: '/agent-runs/run_1/plan-steps',
@@ -62,7 +61,7 @@ function renderPage(planSteps: unknown[] = []) {
 function renderDirectPage() {
   render(
     <MemoryRouter
-      future={routerFuture}
+
       initialEntries={[
         {
           pathname: '/agent-runs/run_1/plan-steps'

@@ -222,8 +222,8 @@ Do not run a bulk dependency upgrade. Each stateful service or framework change 
 pnpm install --frozen-lockfile
 
 # Proposed Go release toolchain gate
-(cd src/server && GOTOOLCHAIN=go1.26.5 go test ./... -count=1)
-(cd src/server && GOTOOLCHAIN=go1.26.5 go test -race ./... -count=1)
+(cd src/server && GOTOOLCHAIN=go1.26.6 go test ./... -count=1)
+(cd src/server && GOTOOLCHAIN=go1.26.6 go test -race ./... -count=1)
 
 # Existing project entrypoints remain the integration authority
 bash scripts/check.sh all

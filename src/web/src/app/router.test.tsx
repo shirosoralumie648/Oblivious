@@ -2158,7 +2158,6 @@ vi.mock('../features/mcp/mcpServersApi', () => ({
 }));
 
 import { createAppRouter } from './router';
-import { routerFuture } from './routerFuture';
 
 describe('app router', () => {
   beforeEach(() => {
@@ -2188,7 +2187,7 @@ describe('app router', () => {
   it('renders home content on /', async () => {
     const router = createAppRouter(['/']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Oblivious')).toBeInTheDocument();
     expect(await screen.findByText('AI workspace framework')).toBeInTheDocument();
@@ -2197,7 +2196,7 @@ describe('app router', () => {
   it('passes chat conversation route params into the chat workspace API', async () => {
     const router = createAppRouter(['/chat/conversation_router']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Router parameter message.')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/chat/conversation_router');
@@ -2215,7 +2214,7 @@ describe('app router', () => {
       ]);
     const router = createAppRouter(['/chat/conversation_router']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2300,7 +2299,7 @@ describe('app router', () => {
   it('renders knowledge route inside the workspace shell', async () => {
     const router = createAppRouter(['/knowledge']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
@@ -2309,7 +2308,7 @@ describe('app router', () => {
   it('keeps knowledge detail route-level RAG, document, chunk, and evaluation controls reachable', async () => {
     const router = createAppRouter(['/knowledge/kb_router']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2415,7 +2414,7 @@ describe('app router', () => {
   it('renders memories route inside the workspace shell', async () => {
     const router = createAppRouter(['/memories']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Agent Memories' })).toBeInTheDocument();
@@ -2424,7 +2423,7 @@ describe('app router', () => {
   it('keeps agent memories route-level CRUD and import-export controls reachable', async () => {
     const router = createAppRouter(['/memories']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2453,7 +2452,7 @@ describe('app router', () => {
   it('renders agent plan steps route inside the workspace shell', async () => {
     const router = createAppRouter(['/agent-runs/run_1/plan-steps']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Agent Plan Steps' })).toBeInTheDocument();
@@ -2463,7 +2462,7 @@ describe('app router', () => {
   it('keeps agent plan steps route-level run, approval, and editing controls reachable', async () => {
     const router = createAppRouter(['/agent-runs/run_1/plan-steps']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2521,7 +2520,7 @@ describe('app router', () => {
   it('renders agents route inside the workspace shell', async () => {
     const router = createAppRouter(['/agents']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
@@ -2530,7 +2529,7 @@ describe('app router', () => {
   it('keeps agents route-level policy, run, and tool catalog controls reachable', async () => {
     const router = createAppRouter(['/agents']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2579,7 +2578,7 @@ describe('app router', () => {
   it('executes an agent planning journey from /agents into plan-step operations inside the workspace shell', async () => {
     const router = createAppRouter(['/agents']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2663,7 +2662,7 @@ describe('app router', () => {
   it('renders MCP servers route inside the workspace shell', async () => {
     const router = createAppRouter(['/mcp-servers']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'MCP Servers & Tools' })).toBeInTheDocument();
@@ -2673,7 +2672,7 @@ describe('app router', () => {
   it('keeps MCP route-level server and tool controls reachable', async () => {
     const router = createAppRouter(['/mcp-servers']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2697,7 +2696,7 @@ describe('app router', () => {
   it('keeps settings route-level preferences and MCP controls reachable', async () => {
     const router = createAppRouter(['/settings']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2735,7 +2734,7 @@ describe('app router', () => {
   it('renders onboarding inside the workspace shell', async () => {
     const router = createAppRouter(['/onboarding']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
@@ -2744,7 +2743,7 @@ describe('app router', () => {
   it('routes onboarding solo selection into the real solo creation route', async () => {
     const router = createAppRouter(['/onboarding']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start with SOLO' }));
@@ -2760,7 +2759,7 @@ describe('app router', () => {
   it('renders solo route inside the workspace shell', async () => {
     const router = createAppRouter(['/solo']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
@@ -2769,7 +2768,7 @@ describe('app router', () => {
   it('keeps solo route-level task launch and existing task controls reachable', async () => {
     const router = createAppRouter(['/solo']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2810,7 +2809,7 @@ describe('app router', () => {
     window.history.replaceState({}, '', '/solo/new');
     const router = createAppRouter(['/solo/new']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2858,7 +2857,7 @@ describe('app router', () => {
   it('renders workflows route inside the workspace shell', async () => {
     const router = createAppRouter(['/workflows']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Workflows' })).toBeInTheDocument();
@@ -2867,7 +2866,7 @@ describe('app router', () => {
   it('keeps workflows route-level trigger, editor, branch, and execution controls reachable', async () => {
     const router = createAppRouter(['/workflows']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -2980,7 +2979,7 @@ describe('app router', () => {
   it('renders scheduled tasks route inside the workspace shell', async () => {
     const router = createAppRouter(['/scheduled-tasks']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Scheduled Tasks' })).toBeInTheDocument();
@@ -2989,7 +2988,7 @@ describe('app router', () => {
   it('keeps scheduled tasks route-level creation and run controls reachable', async () => {
     const router = createAppRouter(['/scheduled-tasks']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -3038,7 +3037,7 @@ describe('app router', () => {
   it('renders publishing channels route inside the workspace shell', async () => {
     const router = createAppRouter(['/publishing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Publishing Channels' })).toBeInTheDocument();
@@ -3047,7 +3046,7 @@ describe('app router', () => {
   it('keeps publishing route-level delivery and failed-queue recovery controls reachable', async () => {
     const router = createAppRouter(['/publishing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -3081,7 +3080,7 @@ describe('app router', () => {
   it('keeps publishing route-level channel edit and delete workflows reachable', async () => {
     const router = createAppRouter(['/publishing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const list = await screen.findByLabelText('Publishing channel list');
     expect(await within(list).findByRole('heading', { name: 'Ops Webhook' })).toBeInTheDocument();
@@ -3104,7 +3103,7 @@ describe('app router', () => {
   it('renders billing route inside the console shell', async () => {
     const router = createAppRouter(['/console/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Console')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
@@ -3113,7 +3112,7 @@ describe('app router', () => {
   it('keeps console billing route-level landmarks and top-up controls reachable', async () => {
     const router = createAppRouter(['/console/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3143,7 +3142,7 @@ describe('app router', () => {
   it('keeps console home route-level KPI and drill-down controls reachable', async () => {
     const router = createAppRouter(['/console']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3176,7 +3175,7 @@ describe('app router', () => {
   it('renders notifications route inside the console shell', async () => {
     const router = createAppRouter(['/console/notifications']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Console')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
@@ -3185,7 +3184,7 @@ describe('app router', () => {
   it('keeps console notifications route-level alert review controls reachable', async () => {
     const router = createAppRouter(['/console/notifications']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3209,7 +3208,7 @@ describe('app router', () => {
   it('keeps console models route-level summary evidence reachable', async () => {
     const router = createAppRouter(['/console/models']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3228,7 +3227,7 @@ describe('app router', () => {
   it('keeps console access route-level API token controls reachable', async () => {
     const router = createAppRouter(['/console/access']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3246,7 +3245,7 @@ describe('app router', () => {
   it('keeps console usage route-level analytics and recent relay evidence reachable', async () => {
     const router = createAppRouter(['/console/usage']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
@@ -3268,7 +3267,7 @@ describe('app router', () => {
   it('keeps admin dashboard route-level metrics and commercial operation links reachable', async () => {
     const router = createAppRouter(['/admin']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3298,7 +3297,7 @@ describe('app router', () => {
   it('renders admin billing route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
@@ -3308,7 +3307,7 @@ describe('app router', () => {
   it('keeps admin billing route-level recovery controls and filters reachable', async () => {
     const router = createAppRouter(['/admin/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3324,7 +3323,7 @@ describe('app router', () => {
   it('executes admin billing payout operator actions inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3359,7 +3358,7 @@ describe('app router', () => {
   it('executes admin billing top-up refund recovery inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3392,7 +3391,7 @@ describe('app router', () => {
   it('keeps admin channels route-level provider, runtime, and operator controls reachable', async () => {
     const router = createAppRouter(['/admin/channels']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3431,7 +3430,7 @@ describe('app router', () => {
   it('keeps admin routes route-level weighted strategy and target controls reachable', async () => {
     const router = createAppRouter(['/admin/routes']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3461,7 +3460,7 @@ describe('app router', () => {
   it('keeps admin plans route-level quota, access, and request-cap controls reachable', async () => {
     const router = createAppRouter(['/admin/plans']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3503,7 +3502,7 @@ describe('app router', () => {
   it('keeps admin users route-level role, status, plan, and usage controls reachable', async () => {
     const router = createAppRouter(['/admin/users']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3534,7 +3533,7 @@ describe('app router', () => {
   it('keeps admin audit-log route-level governance filters and table evidence reachable', async () => {
     const router = createAppRouter(['/admin/audit-log']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3560,7 +3559,7 @@ describe('app router', () => {
   it('keeps marketplace agent detail route-level install and review controls reachable', async () => {
     const router = createAppRouter(['/marketplace/agents/agent_1']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -3581,7 +3580,7 @@ describe('app router', () => {
   it('executes marketplace paid-install Alipay checkout flow inside the workspace shell', async () => {
     const router = createAppRouter(['/marketplace/agents/agent_1']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
@@ -3603,7 +3602,7 @@ describe('app router', () => {
   it('keeps marketplace home route-level browse, curation, and template controls reachable', async () => {
     const router = createAppRouter(['/marketplace']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Marketplace' })).toHaveAttribute('href', '/marketplace');
@@ -3634,7 +3633,7 @@ describe('app router', () => {
   it('keeps marketplace my-agents route-level settlement and inventory controls reachable', async () => {
     const router = createAppRouter(['/marketplace/my-agents']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
@@ -3704,7 +3703,7 @@ describe('app router', () => {
   it('keeps marketplace publish route-level submission controls reachable', async () => {
     const router = createAppRouter(['/marketplace/publish']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Publish Agent' })).toBeInTheDocument();
@@ -3719,7 +3718,7 @@ describe('app router', () => {
   it('keeps admin review route-level SLA and decision controls reachable', async () => {
     const router = createAppRouter(['/admin/reviews']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3735,7 +3734,7 @@ describe('app router', () => {
   it('keeps admin review route-level marketplace governance actions reachable', async () => {
     const router = createAppRouter(['/admin/reviews']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Review Queue' })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Enforce SLA' }));
@@ -3767,7 +3766,7 @@ describe('app router', () => {
   it('requests admin review changes through the real admin router flow', async () => {
     const router = createAppRouter(['/admin/reviews']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Request changes for agent Research Agent' }));
     expect(await screen.findByText('Request Changes: Research Agent')).toBeInTheDocument();
@@ -3792,7 +3791,7 @@ describe('app router', () => {
   it('renders admin usage logs route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/usage-logs']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Usage Logs' })).toBeInTheDocument();
@@ -3801,7 +3800,7 @@ describe('app router', () => {
   it('keeps admin usage logs route-level filters, analytics, and table evidence reachable', async () => {
     const router = createAppRouter(['/admin/usage-logs']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3822,7 +3821,7 @@ describe('app router', () => {
   it('keeps admin alerts route-level routing, provider, recovery, and delivery controls reachable', async () => {
     const router = createAppRouter(['/admin/alerts']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3872,7 +3871,7 @@ describe('app router', () => {
   it('renders admin API tokens route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/api-tokens']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'API Tokens' })).toBeInTheDocument();
@@ -3881,7 +3880,7 @@ describe('app router', () => {
   it('keeps admin API tokens route-level filters and revoke controls reachable', async () => {
     const router = createAppRouter(['/admin/api-tokens']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3911,7 +3910,7 @@ describe('app router', () => {
   it('renders admin models route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/models']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument();
@@ -3920,7 +3919,7 @@ describe('app router', () => {
   it('keeps admin models route-level filters, ranking, and cost evidence reachable', async () => {
     const router = createAppRouter(['/admin/models']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
@@ -3949,7 +3948,7 @@ describe('app router', () => {
   it('renders admin settings route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/settings']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
@@ -3959,7 +3958,7 @@ describe('app router', () => {
   it('keeps admin settings route-level pricing and usage-limit controls reachable', async () => {
     const router = createAppRouter(['/admin/settings']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();

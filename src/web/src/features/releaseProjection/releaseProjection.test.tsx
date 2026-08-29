@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'v
 
 import { getAppReadinessCapabilitiesOperationContract } from '@/generated/operation-contracts.generated';
 import type { HttpClient } from '@/services/http/client';
-import { routerFuture } from '@/app/routerFuture';
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -339,7 +338,7 @@ describe('release projection product exposure', () => {
 
     const first = render(
       <ReleaseProjectionProvider>
-        <MemoryRouter initialEntries={['/chat']} future={routerFuture}>
+        <MemoryRouter initialEntries={['/chat']} >
           <Routes>
             <Route element={<WorkspaceLayout />}>
               <Route path="/chat" element={<main>Chat route</main>} />
@@ -357,7 +356,7 @@ describe('release projection product exposure', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectionResponse())));
     render(
       <ReleaseProjectionProvider>
-        <MemoryRouter initialEntries={['/chat']} future={routerFuture}>
+        <MemoryRouter initialEntries={['/chat']} >
           <Routes>
             <Route element={<WorkspaceLayout />}>
               <Route path="/chat" element={<main>Chat route</main>} />
@@ -379,7 +378,7 @@ describe('release projection product exposure', () => {
     vi.stubGlobal('fetch', fetchMock);
     const router = createAppRouter(['/mcp-servers']);
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/app/readiness/capabilities', expect.any(Object)));
     expect(screen.getByRole('status')).toHaveTextContent('currently unavailable');
@@ -390,7 +389,7 @@ describe('release projection product exposure', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectionResponse())));
     const consoleRender = render(
       <ReleaseProjectionProvider>
-        <MemoryRouter initialEntries={['/console']} future={routerFuture}>
+        <MemoryRouter initialEntries={['/console']} >
           <ConsoleLayout />
         </MemoryRouter>
       </ReleaseProjectionProvider>
@@ -401,7 +400,7 @@ describe('release projection product exposure', () => {
 
     render(
       <ReleaseProjectionProvider>
-        <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+        <MemoryRouter initialEntries={['/admin']} >
           <AdminSidebar />
         </MemoryRouter>
       </ReleaseProjectionProvider>
@@ -413,7 +412,7 @@ describe('release projection product exposure', () => {
   it('renders only generated committed public marketing links without authenticated or Admin inventory input', () => {
     appContext.authState = { status: 'unauthenticated', user: null };
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <HomePage />
       </MemoryRouter>
     );
@@ -470,7 +469,7 @@ describe('release projection catalog selectors', () => {
 
     render(
       <ReleaseProjectionProvider>
-        <MemoryRouter initialEntries={['/chat/conversation_1']} future={routerFuture}>
+        <MemoryRouter initialEntries={['/chat/conversation_1']} >
           <Routes>
             <Route path="/chat/:conversationId" element={<ChatPage />} />
           </Routes>
@@ -525,7 +524,7 @@ describe('release projection catalog selectors', () => {
 
     render(
       <ReleaseProjectionProvider>
-        <MemoryRouter future={routerFuture}>
+        <MemoryRouter >
           <AgentsPage />
         </MemoryRouter>
       </ReleaseProjectionProvider>

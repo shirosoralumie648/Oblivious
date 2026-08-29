@@ -2,7 +2,6 @@ import { render, screen, within } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -37,10 +36,10 @@ describe('WorkspaceLayout', () => {
           children: [{ index: true, element: <h1>Knowledge detail child</h1> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/knowledge/kb_router'] }
+      { initialEntries: ['/knowledge/kb_router'] }
     );
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Chat' })).toBeInTheDocument();
@@ -73,10 +72,10 @@ describe('WorkspaceLayout', () => {
           children: [{ index: true, element: <p>Workspace child</p> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/'] }
+      { initialEntries: ['/'] }
     );
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     await screen.findByText('Workspace');
 
@@ -106,10 +105,10 @@ describe('WorkspaceLayout', () => {
           children: [{ index: true, element: <h1>Marketplace agent child</h1> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/marketplace/agents/agent_1'] }
+      { initialEntries: ['/marketplace/agents/agent_1'] }
     );
 
-    render(<RouterProvider future={routerFuture} router={router} />);
+    render(<RouterProvider  router={router} />);
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     const marketplaceLink = within(workspaceNavigation).getByRole('link', { name: 'Marketplace' });

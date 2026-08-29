@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const getAccess = vi.fn();
 const getBilling = vi.fn();
@@ -53,7 +52,7 @@ describe('ConsoleHomePage', () => {
     ]);
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <ConsoleHomePage />
       </MemoryRouter>
     );
@@ -88,7 +87,7 @@ describe('ConsoleHomePage', () => {
     getUsage.mockResolvedValue({ period: '7d', requests: 3 });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <ConsoleHomePage />
       </MemoryRouter>
     );
@@ -105,7 +104,7 @@ describe('ConsoleHomePage', () => {
     getUsage.mockRejectedValue(new Error('network unavailable'));
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <ConsoleHomePage />
       </MemoryRouter>
     );

@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const listNotifications = vi.fn();
 const getUnreadCount = vi.fn();
@@ -72,7 +71,7 @@ describe('NotificationsPage', () => {
     markRead.mockResolvedValue({ id: 'notif_critical', isRead: true });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <NotificationsPage />
       </MemoryRouter>
     );
@@ -126,7 +125,7 @@ describe('NotificationsPage', () => {
     markAllRead.mockResolvedValue({ status: 'ok' });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <NotificationsPage />
       </MemoryRouter>
     );
@@ -182,7 +181,7 @@ describe('NotificationsPage', () => {
     deleteNotification.mockResolvedValue({ status: 'deleted' });
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <NotificationsPage />
       </MemoryRouter>
     );

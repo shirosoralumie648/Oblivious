@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { routerFuture } from '../../app/routerFuture';
 
 const getAccess = vi.fn();
 const getModels = vi.fn();
@@ -40,7 +39,7 @@ describe('ModelsPage', () => {
     ]);
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <ModelsPage />
       </MemoryRouter>
     );
@@ -67,7 +66,7 @@ describe('ModelsPage', () => {
     getModels.mockRejectedValue(new Error('network unavailable'));
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter >
         <ModelsPage />
       </MemoryRouter>
     );
