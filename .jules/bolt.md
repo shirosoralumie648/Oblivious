@@ -1,0 +1,3 @@
+## 2026-08-29 - [Optimization of array mappings in data tables]
+**Learning:** Found an unnecessary double `.filter()` array allocation on every re-render in the shared `DataTable.tsx` module. This triggered extra loops checking every row (O(n) twice plus length). When tables grow larger, even small redundant operations map directly to frame drops in React rendering. In this architecture, array mappings that depend on data must use memoization if calculating over properties, as properties might be relatively complex nested getters/handlers.
+**Action:** Always memoize list operations when deriving multiple aggregated stats from list counts to reduce iteration overhead across component updates.
