@@ -1,0 +1,5 @@
+## 2024-08-31 - Fix IP Spoofing via X-Forwarded-For
+
+**Vulnerability:** IP Spoofing via `X-Forwarded-For`. The backend uses `X-Forwarded-For` headers to determine the client IP address (used for logging and potentially rate limiting/quotas) and extracts the *first* IP in the list (`strings.Split(forwarded, ",")[0]`).
+**Learning:** `X-Forwarded-For` can be spoofed by a malicious client. When proxy servers append the actual client IP, they add it to the end of the `X-Forwarded-For` list. Trusting the first IP allows an attacker to send an arbitrary IP address, masking their true origin and potentially bypassing IP-based restrictions.
+**Prevention:** Always extract the right-most (last) IP address in the `X-Forwarded-For` header list, as this is the one added by the trusted proxy immediately in front of the application server. (See Memory note: "The Go backend securely extracts client IPs from the X-Forwarded-For header by taking the right-most IP (`parts[len(parts)-1]`), which is appended by the trusted edge proxy.")
