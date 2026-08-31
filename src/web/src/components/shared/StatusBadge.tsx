@@ -1,3 +1,5 @@
+import React from 'react';
+
 import { cn } from '@/lib/utils';
 
 export type StatusBadgeStatus =
@@ -53,7 +55,9 @@ function statusLabel(status: StatusBadgeStatus) {
     .join(' ');
 }
 
-export function StatusBadge({ status, label, showDot = true, className }: StatusBadgeProps) {
+// Optimization: Wrap StatusBadge in React.memo to prevent unnecessary re-renders in large lists/tables
+// Measurement: Reduces React commit times when data tables re-render
+export const StatusBadge = React.memo(function StatusBadge({ status, label, showDot = true, className }: StatusBadgeProps) {
   const display = label ?? statusLabel(status);
 
   return (
@@ -70,4 +74,4 @@ export function StatusBadge({ status, label, showDot = true, className }: Status
       <span>{display}</span>
     </span>
   );
-}
+});
