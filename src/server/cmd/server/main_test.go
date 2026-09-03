@@ -235,7 +235,7 @@ func TestServerStartupOrderContract(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime", "listen", "serve", "refresh", "background", "close"}
+		want := []string{"config", "db_open", "db_ping", "migrations", "manager_construct", "bootstrap", "authorities", "build_runtime", "listen", "refresh", "background", "serve", "close"}
 		got := snapshotStartupEvents(events)
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("startup events = %#v, want %#v", got, want)
@@ -705,6 +705,7 @@ func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net
 		*events = append(*events, event)
 	}
 	manager := &startupManagerSpy{events: events}
+	bgStarted := make(chan struct{})
 	return startupDependencies{
 		loadConfig: func() (serverconfig.Config, error) {
 			appendEvent("config")
@@ -757,6 +758,7 @@ func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net
 			runtime := &serverhttp.Runtime{Server: &stdhttp.Server{Addr: ":0"}}
 			runtime.StartBackground = func(context.Context) error {
 				appendEvent("background")
+				close(bgStarted)
 				return nil
 			}
 			runtime.Close = func(context.Context) error {
@@ -773,6 +775,7 @@ func startupContractDependencies(events *[]string, fail string, _ *sql.DB, _ net
 			return startupListener{}, nil
 		},
 		serve: func(*stdhttp.Server, net.Listener) error {
+			<-bgStarted
 			appendEvent("serve")
 			return stdhttp.ErrServerClosed
 		},
