@@ -585,7 +585,7 @@ func extractIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
 		if len(ips) > 0 {
-			return strings.TrimSpace(ips[len(ips)-1])
+			return strings.TrimSpace(ips[0])
 		}
 	}
 	// Fall back to RemoteAddr
