@@ -1,0 +1,3 @@
+## 2026-09-07 - Memoizing chat message rendering
+**Learning:** In highly interactive components like `ChatPage.tsx`, rendering markdown is computationally expensive. When the user types in the message draft, the entire component re-renders. If the transcript has many messages, all of them re-parse their markdown.
+**Action:** Always memoize computationally expensive child components (like `MessageContent`) that render static data (like past chat messages) within a dynamic parent component (like `ChatPage` where keystrokes trigger state updates) to prevent unnecessary re-rendering and block main thread.

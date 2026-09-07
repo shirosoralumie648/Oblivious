@@ -1,5 +1,5 @@
 import { RiAddLine, RiCloseLine, RiMenuLine } from '@remixicon/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
@@ -350,7 +350,9 @@ function CodeBlockFigure({ content, language }: CodeBlockFigureProps) {
   );
 }
 
-function renderMessageContent(content: string) {
+// Optimization: Prevent unnecessary re-renders and re-parsing of markdown during keystrokes in chat input
+// Measurement: Reduces CPU time spent parsing markdown for previous messages when the message draft state changes.
+const MessageContent = memo(function MessageContent({ content }: { content: string }) {
   return (
     <div className="space-y-3">
       {parseMarkdownBlocks(content).map((block, index) => {
@@ -378,7 +380,7 @@ function renderMessageContent(content: string) {
       })}
     </div>
   );
-}
+});
 
 function formatCitationScore(score: number) {
   return Number.isInteger(score) ? String(score) : score.toFixed(2).replace(/0$/, '').replace(/\.0$/, '');
@@ -1547,7 +1549,7 @@ export function ChatPage() {
                           </div>
                         ) : (
                           <>
-                            {message.content.trim() !== '' ? renderMessageContent(message.content) : null}
+                            {message.content.trim() !== '' ? <MessageContent content={message.content} /> : null}
                             {message.role === 'assistant' && message.knowledgeCitations ? (
                               <KnowledgeCitationList citations={message.knowledgeCitations} messageId={message.id} />
                             ) : null}
