@@ -1,0 +1,4 @@
+## 2023-10-27 - SQL Injection Risk in Data Migration Tools
+**Vulnerability:** The data migration validation and audit tools (`src/server/internal/migration/validator.go` and `secret_storage_audit.go`) dynamically formatted SQL strings using string concatenation for table and column names (`fmt.Sprintf("SELECT %s FROM %s", col, table)`), creating a SQL injection vulnerability.
+**Learning:** Even internal tooling or migration utilities must safely quote and sanitize dynamically constructed identifiers to prevent execution of arbitrary SQL or syntax errors with reserved keywords. Standard `lib/pq` drivers often include `pq.QuoteIdentifier()`, but relying on it breaks agnosticism.
+**Prevention:** Always use ANSI-standard double quoting for SQL identifiers when dynamically constructing SQL, either through built-in framework features or custom helpers (like `quoteIdentifier`).
