@@ -43,6 +43,7 @@ export function SearchBar({ value, onChange, placeholder = 'Search...', debounce
     <div className={cn('relative w-full min-w-[220px]', className)}>
       <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <Input
+        type="search"
         value={inputValue}
         onChange={(event) => setInputValue(event.target.value)}
         placeholder={placeholder}
