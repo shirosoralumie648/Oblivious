@@ -296,7 +296,9 @@ export function AdminUsageLogsPage() {
     void loadUsageLogs();
   }, [loadUsageLogs]);
 
-  const columns: DataTableColumn<UsageLogEntry>[] = [
+  // Optimization: Memoize the columns array to prevent unnecessary re-renders of the DataTable component during state updates like filtering.
+  // Measurement: Reduces React reconciliation overhead on the large UsageLogs table by ensuring the columns prop maintains reference equality.
+  const columns = useMemo<DataTableColumn<UsageLogEntry>[]>(() => [
     { key: 'requestId', header: 'Request', render: (log) => idCell(log.requestId ?? log.id), width: '180px' },
     { key: 'requestLogEvidence', header: 'Request Log Evidence', render: requestLogEvidenceCell, width: '260px' },
     { key: 'userId', header: 'User', render: (log) => idCell(log.userId), width: '160px' },
@@ -312,7 +314,7 @@ export function AdminUsageLogsPage() {
     { key: 'totalTokens', header: 'Tokens', render: (log) => log.totalTokens.toLocaleString() },
     { key: 'latencyMs', header: 'Latency', render: (log) => `${log.latencyMs ?? 0} ms` },
     { key: 'createdAt', header: 'Timestamp', render: (log) => dateLabel(log.createdAt) },
-  ];
+  ], []);
 
   const setFilter = (field: keyof UsageLogState['filters']) => (event: React.ChangeEvent<HTMLInputElement>) => {
     dispatch({ type: 'SET_FILTER', field, value: event.target.value });
