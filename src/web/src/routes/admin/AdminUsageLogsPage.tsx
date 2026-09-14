@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 
 import { Input } from '@/components/ui/input';
 
+import { useDebounce } from '../../hooks/useDebounce';
+
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
@@ -240,35 +242,38 @@ export function AdminUsageLogsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
 
+  // Optimization: Debounce filter state to prevent API spam on every keystroke
+  const debouncedFilters = useDebounce(state.filters, 500);
+
   const loadUsageLogs = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });
     try {
       const filters: UsageLogFilter = {
-        organizationID: state.filters.organizationID,
-        userID: state.filters.userID,
-        apiTokenID: state.filters.apiTokenID,
-        requestID: state.filters.requestID,
-        apiType: state.filters.apiType,
-        featureType: state.filters.featureType,
-        quotaMode: state.filters.quotaMode,
-        channelID: state.filters.channelID,
-        provider: state.filters.provider,
-        status: state.filters.status,
-        model: state.filters.model,
+        organizationID: debouncedFilters.organizationID,
+        userID: debouncedFilters.userID,
+        apiTokenID: debouncedFilters.apiTokenID,
+        requestID: debouncedFilters.requestID,
+        apiType: debouncedFilters.apiType,
+        featureType: debouncedFilters.featureType,
+        quotaMode: debouncedFilters.quotaMode,
+        channelID: debouncedFilters.channelID,
+        provider: debouncedFilters.provider,
+        status: debouncedFilters.status,
+        model: debouncedFilters.model,
         limit: 50,
         offset: 0,
       };
       const analyticsFilters: UsageAnalyticsFilter = {
-        organizationID: state.filters.organizationID,
-        userID: state.filters.userID,
-        apiType: state.filters.apiType,
-        featureType: state.filters.featureType,
-        quotaMode: state.filters.quotaMode,
-        channelID: state.filters.channelID,
-        provider: state.filters.provider,
-        status: state.filters.status,
-        model: state.filters.model,
-        granularity: state.filters.analyticsGranularity,
+        organizationID: debouncedFilters.organizationID,
+        userID: debouncedFilters.userID,
+        apiType: debouncedFilters.apiType,
+        featureType: debouncedFilters.featureType,
+        quotaMode: debouncedFilters.quotaMode,
+        channelID: debouncedFilters.channelID,
+        provider: debouncedFilters.provider,
+        status: debouncedFilters.status,
+        model: debouncedFilters.model,
+        granularity: debouncedFilters.analyticsGranularity,
         limit: 8,
       };
       const [result, analytics] = await Promise.all([api.listUsageLogs(filters), api.getUsageAnalytics(analyticsFilters)]);
@@ -276,21 +281,7 @@ export function AdminUsageLogsPage() {
     } catch (error) {
       dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
     }
-  }, [
-    api,
-    state.filters.apiTokenID,
-    state.filters.apiType,
-    state.filters.analyticsGranularity,
-    state.filters.channelID,
-    state.filters.featureType,
-    state.filters.model,
-    state.filters.organizationID,
-    state.filters.provider,
-    state.filters.quotaMode,
-    state.filters.requestID,
-    state.filters.status,
-    state.filters.userID,
-  ]);
+  }, [api, debouncedFilters]);
 
   useEffect(() => {
     void loadUsageLogs();
