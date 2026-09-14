@@ -1,0 +1,3 @@
+## 2025-02-09 - Debouncing React State that directly triggers API requests
+**Learning:** If a component is updating a `filters` state from multiple text inputs and immediately executing a `load()` effect which fires off an HTTP request on every dependency change, this can spam the backend excessively, particularly if a user is typing in `Input` fields.
+**Action:** Extract a custom `useDebounce` hook (or use an existing one if provided) and debounce the filter state that is passed into the `useCallback` dependency array. This guarantees that user input doesn't blast the backend with rapid-fire fetch requests.
