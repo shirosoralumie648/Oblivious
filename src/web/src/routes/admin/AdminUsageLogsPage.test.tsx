@@ -174,9 +174,13 @@ describe('AdminUsageLogsPage', () => {
     render(<AdminUsageLogsPage />);
 
     expect(await screen.findByRole('heading', { name: 'Cross dimensions' })).toBeInTheDocument();
-    expect(screen.getByText('model_time')).toBeInTheDocument();
-    expect(screen.getByText('user_feature')).toBeInTheDocument();
-    expect(screen.getByText('feature_time')).toBeInTheDocument();
+
+    // We use findByText to wait for the crossDimensions data to be rendered asynchronously
+    expect(await screen.findByText((content, element) => {
+      return element?.textContent === 'model_time';
+    })).toBeInTheDocument();
+    expect(screen.getByText((content, element) => element?.textContent === 'user_feature')).toBeInTheDocument();
+    expect(screen.getByText((content, element) => element?.textContent === 'feature_time')).toBeInTheDocument();
     expect(screen.getByText('gpt-4o / 2026-06-04T00:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('user_1 / workspace_chat')).toBeInTheDocument();
     expect(screen.getByText('agent_run / 2026-06-04T01:00:00Z')).toBeInTheDocument();

@@ -1,0 +1,1 @@
+## 2026-09-15 - [Tooltip accessibility for icon-only buttons]\n**Learning:** Added tooltips to icon-only buttons for better accessibility and user experience in AdminUsersPage.\n**Action:** Use Tooltip and TooltipTrigger with TooltipContent to provide clear context for icon-only interactive elements.
