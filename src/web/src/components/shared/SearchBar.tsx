@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { useDebounce } from '../../hooks/useDebounce';
+
 export type SearchBarProps = {
   value: string;
   onChange: (value: string) => void;
@@ -15,6 +17,7 @@ export type SearchBarProps = {
 
 export function SearchBar({ value, onChange, placeholder = 'Search...', debounceMs = 300, className }: SearchBarProps) {
   const [inputValue, setInputValue] = useState(value);
+  const debouncedValue = useDebounce(inputValue, debounceMs);
   const firstRender = useRef(true);
 
   useEffect(() => {
@@ -27,12 +30,8 @@ export function SearchBar({ value, onChange, placeholder = 'Search...', debounce
       return undefined;
     }
 
-    const timeout = window.setTimeout(() => {
-      onChange(inputValue);
-    }, debounceMs);
-
-    return () => window.clearTimeout(timeout);
-  }, [debounceMs, inputValue, onChange]);
+    onChange(debouncedValue);
+  }, [debouncedValue, onChange]);
 
   const clearSearch = () => {
     setInputValue('');
