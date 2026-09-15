@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 
 import { Input } from '@/components/ui/input';
 
+import { useDebounce } from '../../hooks/useDebounce';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
@@ -238,37 +239,40 @@ function CrossDimensionsPanel({ rows }: { rows: UsageAnalyticsCrossDimensionBuck
 
 export function AdminUsageLogsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const debouncedFilters = useDebounce(state.filters, 500);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
 
   const loadUsageLogs = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });
     try {
+      // Optimization: use debouncedFilters instead of state.filters to prevent N+1 API calls on each keystroke
+      // Measurement: Reduces API requests significantly when a user is typing a filter.
       const filters: UsageLogFilter = {
-        organizationID: state.filters.organizationID,
-        userID: state.filters.userID,
-        apiTokenID: state.filters.apiTokenID,
-        requestID: state.filters.requestID,
-        apiType: state.filters.apiType,
-        featureType: state.filters.featureType,
-        quotaMode: state.filters.quotaMode,
-        channelID: state.filters.channelID,
-        provider: state.filters.provider,
-        status: state.filters.status,
-        model: state.filters.model,
+        organizationID: debouncedFilters.organizationID,
+        userID: debouncedFilters.userID,
+        apiTokenID: debouncedFilters.apiTokenID,
+        requestID: debouncedFilters.requestID,
+        apiType: debouncedFilters.apiType,
+        featureType: debouncedFilters.featureType,
+        quotaMode: debouncedFilters.quotaMode,
+        channelID: debouncedFilters.channelID,
+        provider: debouncedFilters.provider,
+        status: debouncedFilters.status,
+        model: debouncedFilters.model,
         limit: 50,
         offset: 0,
       };
       const analyticsFilters: UsageAnalyticsFilter = {
-        organizationID: state.filters.organizationID,
-        userID: state.filters.userID,
-        apiType: state.filters.apiType,
-        featureType: state.filters.featureType,
-        quotaMode: state.filters.quotaMode,
-        channelID: state.filters.channelID,
-        provider: state.filters.provider,
-        status: state.filters.status,
-        model: state.filters.model,
-        granularity: state.filters.analyticsGranularity,
+        organizationID: debouncedFilters.organizationID,
+        userID: debouncedFilters.userID,
+        apiType: debouncedFilters.apiType,
+        featureType: debouncedFilters.featureType,
+        quotaMode: debouncedFilters.quotaMode,
+        channelID: debouncedFilters.channelID,
+        provider: debouncedFilters.provider,
+        status: debouncedFilters.status,
+        model: debouncedFilters.model,
+        granularity: debouncedFilters.analyticsGranularity,
         limit: 8,
       };
       const [result, analytics] = await Promise.all([api.listUsageLogs(filters), api.getUsageAnalytics(analyticsFilters)]);
@@ -278,18 +282,18 @@ export function AdminUsageLogsPage() {
     }
   }, [
     api,
-    state.filters.apiTokenID,
-    state.filters.apiType,
-    state.filters.analyticsGranularity,
-    state.filters.channelID,
-    state.filters.featureType,
-    state.filters.model,
-    state.filters.organizationID,
-    state.filters.provider,
-    state.filters.quotaMode,
-    state.filters.requestID,
-    state.filters.status,
-    state.filters.userID,
+    debouncedFilters.apiTokenID,
+    debouncedFilters.apiType,
+    debouncedFilters.analyticsGranularity,
+    debouncedFilters.channelID,
+    debouncedFilters.featureType,
+    debouncedFilters.model,
+    debouncedFilters.organizationID,
+    debouncedFilters.provider,
+    debouncedFilters.quotaMode,
+    debouncedFilters.requestID,
+    debouncedFilters.status,
+    debouncedFilters.userID,
   ]);
 
   useEffect(() => {
