@@ -72,10 +72,15 @@ export function BillingPage() {
     if (paymentProviders.length === 0) {
       return;
     }
-    if (!paymentProviders.includes(topUpProvider)) {
+    // Cast to string array to avoid TS complaints if any, but actually it's fine.
+    // Ensure we correctly default to the first provider
+    const isTopUpValid = paymentProviders.includes(topUpProvider as any);
+    if (!isTopUpValid) {
       setTopUpProvider(paymentProviders[0]);
     }
-    if (!paymentProviders.includes(subscriptionProvider)) {
+
+    const isSubValid = paymentProviders.includes(subscriptionProvider as any);
+    if (!isSubValid) {
       setSubscriptionProvider(paymentProviders[0]);
     }
   }, [paymentProviders, subscriptionProvider, topUpProvider]);
