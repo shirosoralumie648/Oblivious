@@ -1,0 +1,4 @@
+## 2024-05-14 - IP Spoofing via X-Forwarded-For
+**Vulnerability:** The application was extracting the client IP address by taking the *first* element from the `X-Forwarded-For` header list. A malicious user could manually set this header in their request (e.g., `X-Forwarded-For: 203.0.113.10`), and the trusted proxy would append the real IP (e.g., `198.51.100.2`), resulting in a list like `203.0.113.10, 198.51.100.2`. The application would then incorrectly use the spoofed `203.0.113.10`.
+**Learning:** Always extract the *last* (rightmost) element from the `X-Forwarded-For` list, as that is the IP appended by the trusted edge proxy sitting directly in front of the application.
+**Prevention:** Use `parts[len(parts)-1]` instead of `parts[0]` when parsing comma-separated IP lists from `X-Forwarded-For`, or better yet, use a dedicated middleware that correctly parses the trusted proxy headers.
