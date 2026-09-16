@@ -154,11 +154,13 @@ describe('McpServersPage', () => {
     expect(screen.getByLabelText('Endpoint URL')).toHaveValue('');
     expect(screen.getByLabelText('Auth token')).toHaveValue('');
 
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
     fireEvent.click(screen.getByLabelText('Delete Internal MCP'));
     await waitFor(() => {
       expect(deleteServer).toHaveBeenCalledWith('mcp_2');
       expect(screen.queryByText('Internal MCP')).not.toBeInTheDocument();
     });
+    confirmSpy.mockRestore();
   });
 
   it('shows load errors from the MCP page surface', async () => {

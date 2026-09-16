@@ -400,7 +400,11 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     aria-label={`Delete ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={loadingAction === `delete:${server.id}`}
-                    onClick={() => void deleteServer(server.id)}
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete the MCP server "${server.name}"?`)) {
+                        void deleteServer(server.id);
+                      }
+                    }}
                     type="button"
                   >
                     <RiDeleteBinLine className="size-4" aria-hidden="true" />

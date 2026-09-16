@@ -259,9 +259,11 @@ describe('SettingsPage', () => {
 
     expect(await screen.findByText('Research MCP')).toBeInTheDocument();
 
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
     fireEvent.click(screen.getByRole('button', { name: 'Delete Research MCP' }));
 
     await waitFor(() => expect(deleteServer).toHaveBeenCalledWith('mcp_1'));
+    confirmSpy.mockRestore();
     expect(screen.queryByText('Research MCP')).not.toBeInTheDocument();
     expect(screen.getByText('No remote MCP servers registered.')).toBeInTheDocument();
   });

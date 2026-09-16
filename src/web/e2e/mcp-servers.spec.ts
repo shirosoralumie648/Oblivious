@@ -75,6 +75,7 @@ test('MCP servers browser journey covers catalog lifecycle diagnostics tools and
   await expect(page.getByLabel('Auth token')).toHaveValue('');
   await expect(page.getByText('secret-token')).toHaveCount(0);
 
+  page.once('dialog', dialog => void dialog.accept());
   await createdCard.getByRole('button', { name: 'Delete' }).click();
   await expect(createdCard).toHaveCount(0);
   await expect(researchCard).toBeVisible();
