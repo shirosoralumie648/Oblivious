@@ -4,6 +4,7 @@ import { RiAddLine, RiDeleteBinLine, RiPencilLine } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
@@ -279,24 +280,36 @@ export function AdminPlansPage() {
         </select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={state.plans}
-        loading={state.loading}
-        error={state.error}
-        emptyMessage="No plans configured -- Create a pricing plan to make quota packages available."
-        onRetry={loadPlans}
-        renderActions={(plan) => (
-          <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Edit plan ${plan.name}`} onClick={() => dispatch({ type: 'OPEN_EDIT', plan })}>
-              <RiPencilLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Deactivate plan ${plan.name}`} onClick={() => dispatch({ type: 'CONFIRM_DEACTIVATE', plan })}>
-              <RiDeleteBinLine className="size-4" aria-hidden="true" />
-            </Button>
-          </div>
-        )}
-      />
+      <TooltipProvider>
+        <DataTable
+          columns={columns}
+          data={state.plans}
+          loading={state.loading}
+          error={state.error}
+          emptyMessage="No plans configured -- Create a pricing plan to make quota packages available."
+          onRetry={loadPlans}
+          renderActions={(plan) => (
+            <div className="flex justify-end gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Edit plan ${plan.name}`} onClick={() => dispatch({ type: 'OPEN_EDIT', plan })}>
+                    <RiPencilLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit plan</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Deactivate plan ${plan.name}`} onClick={() => dispatch({ type: 'CONFIRM_DEACTIVATE', plan })}>
+                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Deactivate plan</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+        />
+      </TooltipProvider>
 
       <DrawerForm
         open={state.drawerOpen}

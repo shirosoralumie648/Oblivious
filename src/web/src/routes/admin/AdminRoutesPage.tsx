@@ -3,6 +3,7 @@ import { RiAddLine, RiDeleteBinLine, RiPencilLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
@@ -293,27 +294,39 @@ export function AdminRoutesPage() {
         </Button>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={state.routes}
-        loading={state.loading}
-        error={state.error}
-        emptyMessage="No model routes defined -- Create a route mapping to direct model requests to specific channels."
-        onRetry={loadRoutes}
-        renderActions={(route) => {
-          const model = route.model ?? route.modelPattern ?? route.id;
-          return (
-            <div className="flex justify-end gap-1">
-              <Button type="button" variant="ghost" size="icon" aria-label={`Edit route ${model}`} onClick={() => dispatch({ type: 'OPEN_EDIT', route })}>
-                <RiPencilLine className="size-4" aria-hidden="true" />
-              </Button>
-              <Button type="button" variant="ghost" size="icon" aria-label={`Delete route ${model}`} onClick={() => dispatch({ type: 'CONFIRM_DELETE', route })}>
-                <RiDeleteBinLine className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
-          );
-        }}
-      />
+      <TooltipProvider>
+        <DataTable
+          columns={columns}
+          data={state.routes}
+          loading={state.loading}
+          error={state.error}
+          emptyMessage="No model routes defined -- Create a route mapping to direct model requests to specific channels."
+          onRetry={loadRoutes}
+          renderActions={(route) => {
+            const model = route.model ?? route.modelPattern ?? route.id;
+            return (
+              <div className="flex justify-end gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Edit route ${model}`} onClick={() => dispatch({ type: 'OPEN_EDIT', route })}>
+                      <RiPencilLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit route</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Delete route ${model}`} onClick={() => dispatch({ type: 'CONFIRM_DELETE', route })}>
+                      <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete route</TooltipContent>
+                </Tooltip>
+              </div>
+            );
+          }}
+        />
+      </TooltipProvider>
 
       <DrawerForm
         open={state.drawerOpen}
