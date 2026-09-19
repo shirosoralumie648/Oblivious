@@ -18,10 +18,10 @@ const (
 type Mode string
 
 const (
-	ModeTiered  Mode = "tiered"  // safe=auto, medium=first-approval, dangerous=always-approve
-	ModeAll     Mode = "all"     // every tool call requires approval
-	ModeNone    Mode = "none"    // no tool call requires approval
-	ModeCustom  Mode = "custom"  // per-tool overrides from ToolOverrides
+	ModeTiered Mode = "tiered" // safe=auto, medium=first-approval, dangerous=always-approve
+	ModeAll    Mode = "all"    // every tool call requires approval
+	ModeNone   Mode = "none"   // no tool call requires approval
+	ModeCustom Mode = "custom" // per-tool overrides from ToolOverrides
 )
 
 // Decision is the output of an approval evaluation.
@@ -59,10 +59,10 @@ type ApprovalStore interface {
 
 // Policy evaluates whether a tool call requires human approval.
 type Policy struct {
-	mu             sync.RWMutex
-	mode           Mode
-	toolOverrides  map[string]ToolOverride
-	store          ApprovalStore
+	mu            sync.RWMutex
+	mode          Mode
+	toolOverrides map[string]ToolOverride
+	store         ApprovalStore
 }
 
 // NewPolicy creates a Policy with the given mode and optional store.

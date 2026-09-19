@@ -23,11 +23,11 @@ type ReActStep struct {
 
 // ReActResult is the outcome of a complete ReAct run.
 type ReActResult struct {
-	FinalAnswer    string     `json:"finalAnswer"`
+	FinalAnswer    string      `json:"finalAnswer"`
 	Steps          []ReActStep `json:"steps"`
-	TotalTokens    int        `json:"totalTokens"`
-	StopReason     string     `json:"stopReason"`
-	IterationCount int        `json:"iterationCount"`
+	TotalTokens    int         `json:"totalTokens"`
+	StopReason     string      `json:"stopReason"`
+	IterationCount int         `json:"iterationCount"`
 }
 
 // ReActConfig controls the ReAct loop behaviour.

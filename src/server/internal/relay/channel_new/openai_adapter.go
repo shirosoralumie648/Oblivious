@@ -24,13 +24,13 @@ func (a *OpenAIAdapter) Provider() string { return "openai" }
 // Capabilities returns the capabilities
 func (a *OpenAIAdapter) Capabilities() types.Capabilities {
 	return types.Capabilities{
-		SupportsChat:        true,
-		SupportsStreaming:   true,
+		SupportsChat:       true,
+		SupportsStreaming:  true,
 		SupportsEmbeddings: true,
-		SupportsImages:      true,
-		SupportsAudio:       true,
-		SupportsRealtime:    true,
-		SupportsAssistants:  true,
+		SupportsImages:     true,
+		SupportsAudio:      true,
+		SupportsRealtime:   true,
+		SupportsAssistants: true,
 	}
 }
 

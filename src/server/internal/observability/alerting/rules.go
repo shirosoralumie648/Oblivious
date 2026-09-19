@@ -11,15 +11,15 @@ import (
 )
 
 var (
-	ErrInvalidRuleName    = errors.New("alert rule name is required")
-	ErrInvalidRuleID      = errors.New("alert rule id is required")
-	ErrInvalidCondition   = errors.New("alert rule condition is required")
-	ErrInvalidSeverity    = errors.New("severity must be debug, info, warning, or critical")
-	ErrRuleNotFound       = errors.New("alert rule not found")
-	ErrRuleAlreadyExists  = errors.New("alert rule already exists")
-	ErrInvalidMetricName  = errors.New("metric name is required")
-	ErrInvalidThreshold   = errors.New("threshold is required")
-	ErrInvalidDuration    = errors.New("evaluation duration must be positive")
+	ErrInvalidRuleName   = errors.New("alert rule name is required")
+	ErrInvalidRuleID     = errors.New("alert rule id is required")
+	ErrInvalidCondition  = errors.New("alert rule condition is required")
+	ErrInvalidSeverity   = errors.New("severity must be debug, info, warning, or critical")
+	ErrRuleNotFound      = errors.New("alert rule not found")
+	ErrRuleAlreadyExists = errors.New("alert rule already exists")
+	ErrInvalidMetricName = errors.New("metric name is required")
+	ErrInvalidThreshold  = errors.New("threshold is required")
+	ErrInvalidDuration   = errors.New("evaluation duration must be positive")
 )
 
 type Severity string
@@ -34,12 +34,12 @@ const (
 type ComparisonOperator string
 
 const (
-	ComparisonGreaterThan          ComparisonOperator = "gt"
-	ComparisonGreaterThanOrEqual   ComparisonOperator = "gte"
-	ComparisonLessThan             ComparisonOperator = "lt"
-	ComparisonLessThanOrEqual      ComparisonOperator = "lte"
-	ComparisonEqual                ComparisonOperator = "eq"
-	ComparisonNotEqual             ComparisonOperator = "neq"
+	ComparisonGreaterThan        ComparisonOperator = "gt"
+	ComparisonGreaterThanOrEqual ComparisonOperator = "gte"
+	ComparisonLessThan           ComparisonOperator = "lt"
+	ComparisonLessThanOrEqual    ComparisonOperator = "lte"
+	ComparisonEqual              ComparisonOperator = "eq"
+	ComparisonNotEqual           ComparisonOperator = "neq"
 )
 
 type RuleStatus string
@@ -52,37 +52,37 @@ const (
 )
 
 type AlertRule struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	Severity       Severity          `json:"severity"`
-	MetricName     string            `json:"metricName"`
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description,omitempty"`
+	Severity       Severity           `json:"severity"`
+	MetricName     string             `json:"metricName"`
 	Operator       ComparisonOperator `json:"operator"`
-	Threshold      float64           `json:"threshold"`
-	Duration       time.Duration     `json:"duration"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Annotations    map[string]string `json:"annotations,omitempty"`
-	Enabled        bool              `json:"enabled"`
-	Status         RuleStatus        `json:"status"`
-	LastEvaluated  *time.Time        `json:"lastEvaluated,omitempty"`
-	LastFired      *time.Time        `json:"lastFired,omitempty"`
-	FireCount      int               `json:"fireCount"`
-	OrganizationID string            `json:"organizationId"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
+	Threshold      float64            `json:"threshold"`
+	Duration       time.Duration      `json:"duration"`
+	Labels         map[string]string  `json:"labels,omitempty"`
+	Annotations    map[string]string  `json:"annotations,omitempty"`
+	Enabled        bool               `json:"enabled"`
+	Status         RuleStatus         `json:"status"`
+	LastEvaluated  *time.Time         `json:"lastEvaluated,omitempty"`
+	LastFired      *time.Time         `json:"lastFired,omitempty"`
+	FireCount      int                `json:"fireCount"`
+	OrganizationID string             `json:"organizationId"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
 }
 
 type RuleEvaluationResult struct {
-	RuleID         string        `json:"ruleId"`
-	RuleName       string        `json:"ruleName"`
-	Severity       Severity      `json:"severity"`
-	Fired          bool          `json:"fired"`
-	CurrentValue   float64       `json:"currentValue"`
-	Threshold      float64       `json:"threshold"`
-	Operator       ComparisonOperator `json:"operator"`
-	Duration       time.Duration `json:"duration"`
-	EvaluatedAt    time.Time     `json:"evaluatedAt"`
-	Message        string        `json:"message,omitempty"`
+	RuleID       string             `json:"ruleId"`
+	RuleName     string             `json:"ruleName"`
+	Severity     Severity           `json:"severity"`
+	Fired        bool               `json:"fired"`
+	CurrentValue float64            `json:"currentValue"`
+	Threshold    float64            `json:"threshold"`
+	Operator     ComparisonOperator `json:"operator"`
+	Duration     time.Duration      `json:"duration"`
+	EvaluatedAt  time.Time          `json:"evaluatedAt"`
+	Message      string             `json:"message,omitempty"`
 }
 
 type MetricProvider interface {
@@ -99,19 +99,19 @@ type RuleStore interface {
 }
 
 type AlertRuleEngine struct {
-	mu             sync.Mutex
-	store          RuleStore
-	metricProvider MetricProvider
-	now            func() time.Time
-	onAlertFired   func(ctx context.Context, result RuleEvaluationResult)
+	mu              sync.Mutex
+	store           RuleStore
+	metricProvider  MetricProvider
+	now             func() time.Time
+	onAlertFired    func(ctx context.Context, result RuleEvaluationResult)
 	onAlertResolved func(ctx context.Context, result RuleEvaluationResult)
 }
 
 type AlertRuleEngineConfig struct {
-	Store          RuleStore
-	MetricProvider MetricProvider
-	Now            func() time.Time
-	OnAlertFired   func(ctx context.Context, result RuleEvaluationResult)
+	Store           RuleStore
+	MetricProvider  MetricProvider
+	Now             func() time.Time
+	OnAlertFired    func(ctx context.Context, result RuleEvaluationResult)
 	OnAlertResolved func(ctx context.Context, result RuleEvaluationResult)
 }
 
@@ -121,10 +121,10 @@ func NewAlertRuleEngine(config AlertRuleEngineConfig) *AlertRuleEngine {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &AlertRuleEngine{
-		store:          config.Store,
-		metricProvider: config.MetricProvider,
-		now:            now,
-		onAlertFired:   config.OnAlertFired,
+		store:           config.Store,
+		metricProvider:  config.MetricProvider,
+		now:             now,
+		onAlertFired:    config.OnAlertFired,
 		onAlertResolved: config.OnAlertResolved,
 	}
 }

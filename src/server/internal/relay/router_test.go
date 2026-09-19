@@ -1611,12 +1611,12 @@ func TestRelayLateReadinessQuotaCompensationContract(t *testing.T) {
 			}
 			// Compensation job must have been armed and scopes completed.
 			req := QuotaCompensationRequest{
-				RouteAttemptID: "placeholder", // any non-empty ID will do for key isolation test
-				Stage:          QuotaCompensationStageLateModelReadiness,
-				OrganizationID: "org_comp",
+				RouteAttemptID:   "placeholder", // any non-empty ID will do for key isolation test
+				Stage:            QuotaCompensationStageLateModelReadiness,
+				OrganizationID:   "org_comp",
 				BillingSessionID: "bill_test",
-				APITokenID:     "tok_comp",
-				Amount:         quotaManager.preconsumeAmount,
+				APITokenID:       "tok_comp",
+				Amount:           quotaManager.preconsumeAmount,
 			}
 			_ = req
 			// Org quota was refunded exactly once (via compensation coordinator).

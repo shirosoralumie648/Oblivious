@@ -27,11 +27,11 @@ const (
 type Action string
 
 const (
-	ActionRetry    Action = "retry"
-	ActionPause    Action = "pause"
-	ActionSkip     Action = "skip"
-	ActionBranch   Action = "branch"
-	ActionFail     Action = "fail"
+	ActionRetry  Action = "retry"
+	ActionPause  Action = "pause"
+	ActionSkip   Action = "skip"
+	ActionBranch Action = "branch"
+	ActionFail   Action = "fail"
 )
 
 // NodeFailureContext provides context about a node failure.
@@ -47,22 +47,22 @@ type NodeFailureContext struct {
 
 // FailureDecision is the result of evaluating a failure handler.
 type FailureDecision struct {
-	Action       Action     `json:"action"`
-	NextNodeID   string     `json:"nextNodeId,omitempty"`
-	RetryAt      *time.Time `json:"retryAt,omitempty"`
+	Action       Action        `json:"action"`
+	NextNodeID   string        `json:"nextNodeId,omitempty"`
+	RetryAt      *time.Time    `json:"retryAt,omitempty"`
 	BackoffDelay time.Duration `json:"backoffDelay,omitempty"`
-	Message      string     `json:"message,omitempty"`
-	Skipped      bool       `json:"skipped"`
+	Message      string        `json:"message,omitempty"`
+	Skipped      bool          `json:"skipped"`
 }
 
 // Handler evaluates node failures and determines the appropriate action.
 type Handler struct {
-	defaultStrategy  Strategy
-	defaultRetries   int
-	initialDelay     time.Duration
-	maxDelay         time.Duration
-	backoffFactor    float64
-	retryableErrors  []string
+	defaultStrategy Strategy
+	defaultRetries  int
+	initialDelay    time.Duration
+	maxDelay        time.Duration
+	backoffFactor   float64
+	retryableErrors []string
 }
 
 // HandlerOption configures a failure Handler.

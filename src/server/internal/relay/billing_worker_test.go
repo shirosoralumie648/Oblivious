@@ -8,11 +8,11 @@ import (
 
 func TestBillingTimeoutTask_Payload(t *testing.T) {
 	task := &BillingTimeoutTask{
-		SessionID:     "sess_123",
-		ChannelID:     "ch_1",
-		APIType:       types.APITypeChat,
-		Model:         "gpt-4o",
-		AuthAmt:       10.0,
+		SessionID:      "sess_123",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		AuthAmt:        10.0,
 		IdempotencyKey: "idem_123",
 	}
 	payload, err := structToPayload(task)

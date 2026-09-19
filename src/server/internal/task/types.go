@@ -14,18 +14,18 @@ const (
 // AuthorizationScope constants define the scope of task authorization.
 const (
 	AuthorizationScopeWorkspaceTools = "workspace_tools"
-	AuthorizationScopeKnowledgeOnly = "knowledge_only"
-	AuthorizationScopeFullAccess    = "full_access"
+	AuthorizationScopeKnowledgeOnly  = "knowledge_only"
+	AuthorizationScopeFullAccess     = "full_access"
 )
 
 // TaskStatus constants define the lifecycle states of a task.
 const (
-	TaskStatusDraft              = "draft"
-	TaskStatusRunning            = "running"
-	TaskStatusPaused             = "paused"
+	TaskStatusDraft                = "draft"
+	TaskStatusRunning              = "running"
+	TaskStatusPaused               = "paused"
 	TaskStatusAwaitingConfirmation = "awaiting_confirmation"
-	TaskStatusCompleted          = "completed"
-	TaskStatusCancelled          = "cancelled"
+	TaskStatusCompleted            = "completed"
+	TaskStatusCancelled            = "cancelled"
 )
 
 // TaskStepStatus constants define the lifecycle states of a task step.
@@ -52,10 +52,10 @@ type CreateTaskInput struct {
 
 // TaskFilter contains optional filters for listing tasks.
 type TaskFilter struct {
-	Status    string `json:"status,omitempty"`
-	Mode      string `json:"mode,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	Status string `json:"status,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitempty"`
 }
 
 // TaskStats contains aggregated statistics about tasks.
@@ -80,9 +80,9 @@ const (
 
 // TaskResult constants define result artifact types.
 const (
-	TaskResultArtifactTypeSteps    = "steps"
-	TaskResultArtifactTypeBudget   = "budget"
-	TaskResultArtifactTypeSources  = "sources"
+	TaskResultArtifactTypeSteps   = "steps"
+	TaskResultArtifactTypeBudget  = "budget"
+	TaskResultArtifactTypeSources = "sources"
 )
 
 // TaskEventWithTimestamp pairs a task event with a specific timestamp.
@@ -93,10 +93,10 @@ type TaskEventWithTimestamp struct {
 
 // TaskProgress represents the current progress of a running task.
 type TaskProgress struct {
-	TaskID         string    `json:"taskId"`
-	CurrentStep    int       `json:"currentStep"`
-	TotalSteps     int       `json:"totalSteps"`
-	ProgressPct    float64   `json:"progressPct"`
-	CurrentStepTitle string  `json:"currentStepTitle"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	TaskID           string    `json:"taskId"`
+	CurrentStep      int       `json:"currentStep"`
+	TotalSteps       int       `json:"totalSteps"`
+	ProgressPct      float64   `json:"progressPct"`
+	CurrentStepTitle string    `json:"currentStepTitle"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }

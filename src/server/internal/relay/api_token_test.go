@@ -172,13 +172,13 @@ func TestRelayAPITokenQuotaRefundOnceContract(t *testing.T) {
 }
 
 type memoryAPITokenQuotaRefundStore struct {
-	receipts   map[string]memoryQuotaCompensationReceipt
+	receipts    map[string]memoryQuotaCompensationReceipt
 	refundCalls map[string]int
 }
 
 func newMemoryAPITokenQuotaRefundStore() *memoryAPITokenQuotaRefundStore {
 	return &memoryAPITokenQuotaRefundStore{
-		receipts:   make(map[string]memoryQuotaCompensationReceipt),
+		receipts:    make(map[string]memoryQuotaCompensationReceipt),
 		refundCalls: make(map[string]int),
 	}
 }

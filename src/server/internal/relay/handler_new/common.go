@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // parseMessages 从原始 JSON map 解析 Messages

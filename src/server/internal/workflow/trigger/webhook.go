@@ -14,10 +14,10 @@ import (
 )
 
 var (
-	ErrWebhookSecretRequired  = errors.New("webhook secret is required")
-	ErrWebhookPayloadInvalid  = errors.New("webhook payload is invalid")
+	ErrWebhookSecretRequired    = errors.New("webhook secret is required")
+	ErrWebhookPayloadInvalid    = errors.New("webhook payload is invalid")
 	ErrWebhookSignatureMismatch = errors.New("webhook signature does not match")
-	ErrWebhookMethodNotAllowed = errors.New("webhook HTTP method not allowed")
+	ErrWebhookMethodNotAllowed  = errors.New("webhook HTTP method not allowed")
 )
 
 // WebhookTrigger manages webhook-based workflow triggering.

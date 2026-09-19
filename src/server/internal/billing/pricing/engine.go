@@ -26,8 +26,8 @@ type ModelPricing struct {
 
 // Engine 动态定价引擎
 type Engine struct {
-	mu      sync.RWMutex
-	prices  map[string]*ModelPricing
+	mu     sync.RWMutex
+	prices map[string]*ModelPricing
 }
 
 // NewEngine 创建定价引擎

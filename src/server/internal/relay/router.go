@@ -24,24 +24,24 @@ type ConversationAffinityStore interface {
 }
 
 type Router struct {
-	pool                   *ChannelPool
-	loadBalancer           *LoadBalancer
-	circuitBreakers        map[string]*CircuitBreaker
-	tokenBucket            *TokenBucket
-	healthChecker          *HealthChecker
-	billingHook            *BillingHook
-	billingRedisAddr       string
-	rateLimiter            ratelimit.RateLimiter
-	rateLimitResolver      RateLimitResolver
-	affinityStore          ConversationAffinityStore
-	semanticCache          *relaycache.SemanticCache
-	quotaManager           QuotaManager
-	apiTokenQuotaManager   APITokenQuotaManager
-	usageLogger            UsageLogger
-	retrySleep             func(time.Duration)
-	readiness              *routerReadiness
-	compensationStore      QuotaCompensationStore
-	routeAttemptIDGen      func() (string, error)
+	pool                 *ChannelPool
+	loadBalancer         *LoadBalancer
+	circuitBreakers      map[string]*CircuitBreaker
+	tokenBucket          *TokenBucket
+	healthChecker        *HealthChecker
+	billingHook          *BillingHook
+	billingRedisAddr     string
+	rateLimiter          ratelimit.RateLimiter
+	rateLimitResolver    RateLimitResolver
+	affinityStore        ConversationAffinityStore
+	semanticCache        *relaycache.SemanticCache
+	quotaManager         QuotaManager
+	apiTokenQuotaManager APITokenQuotaManager
+	usageLogger          UsageLogger
+	retrySleep           func(time.Duration)
+	readiness            *routerReadiness
+	compensationStore    QuotaCompensationStore
+	routeAttemptIDGen    func() (string, error)
 }
 
 // RouterRuntimeOptions is the one startup-built readiness carrier accepted by

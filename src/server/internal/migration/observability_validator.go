@@ -39,14 +39,14 @@ func (v *ObservabilityValidator) validateAlertConfigsTable(ctx context.Context) 
 		dataType   string
 		isNullable string
 	}{
-		"id":          {"bigint", "NO"},
-		"name":        {"character varying", "NO"},
-		"type":        {"character varying", "NO"},
-		"condition":   {"jsonb", "NO"},
-		"severity":    {"character varying", "NO"},
-		"enabled":     {"boolean", "NO"},
-		"created_at":  {"timestamp with time zone", "NO"},
-		"updated_at":  {"timestamp with time zone", "NO"},
+		"id":         {"bigint", "NO"},
+		"name":       {"character varying", "NO"},
+		"type":       {"character varying", "NO"},
+		"condition":  {"jsonb", "NO"},
+		"severity":   {"character varying", "NO"},
+		"enabled":    {"boolean", "NO"},
+		"created_at": {"timestamp with time zone", "NO"},
+		"updated_at": {"timestamp with time zone", "NO"},
 	}
 
 	found := make(map[string]bool)

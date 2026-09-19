@@ -154,12 +154,12 @@ func (ab *AdaptiveBalancer) GetChannelMetrics() map[string]ChannelMetrics {
 	result := make(map[string]ChannelMetrics, len(ab.channels))
 	for _, ch := range ab.channels {
 		result[ch.channelID] = ChannelMetrics{
-			ChannelID:       ch.channelID,
-			HealthScore:     ch.healthScore,
-			AvgLatencyMs:    ch.avgLatencyMs,
-			ErrorRate:       ch.errorRate,
-			DynamicWeight:   ab.computeDynamicWeight(ch),
-			Healthy:         ch.healthy,
+			ChannelID:     ch.channelID,
+			HealthScore:   ch.healthScore,
+			AvgLatencyMs:  ch.avgLatencyMs,
+			ErrorRate:     ch.errorRate,
+			DynamicWeight: ab.computeDynamicWeight(ch),
+			Healthy:       ch.healthy,
 		}
 	}
 	return result

@@ -28,12 +28,12 @@ func (m *mockStore) GetQuota(ctx context.Context, orgID, userID, resourceType st
 
 func TestServer_RecordUsage(t *testing.T) {
 	tests := []struct {
-		name       string
-		req        *billingpb.RecordUsageRequest
-		storeErr   error
-		wantErr    bool
-		wantMsg    string
-		wantOK     bool
+		name     string
+		req      *billingpb.RecordUsageRequest
+		storeErr error
+		wantErr  bool
+		wantMsg  string
+		wantOK   bool
 	}{
 		{
 			name:    "empty organization_id",
@@ -101,15 +101,15 @@ func TestServer_RecordUsage(t *testing.T) {
 
 func TestServer_GetQuota(t *testing.T) {
 	tests := []struct {
-		name        string
-		req         *billingpb.GetQuotaRequest
-		storeTotal  int64
-		storeUsed   int64
-		storeErr    error
-		wantErr     bool
-		wantTotal   int64
-		wantUsed    int64
-		wantRemain  int64
+		name       string
+		req        *billingpb.GetQuotaRequest
+		storeTotal int64
+		storeUsed  int64
+		storeErr   error
+		wantErr    bool
+		wantTotal  int64
+		wantUsed   int64
+		wantRemain int64
 	}{
 		{
 			name:    "empty organization_id",
@@ -122,10 +122,10 @@ func TestServer_GetQuota(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:       "store error",
-			req:        &billingpb.GetQuotaRequest{OrganizationId: "org1", ResourceType: "api_call"},
-			storeErr:   errors.New("db error"),
-			wantErr:    true,
+			name:     "store error",
+			req:      &billingpb.GetQuotaRequest{OrganizationId: "org1", ResourceType: "api_call"},
+			storeErr: errors.New("db error"),
+			wantErr:  true,
 		},
 		{
 			name:       "valid request",
