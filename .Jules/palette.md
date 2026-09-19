@@ -1,0 +1,3 @@
+## 2024-09-19 - Adding Tooltips to Icon-Only Buttons in DataTables
+**Learning:** Icon-only action buttons across DataTables were lacking tooltips, which impacts accessibility and clarity for users. Wrapping DataTable action renderers with TooltipProvider and tooltips significantly improves the user experience.
+**Action:** Consistently use Tooltip and TooltipProvider for icon-only action buttons in shared component tables across all administrative pages.

@@ -3,6 +3,7 @@ import { RiAlarmWarningLine, RiCheckLine, RiCloseLine, RiEdit2Line, RiShieldChec
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Textarea } from '@/components/ui/textarea';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
@@ -536,30 +537,52 @@ export function AdminReviewsPage() {
         </select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={state.reviews}
-        loading={state.loading}
-        error={state.error}
-        emptyMessage="No agents waiting for review -- Submitted agents will appear here."
-        onRetry={loadReviews}
-        renderActions={(agent) => (
-          <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Claim review ${agent.name}`} onClick={() => void handleClaimReview(agent)}>
-              <RiShieldCheckLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Approve agent ${agent.name}`} onClick={() => dispatch({ type: 'CONFIRM_APPROVE', agent })}>
-              <RiCheckLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Request changes for agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_CHANGES', agent })}>
-              <RiEdit2Line className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Reject agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_REJECT', agent })}>
-              <RiCloseLine className="size-4" aria-hidden="true" />
-            </Button>
-          </div>
-        )}
-      />
+      <TooltipProvider>
+        <DataTable
+          columns={columns}
+          data={state.reviews}
+          loading={state.loading}
+          error={state.error}
+          emptyMessage="No agents waiting for review -- Submitted agents will appear here."
+          onRetry={loadReviews}
+          renderActions={(agent) => (
+            <div className="flex justify-end gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Claim review ${agent.name}`} onClick={() => void handleClaimReview(agent)}>
+                    <RiShieldCheckLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Claim review</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Approve agent ${agent.name}`} onClick={() => dispatch({ type: 'CONFIRM_APPROVE', agent })}>
+                    <RiCheckLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Approve agent</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Request changes for agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_CHANGES', agent })}>
+                    <RiEdit2Line className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Request changes</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Reject agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_REJECT', agent })}>
+                    <RiCloseLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Reject agent</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+        />
+      </TooltipProvider>
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
