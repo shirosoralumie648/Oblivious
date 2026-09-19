@@ -5,8 +5,8 @@ import (
 	"log"
 
 	"google.golang.org/protobuf/proto"
-	eventpb "oblivious/server/pkg/event/proto"
 	"oblivious/server/pkg/event"
+	eventpb "oblivious/server/pkg/event/proto"
 )
 
 type Consumer struct {

@@ -10,12 +10,12 @@ import (
 // ConversationAffinity 渠道亲和性管理器
 // conversation_id -> channel_id 映射，支持故障自动切换和语义缓存跨渠道共享
 type ConversationAffinity struct {
-	mu             sync.RWMutex
-	mappings       map[string]*types.AffinityMapping  // conversation_id -> mapping
-	orgIndex       map[string][]string                 // org_id -> [conversation_ids]
-	ttl            time.Duration
-	maxFailovers   int
-	onFailover     func(conversationID, oldChannelID, newChannelID string)
+	mu           sync.RWMutex
+	mappings     map[string]*types.AffinityMapping // conversation_id -> mapping
+	orgIndex     map[string][]string               // org_id -> [conversation_ids]
+	ttl          time.Duration
+	maxFailovers int
+	onFailover   func(conversationID, oldChannelID, newChannelID string)
 }
 
 // NewConversationAffinity 创建渠道亲和性管理器

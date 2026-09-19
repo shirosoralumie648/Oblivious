@@ -13,10 +13,10 @@ var ErrConcurrencyLimitExceeded = errors.New("concurrency: limit exceeded")
 
 // Limiter 分布式并发控制器，基于 Redis 计数器
 type Limiter struct {
-	rdb        *redis.Client
-	keyPrefix  string
-	maxConcur  int
-	ttl        time.Duration
+	rdb       *redis.Client
+	keyPrefix string
+	maxConcur int
+	ttl       time.Duration
 }
 
 // NewLimiter 创建并发控制器

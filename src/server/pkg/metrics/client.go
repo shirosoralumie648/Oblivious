@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	observabilityv1 "oblivious/server/api/proto/observability/v1"
 	"google.golang.org/grpc"
+	observabilityv1 "oblivious/server/api/proto/observability/v1"
 )
 
 type Client struct {

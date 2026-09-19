@@ -9,10 +9,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	pb "oblivious/server/pkg/relay/proto"
 	"oblivious/server/internal/relay"
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/types"
+	pb "oblivious/server/pkg/relay/proto"
 )
 
 const bufSize = 1024 * 1024

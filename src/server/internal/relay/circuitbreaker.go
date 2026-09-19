@@ -28,14 +28,14 @@ func (s CircuitState) String() string {
 type CircuitBreaker struct {
 	mu               sync.Mutex
 	provider         string
-	failureLimit    int
-	successLimit    int
-	failureCount    int
-	successCount    int
-	state           CircuitState
-	openedAt        time.Time
-	probeAt         time.Time
-	probeInterval   time.Duration
+	failureLimit     int
+	successLimit     int
+	failureCount     int
+	successCount     int
+	state            CircuitState
+	openedAt         time.Time
+	probeAt          time.Time
+	probeInterval    time.Duration
 	maxProbeInterval time.Duration
 }
 

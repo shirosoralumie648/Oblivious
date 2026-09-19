@@ -27,30 +27,30 @@ const (
 
 // UsageEvent 使用事件
 type UsageEvent struct {
-	ID              string
-	UserID          string
-	WorkspaceID     string
-	ConversationID  string
-	ModelID         string
-	APIType         string
-	InputTokens     int
-	OutputTokens    int
-	ImageCount      int
-	AudioSeconds    float64
-	RequestCount    int
-	EstimatedCost   float64
-	SettledCost     float64
-	IdempotencyKey  string
-	CreatedAt       time.Time
+	ID             string
+	UserID         string
+	WorkspaceID    string
+	ConversationID string
+	ModelID        string
+	APIType        string
+	InputTokens    int
+	OutputTokens   int
+	ImageCount     int
+	AudioSeconds   float64
+	RequestCount   int
+	EstimatedCost  float64
+	SettledCost    float64
+	IdempotencyKey string
+	CreatedAt      time.Time
 }
 
 // Subscription 订阅
 type Subscription struct {
-	ID          string
-	UserID      string
-	WorkspaceID string
-	PlanID      string
-	Status      SubscriptionStatus
+	ID                 string
+	UserID             string
+	WorkspaceID        string
+	PlanID             string
+	Status             SubscriptionStatus
 	CurrentPeriodStart time.Time
 	CurrentPeriodEnd   time.Time
 	CancelAtPeriodEnd  bool
@@ -60,16 +60,16 @@ type Subscription struct {
 
 // Payment 支付记录
 type Payment struct {
-	ID          string
-	UserID      string
-	WorkspaceID string
-	Amount      float64
-	Currency    string
-	Status      PaymentStatus
-	Description string
+	ID              string
+	UserID          string
+	WorkspaceID     string
+	Amount          float64
+	Currency        string
+	Status          PaymentStatus
+	Description     string
 	StripePaymentID string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Store 持久化接口

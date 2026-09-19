@@ -75,13 +75,13 @@ func (h marketplacePayoutWebhookHandler) handle(w stdhttp.ResponseWriter, r *std
 		errorMessage = "missing payout_id or provider_payout_id"
 	}
 	recorded, err := h.ledger.RecordWebhookEvent(r.Context(), stripebilling.WebhookEvent{
-		Provider:   h.provider,
-		EventID:    event.ID,
-		EventType:  event.Type,
-		Status:     status,
-		Payload:    append([]byte(nil), payload...),
-		Error:      errorMessage,
-		ReceivedAt: now,
+		Provider:    h.provider,
+		EventID:     event.ID,
+		EventType:   event.Type,
+		Status:      status,
+		Payload:     append([]byte(nil), payload...),
+		Error:       errorMessage,
+		ReceivedAt:  now,
 		ProcessedAt: &processedAt,
 	})
 	if err != nil {

@@ -510,8 +510,8 @@ func TestQuotaCompensationWorkerRecoversPersistedFailures(t *testing.T) {
 			// Step 1: arm a job representing an immediate failure.
 			store := newMemoryQuotaCompensationStore()
 			req := QuotaCompensationRequest{
-				RouteAttemptID:   "worker-restart-" + tc.name,
-				Stage:            QuotaCompensationStageLateModelReadiness,
+				RouteAttemptID: "worker-restart-" + tc.name,
+				Stage:          QuotaCompensationStageLateModelReadiness,
 			}
 			if tc.withOrg {
 				req.OrganizationID = "org_worker"
@@ -584,10 +584,10 @@ func TestQuotaCompensationWorkerReplaysCrashWindowExactlyOnce(t *testing.T) {
 	// On restart the worker must not double-credit.
 	store := newMemoryQuotaCompensationStore()
 	req := QuotaCompensationRequest{
-		RouteAttemptID:   "crash-window-test",
-		Stage:            QuotaCompensationStageLateModelReadiness,
-		APITokenID:       "tok_crash",
-		Amount:           7.0,
+		RouteAttemptID: "crash-window-test",
+		Stage:          QuotaCompensationStageLateModelReadiness,
+		APITokenID:     "tok_crash",
+		Amount:         7.0,
 	}
 	job, err := store.ArmQuotaCompensation(context.Background(), req)
 	if err != nil {

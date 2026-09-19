@@ -60,11 +60,11 @@ func (t *Transformer) TransformOutbound(adapterType string, adp adapter.ChannelA
 
 // TransformResult holds the outcome of a transformation attempt.
 type TransformResult struct {
-	Success   bool                `json:"success"`
+	Success   bool                    `json:"success"`
 	Message   adapter.InternalMessage `json:"message,omitempty"`
-	Raw       json.RawMessage     `json:"raw,omitempty"`
-	Error     string              `json:"error,omitempty"`
-	Direction string              `json:"direction"`
+	Raw       json.RawMessage         `json:"raw,omitempty"`
+	Error     string                  `json:"error,omitempty"`
+	Direction string                  `json:"direction"`
 }
 
 // TransformInboundSafe wraps TransformInbound and never returns an error.

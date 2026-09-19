@@ -633,9 +633,9 @@ func quotaCompensationScopeErr(scope string, cause error) *QuotaCompensationScop
 // QuotaCompensationCoordinator arms the durable job before any refund attempt
 // and then drives each required scope independently.
 type QuotaCompensationCoordinator struct {
-	store            QuotaCompensationStore
-	quotaManager     QuotaManager
-	apiTokenManager  APITokenQuotaManager
+	store           QuotaCompensationStore
+	quotaManager    QuotaManager
+	apiTokenManager APITokenQuotaManager
 }
 
 // NewQuotaCompensationCoordinator constructs a coordinator with the given

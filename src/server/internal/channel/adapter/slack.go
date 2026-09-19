@@ -94,8 +94,8 @@ func (a *SlackAdapter) TestConnection(ctx context.Context, config map[string]any
 }
 
 type slackInboundPayload struct {
-	EventID string     `json:"event_id,omitempty"`
-	Event   slackEvent `json:"event,omitempty"`
+	EventID string      `json:"event_id,omitempty"`
+	Event   slackEvent  `json:"event,omitempty"`
 	Files   []slackFile `json:"files,omitempty"`
 }
 

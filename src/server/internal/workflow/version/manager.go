@@ -39,11 +39,11 @@ type VersionEntry struct {
 
 // VersionIsolation binds an execution to a specific version snapshot.
 type VersionIsolation struct {
-	ExecutionID  string         `json:"executionId"`
-	WorkflowID   string         `json:"workflowId"`
-	Version      int            `json:"version"`
-	Snapshot     map[string]any `json:"snapshot"`
-	BoundAt      time.Time      `json:"boundAt"`
+	ExecutionID string         `json:"executionId"`
+	WorkflowID  string         `json:"workflowId"`
+	Version     int            `json:"version"`
+	Snapshot    map[string]any `json:"snapshot"`
+	BoundAt     time.Time      `json:"boundAt"`
 }
 
 // NewManager creates a new version manager.

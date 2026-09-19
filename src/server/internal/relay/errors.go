@@ -4,7 +4,7 @@ import "errors"
 
 var (
 	ErrNoAvailableChannel = errors.New("relay: no available channel")
-	ErrChannelUnavailable  = errors.New("relay: channel unavailable")
+	ErrChannelUnavailable = errors.New("relay: channel unavailable")
 	ErrRateLimitExceeded  = errors.New("relay: rate limit exceeded")
 	ErrInsufficientQuota  = errors.New("relay: insufficient quota")
 	ErrCircuitOpen        = errors.New("relay: circuit open")

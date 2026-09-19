@@ -22,9 +22,9 @@ func (c *ChannelConsumer) HandleMessageReceived(ctx context.Context, event event
 	}
 
 	c.reporter.ReportError(ctx, Event{
-		Component:      "channel",
-		Event:          "message.received",
-		ChannelID:      payload.ChannelID,
+		Component: "channel",
+		Event:     "message.received",
+		ChannelID: payload.ChannelID,
 		Fields: map[string]any{
 			"message_id":      payload.MessageID,
 			"conversation_id": payload.ConversationID,
@@ -41,9 +41,9 @@ func (c *ChannelConsumer) HandleMessageSent(ctx context.Context, event events.Ev
 	}
 
 	c.reporter.ReportError(ctx, Event{
-		Component:      "channel",
-		Event:          "message.sent",
-		ChannelID:      payload.ChannelID,
+		Component: "channel",
+		Event:     "message.sent",
+		ChannelID: payload.ChannelID,
 		Fields: map[string]any{
 			"message_id":      payload.MessageID,
 			"conversation_id": payload.ConversationID,

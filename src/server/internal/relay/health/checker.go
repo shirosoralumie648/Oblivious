@@ -15,11 +15,11 @@ import (
 // 定期检查所有渠道健康状态，自动摘除/恢复，维护 health_score
 type Checker struct {
 	mu              sync.RWMutex
-	channels        map[string]*channelHealth  // channel_id -> health
+	channels        map[string]*channelHealth // channel_id -> health
 	httpClient      *http.Client
 	checkInterval   time.Duration
-	unhealthyThresh int           // 连续失败多少次后摘除
-	recoveryThresh  int           // 连续成功多少次后恢复
+	unhealthyThresh int // 连续失败多少次后摘除
+	recoveryThresh  int // 连续成功多少次后恢复
 	onRemove        func(channelID string)
 	onRecover       func(channelID string)
 	stopCh          chan struct{}
@@ -36,7 +36,7 @@ type channelHealth struct {
 // NewChecker 创建健康检查器
 func NewChecker(checkInterval time.Duration, unhealthyThresh, recoveryThresh int) *Checker {
 	return &Checker{
-		channels:        make(map[string]*channelHealth),
+		channels: make(map[string]*channelHealth),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{

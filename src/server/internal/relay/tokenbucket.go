@@ -18,10 +18,10 @@ type TokenBucket struct {
 func NewTokenBucket(rpm, tpm int) *TokenBucket {
 	now := time.Now()
 	return &TokenBucket{
-		rpmTokens:    rpm,
-		tpmTokens:    tpm,
-		rpmLimit:     rpm,
-		tpmLimit:     tpm,
+		rpmTokens:     rpm,
+		tpmTokens:     tpm,
+		rpmLimit:      rpm,
+		tpmLimit:      tpm,
 		rpmLastRefill: now,
 		tpmLastRefill: now,
 	}

@@ -19,7 +19,7 @@ const (
 type Engine struct{}
 
 // NewEngine returns a new chunking Engine.
-func NewEngine() *Engine { return &Engine{}}
+func NewEngine() *Engine { return &Engine{} }
 
 // Chunk splits content into EngineDocumentChunks preserving page metadata
 // when available. The pages slice may be nil for single-page documents.

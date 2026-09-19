@@ -12,18 +12,18 @@ import (
 )
 
 const (
-	BillingTimeoutQueue    = "billing_timeout"
-	BillingPollingQueue    = "billing_polling"
-	BillingTimeoutPayload  = "billing_timeout_payload"
+	BillingTimeoutQueue   = "billing_timeout"
+	BillingPollingQueue   = "billing_polling"
+	BillingTimeoutPayload = "billing_timeout_payload"
 	BillingPollingPayload = "billing_polling_payload"
 )
 
 type BillingTimeoutTask struct {
-	SessionID     string
-	ChannelID     string
-	APIType       types.APIType
-	Model         string
-	AuthAmt       float64
+	SessionID      string
+	ChannelID      string
+	APIType        types.APIType
+	Model          string
+	AuthAmt        float64
 	IdempotencyKey string
 }
 

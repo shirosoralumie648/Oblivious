@@ -22,11 +22,11 @@ const (
 // closed, open, and half-open. It tracks per-service-target error rates and
 // automatically transitions between states based on configurable thresholds.
 type CircuitBreaker struct {
-	mu              sync.RWMutex
-	targets         map[ServiceTarget]*circuitTarget
-	threshold       float64
-	openDuration    time.Duration
-	minRequests     int
+	mu           sync.RWMutex
+	targets      map[ServiceTarget]*circuitTarget
+	threshold    float64
+	openDuration time.Duration
+	minRequests  int
 }
 
 // circuitTarget tracks the state for a single service target.

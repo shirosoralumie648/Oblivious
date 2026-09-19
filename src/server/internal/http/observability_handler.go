@@ -151,11 +151,11 @@ func (h observabilityHandler) getDashboard(w stdhttp.ResponseWriter, r *stdhttp.
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{
-		"channels_total":  len(channels),
-		"total_requests":  totalRequests,
-		"total_success":   totalSuccess,
-		"total_failure":   totalFailure,
-		"channel_stats":   stats,
+		"channels_total": len(channels),
+		"total_requests": totalRequests,
+		"total_success":  totalSuccess,
+		"total_failure":  totalFailure,
+		"channel_stats":  stats,
 	})
 }
 

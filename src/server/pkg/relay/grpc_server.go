@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"io"
 
-	pb "oblivious/server/pkg/relay/proto"
 	"oblivious/server/internal/relay"
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/types"
+	pb "oblivious/server/pkg/relay/proto"
 )
 
 type Server struct {
