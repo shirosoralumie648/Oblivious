@@ -1,4 +1,4 @@
-export type FutureConfig = { v7_relativeSplatPath?: boolean; v7_startTransition?: boolean; };
+import type { FutureConfig } from 'react-router-dom';
 
 export const routerFuture: FutureConfig = {
   v7_relativeSplatPath: true,
