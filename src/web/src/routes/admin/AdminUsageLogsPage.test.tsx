@@ -174,9 +174,9 @@ describe('AdminUsageLogsPage', () => {
     render(<AdminUsageLogsPage />);
 
     expect(await screen.findByRole('heading', { name: 'Cross dimensions' })).toBeInTheDocument();
-    expect(screen.getByText((content, element) => content.includes('model_time') && element?.tagName.toLowerCase() === 'span')).toBeInTheDocument();
-    expect(screen.getByText((content, element) => content.includes('user_feature') && element?.tagName.toLowerCase() === 'span')).toBeInTheDocument();
-    expect(screen.getByText((content, element) => content.includes('feature_time') && element?.tagName.toLowerCase() === 'span')).toBeInTheDocument();
+    expect(screen.getByText('model_time')).toBeInTheDocument();
+    expect(screen.getByText('user_feature')).toBeInTheDocument();
+    expect(screen.getByText('feature_time')).toBeInTheDocument();
     expect(screen.getByText('gpt-4o / 2026-06-04T00:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('user_1 / workspace_chat')).toBeInTheDocument();
     expect(screen.getByText('agent_run / 2026-06-04T01:00:00Z')).toBeInTheDocument();
