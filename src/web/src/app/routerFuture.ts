@@ -1,6 +1,6 @@
-import type { RouterProviderProps } from 'react-router-dom';
+import type { FutureConfig } from 'react-router-dom';
 
-export const routerFuture: RouterProviderProps['future'] = {
+export const routerFuture: FutureConfig = {
   v7_relativeSplatPath: true,
   v7_startTransition: true
 };
