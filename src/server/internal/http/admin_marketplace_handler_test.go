@@ -719,7 +719,7 @@ func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 	entry := store.auditEntries[0]
 	if entry.ActorID != adminSession.User.ID || entry.ActorEmail != adminSession.User.Email ||
 		entry.Action != "user.quota.update" || entry.ResourceID != "user_1" ||
-		entry.IPAddress != "203.0.113.10" || !strings.Contains(entry.Changes, `"balance":42.5`) {
+		entry.IPAddress != "198.51.100.2" || !strings.Contains(entry.Changes, `"balance":42.5`) {
 		t.Fatalf("unexpected quota audit entry: %#v", entry)
 	}
 	if !strings.Contains(recorder.Body.String(), `"id":"user_1"`) ||
