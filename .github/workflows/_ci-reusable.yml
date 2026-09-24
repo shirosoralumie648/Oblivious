@@ -154,7 +154,7 @@ jobs:
       - name: Install shell gate tools
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Verify dependency security
-        run: bash scripts/check.sh security || true
+        run: bash scripts/check.sh security || true || true
 
   server-database:
     name: server-database
