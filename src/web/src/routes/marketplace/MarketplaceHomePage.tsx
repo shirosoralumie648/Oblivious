@@ -10,7 +10,7 @@ import { FilterPanel } from '../../components/shared/FilterPanel';
 import { RatingStars } from '../../components/shared/RatingStars';
 import { SearchBar } from '../../components/shared/SearchBar';
 import { createMarketplaceApi, type Category, type CuratedMarketplaceSections, type MarketplaceAgent, type MarketplaceTemplate } from '../../features/marketplace/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 type CuratedSection = {
   key: keyof CuratedMarketplaceSections;
@@ -175,7 +175,7 @@ function CuratedLoadingSections() {
 
 export function MarketplaceHomePage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createMarketplaceApi(createHttpClient()), []);
+  const api = useMemo(() => createMarketplaceApi(httpClient), []);
 
   const availableTags = useMemo(
     () => Array.from(new Set(state.agents.flatMap((agent) => agent.tags))).sort(),

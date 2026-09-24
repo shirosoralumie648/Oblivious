@@ -9,7 +9,7 @@ import {
   type PublishingChannelType,
   type RetryProcessResult
 } from '../../features/publishingChannels/publishingChannelsApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 const channelTypes: PublishingChannelType[] = ['webhook', 'feishu', 'wechat', 'discord', 'slack', 'telegram', 'web_embed', 'api'];
 type ChannelFormState = {
@@ -239,7 +239,7 @@ function ChannelLogTable({
 }
 
 export function PublishingChannelsPage() {
-  const channelsApi = useMemo(() => createPublishingChannelsApi(createHttpClient()), []);
+  const channelsApi = useMemo(() => createPublishingChannelsApi(httpClient), []);
   const [channels, setChannels] = useState<PublishingChannel[]>([]);
   const [channelName, setChannelName] = useState('');
   const [channelType, setChannelType] = useState<PublishingChannelType>('webhook');

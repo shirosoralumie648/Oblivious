@@ -31,7 +31,7 @@ import {
   type ConversationTriggerMatch,
   type SemanticTriggerMatch,
 } from '../../features/workflows/workflowsApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 const manualDraftDefinition = {
   nodes: [{ id: 'manual-start', type: 'manual' }],
@@ -1725,8 +1725,8 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export function WorkflowsPage() {
-  const workflowsApi = useMemo(() => createWorkflowsApi(createHttpClient()), []);
-  const scheduledTasksApi = useMemo(() => createScheduledTasksApi(createHttpClient()), []);
+  const workflowsApi = useMemo(() => createWorkflowsApi(httpClient), []);
+  const scheduledTasksApi = useMemo(() => createScheduledTasksApi(httpClient), []);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [branchDrafts, setBranchDrafts] = useState<Record<string, BranchDraft>>({});
   const [branchForms, setBranchForms] = useState<Record<string, boolean>>({});

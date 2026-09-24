@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { RelayPricingSettings, UsageLimitSettings, UsageLogEntry, UsageLogFilter } from '../../types/admin';
 
 type SettingsState = {
@@ -310,7 +310,7 @@ function usagePeriodSeconds(period: string): number {
 
 export function AdminSettingsPage() {
   const [state, setState] = useState<SettingsState>(initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadSettings = async () => {
     setState((current) => ({ ...current, loading: true, error: null, saved: null }));

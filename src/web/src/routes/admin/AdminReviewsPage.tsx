@@ -10,7 +10,7 @@ import { DataTable, type DataTableColumn } from '../../components/shared/DataTab
 import { DrawerForm } from '../../components/shared/DrawerForm';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { MarketplaceAbuseReport, PublishedAgent } from '../../types/admin';
 
 type AbuseReportAction = {
@@ -282,7 +282,7 @@ function updatedAt(agent: PublishedAgent) {
 
 export function AdminReviewsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadReviews = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

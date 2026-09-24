@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { createConsoleApi } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type {
   AccessSummary,
   ConsoleApiTokenUsageItem,
@@ -68,7 +68,7 @@ function UsageAggregationTable({
 }
 
 export function UsagePage() {
-  const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
+  const consoleApi = useMemo(() => createConsoleApi(httpClient), []);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);

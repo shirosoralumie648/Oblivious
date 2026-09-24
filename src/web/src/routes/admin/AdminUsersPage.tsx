@@ -9,7 +9,7 @@ import { DrawerForm } from '../../components/shared/DrawerForm';
 import { SearchBar } from '../../components/shared/SearchBar';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { UserDetail, UserUpdateRequest } from '../../types/admin';
 
 type UserForm = {
@@ -139,7 +139,7 @@ function lastLogin(value: string | null) {
 
 export function AdminUsersPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadUsers = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

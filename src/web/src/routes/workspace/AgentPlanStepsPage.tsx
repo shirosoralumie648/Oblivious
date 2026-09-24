@@ -8,7 +8,7 @@ import {
   type AgentToolRun,
   type MoveAgentPlanStepDirection
 } from '../../features/agents/planStepsApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim() !== '') {
@@ -109,7 +109,7 @@ function defaultToolRunDecisionReason(action: 'approve' | 'reject') {
 export function AgentPlanStepsPage() {
   const { runId = '' } = useParams();
   const location = useLocation();
-  const api = useMemo(() => createAgentPlanStepsApi(createHttpClient()), []);
+  const api = useMemo(() => createAgentPlanStepsApi(httpClient), []);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);

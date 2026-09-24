@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { createConsoleApi } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { AccessSummary, ConsoleApiTokenUsageItem, RelayApiToken } from '../../types/api';
 
 export function AccessPage() {
-  const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
+  const consoleApi = useMemo(() => createConsoleApi(httpClient), []);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [apiTokens, setApiTokens] = useState<RelayApiToken[]>([]);
   const [allowedModels, setAllowedModels] = useState('gpt-4o,gpt-4o-mini');

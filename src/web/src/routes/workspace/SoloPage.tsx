@@ -5,7 +5,7 @@ import { useAppContext } from '../../app/providers';
 import { createChatApi } from '../../features/chat/api';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createTasksApi } from '../../features/tasks/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { CreateTaskRequest, KnowledgeBaseSummary, TaskDetail, TaskSummary } from '../../types/api';
 
 const defaultBudgetLimit = '10';
@@ -131,8 +131,7 @@ export function SoloPage() {
   const navigate = useNavigate();
   const isTaskCreationView = location.pathname === '/solo/new';
   const returnTo = new URLSearchParams(location.search).get('returnTo');
-  const httpClient = useMemo(() => createHttpClient(), []);
-  const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
+    const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
   const tasksApi = useMemo(() => createTasksApi(httpClient), [httpClient]);
   const [budgetLimit, setBudgetLimit] = useState(defaultBudgetLimit);

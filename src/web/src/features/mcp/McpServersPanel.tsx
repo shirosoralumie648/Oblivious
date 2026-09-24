@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiPlayLine, RiSearchLine } from '@remixicon/react';
 
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import {
   createMcpServersApi,
   type LocalMcpServer,
@@ -53,7 +53,7 @@ function mergeServer(servers: McpServer[], server: McpServer) {
 }
 
 export function McpServersPanel({ api }: McpServersPanelProps) {
-  const defaultApi = useMemo(() => createMcpServersApi(createHttpClient()), []);
+  const defaultApi = useMemo(() => createMcpServersApi(httpClient), []);
   const mcpApi = api ?? defaultApi;
   const [argsJson, setArgsJson] = useState('{\n  \n}');
   const [authToken, setAuthToken] = useState('');

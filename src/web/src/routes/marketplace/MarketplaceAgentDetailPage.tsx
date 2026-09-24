@@ -16,7 +16,7 @@ import {
   type AgentVersion,
   type MarketplaceAgent,
 } from '../../features/marketplace/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 type DetailState = {
   agent: MarketplaceAgent | null;
@@ -180,7 +180,7 @@ function selectedPaymentProviderForAgent(agent: MarketplaceAgent, selectedProvid
 export function MarketplaceAgentDetailPage() {
   const { agentId } = useParams();
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createMarketplaceApi(createHttpClient()), []);
+  const api = useMemo(() => createMarketplaceApi(httpClient), []);
 
   const loadAgent = useCallback(async () => {
     if (!agentId) {

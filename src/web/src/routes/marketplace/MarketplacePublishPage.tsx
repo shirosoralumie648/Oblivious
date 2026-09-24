@@ -11,7 +11,7 @@ import {
   type AutomatedReviewResult,
   type Category,
 } from '../../features/marketplace/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 type PublishForm = AgentPublishRequest;
 
@@ -86,7 +86,7 @@ function publishPayload(form: PublishForm): AgentPublishRequest {
 
 export function MarketplacePublishPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createMarketplaceApi(createHttpClient()), []);
+  const api = useMemo(() => createMarketplaceApi(httpClient), []);
 
   const loadCategories = useCallback(async () => {
     const categories = await api.getCategories();

@@ -1,0 +1,3 @@
+## 2024-05-14 - Global HTTP Client
+**Learning:** The React frontend instantiates a new HTTP client instance via `createHttpClient()` in almost every top-level route and panel inside a `useMemo(() => createHttpClient(), [])`. This results in multiple isolated HTTP client instances, whereas a singleton is preferable for centralized configuration, token management, interceptors, and to avoid redundant instantiations across components.
+**Action:** Export a singleton `httpClient` instance from `src/web/src/services/http/client.ts` and use it across components, eliminating the need to re-instantiate it using `useMemo` everywhere.

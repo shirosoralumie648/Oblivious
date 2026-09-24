@@ -2,11 +2,11 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { createConsoleApi, type BillingCheckoutProvider, type ConsoleBillingInvoiceSummary, type ConsoleBillingSummary } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { AccessSummary, PackageOption } from '../../types/api';
 
 export function BillingPage() {
-  const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
+  const consoleApi = useMemo(() => createConsoleApi(httpClient), []);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [billingSummary, setBillingSummary] = useState<ConsoleBillingSummary | null>(null);
   const [invoices, setInvoices] = useState<ConsoleBillingInvoiceSummary[]>([]);

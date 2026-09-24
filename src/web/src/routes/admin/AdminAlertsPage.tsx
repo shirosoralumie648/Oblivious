@@ -15,7 +15,7 @@ import {
   type AdminObservabilityAlertState as RawAlertState,
   type AdminObservabilityRecoveryAction as RawRecoveryAction,
 } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 type AlertState = {
   id: string;
@@ -451,7 +451,7 @@ export function AdminAlertsPage() {
     providerName: string;
     result: AlertProviderTestResult;
   } | null>(null);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadAlerts = useCallback(async () => {
     dispatch({ type: 'LOADING' });

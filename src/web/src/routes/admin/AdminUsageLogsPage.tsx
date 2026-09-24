@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type {
   UsageAnalyticsBucket,
   UsageAnalyticsCrossDimensionBucket,
@@ -238,7 +238,7 @@ function CrossDimensionsPanel({ rows }: { rows: UsageAnalyticsCrossDimensionBuck
 
 export function AdminUsageLogsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadUsageLogs = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

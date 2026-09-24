@@ -16,13 +16,7 @@ import {
   releaseProjectionDigest,
   releaseSurfaceProjection
 } from '@/generated/release-projection.generated';
-import {
-  createHttpClient,
-  noneRequestEncoder,
-  rawResponseDecoder,
-  type HttpClient,
-  type OperationTransportContract
-} from '@/services/http/client';
+import { noneRequestEncoder, rawResponseDecoder, httpClient, type HttpClient, type OperationTransportContract } from '@/services/http/client';
 import { HttpError } from '@/services/http/errors';
 
 export type AppReleaseIdentity = {
@@ -291,7 +285,7 @@ export function ReleaseProjectionProvider({ children }: { children: ReactNode })
   const [state, setState] = useState<ReleaseProjectionState>(() => closedState('loading'));
 
   if (apiRef.current === undefined) {
-    apiRef.current = createReleaseProjectionApi(createHttpClient());
+    apiRef.current = createReleaseProjectionApi(httpClient);
   }
 
   useEffect(() => {

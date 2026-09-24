@@ -5,7 +5,7 @@ import {
   type ScheduledTask,
   type ScheduledTaskTargetType
 } from '../../features/scheduledTasks/scheduledTasksApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { ScheduledTaskRun } from '../../types/api';
 
 type RunPanelState = {
@@ -59,7 +59,7 @@ function runStatusClass(status: string) {
 }
 
 export function ScheduledTasksPage() {
-  const scheduledTasksApi = useMemo(() => createScheduledTasksApi(createHttpClient()), []);
+  const scheduledTasksApi = useMemo(() => createScheduledTasksApi(httpClient), []);
   const [cronExpression, setCronExpression] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
