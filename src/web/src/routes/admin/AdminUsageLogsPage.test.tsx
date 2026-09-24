@@ -122,7 +122,9 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByRole('heading', { name: 'By time' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By channel' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By provider' })).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+
+    // Use findByText to allow async loading of analytics to finish
+    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
     expect(screen.getByText('chat')).toBeInTheDocument();
     expect(screen.getByText('user_1')).toBeInTheDocument();
     expect(screen.getByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
