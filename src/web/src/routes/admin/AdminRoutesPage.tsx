@@ -9,7 +9,7 @@ import { DataTable, type DataTableColumn } from '../../components/shared/DataTab
 import { DrawerForm } from '../../components/shared/DrawerForm';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { ChannelInfo, RouteCreateRequest, RouteInfo, RouteStrategy } from '../../types/admin';
 
 type RouteFormChannel = {
@@ -226,7 +226,7 @@ function routeEnabled(route: RouteInfo) {
 
 export function AdminRoutesPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadRoutes = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

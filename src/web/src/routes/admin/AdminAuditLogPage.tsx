@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { SearchBar } from '../../components/shared/SearchBar';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { AuditEntry } from '../../types/admin';
 
 type AuditState = {
@@ -79,7 +79,7 @@ function formatDate(value: string) {
 
 export function AdminAuditLogPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
   const latestRequestRef = useRef(0);
 
   const loadEntries = useCallback(async () => {

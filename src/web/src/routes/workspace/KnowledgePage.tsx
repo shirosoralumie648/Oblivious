@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 import { createKnowledgeApi } from '../../features/knowledge/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type {
   CreateKnowledgeDocumentRequest,
   KnowledgeBaseSummary,
@@ -422,7 +422,7 @@ export function KnowledgePage() {
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId?: string }>();
   const { authState } = useAppContext();
   const returnTo = new URLSearchParams(window.location.search).get('returnTo');
-  const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
+  const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), []);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasRetrievedKnowledge, setHasRetrievedKnowledge] = useState(false);

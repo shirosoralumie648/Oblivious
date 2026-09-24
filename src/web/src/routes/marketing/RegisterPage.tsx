@@ -5,7 +5,7 @@ import { RiArrowRightLine, RiBuilding4Line } from '@remixicon/react';
 import { useAppContext } from '../../app/providers';
 import { registerOperationContract } from '@/generated/operation-contracts.generated';
 import {
-  createHttpClient,
+  httpClient,
   jsonEnvelopeDecoder,
   jsonRequestEncoder,
   type OperationTransportContract
@@ -25,7 +25,7 @@ function errorMessage(error: unknown) {
 export function RegisterPage() {
   const navigate = useNavigate();
   const { bootstrapAuth } = useAppContext();
-  const client = useMemo(() => createHttpClient(), []);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      await client.post<SessionResponse>('/api/v1/auth/register', { email, password }, undefined, registerTransport);
+      await httpClient.post<SessionResponse>('/api/v1/auth/register', { email, password }, undefined, registerTransport);
       await bootstrapAuth();
       navigate('/onboarding');
     } catch (caughtError) {

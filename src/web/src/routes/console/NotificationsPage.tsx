@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { RiCheckLine, RiDeleteBinLine } from '@remixicon/react';
 
 import { createNotificationsApi, type AppNotification } from '../../features/notifications/notificationsApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 const severityLabels: Record<string, string> = {
   critical: 'critical',
@@ -28,7 +28,7 @@ function severityClassName(type: string) {
 }
 
 export function NotificationsPage() {
-  const notificationsApi = useMemo(() => createNotificationsApi(createHttpClient()), []);
+  const notificationsApi = useMemo(() => createNotificationsApi(httpClient), []);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);

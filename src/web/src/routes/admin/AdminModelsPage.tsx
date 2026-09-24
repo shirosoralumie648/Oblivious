@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { ModelInventoryEntry, ModelInventoryFilter } from '../../types/admin';
 
 type ModelsState = {
@@ -119,7 +119,7 @@ function channelsCell(model: ModelInventoryEntry) {
 
 export function AdminModelsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const loadModels = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

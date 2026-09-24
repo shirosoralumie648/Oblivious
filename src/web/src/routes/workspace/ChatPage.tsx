@@ -7,7 +7,7 @@ import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createChatApi, createConversationRealtimeSocket } from '../../features/chat/api';
 import { useReleaseProjection } from '../../features/releaseProjection/releaseProjection';
 import { createTasksApi } from '../../features/tasks/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { ChatRealtimeEvent, ConversationRealtimeSocket } from '../../features/chat/api';
 import type {
   ConversationConfig,
@@ -492,8 +492,7 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { authState } = useAppContext();
   const releaseProjection = useReleaseProjection();
-  const httpClient = useMemo(() => createHttpClient(), []);
-  const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
+    const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
   const tasksApi = useMemo(() => createTasksApi(httpClient), [httpClient]);
   const editingMessageIdRef = useRef<string | null>(null);

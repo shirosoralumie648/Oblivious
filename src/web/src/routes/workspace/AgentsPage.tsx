@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 
 import { createAgentsApi, type AgentToolDefinition } from '../../features/agents/agentsApi';
 import { useReleaseProjection } from '../../features/releaseProjection/releaseProjection';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { AgentConfig, AgentModelRoutingRule, AgentSkill, AgentSummary, AgentTool, ToolApprovalOverride } from '../../types/api';
 
 type ApprovalMode = 'tiered' | 'all' | 'none' | 'custom';
@@ -193,7 +193,7 @@ function initialOverrides(agent: AgentSummary | null) {
 }
 
 export function AgentsPage() {
-  const api = useMemo(() => createAgentsApi(createHttpClient()), []);
+  const api = useMemo(() => createAgentsApi(httpClient), []);
   const releaseProjection = useReleaseProjection();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');

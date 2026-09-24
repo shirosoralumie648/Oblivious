@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { useAppContext } from '../../app/providers';
 import { loginOperationContract } from '@/generated/operation-contracts.generated';
 import {
-  createHttpClient,
+  httpClient,
   jsonEnvelopeDecoder,
   jsonRequestEncoder,
   type OperationTransportContract
@@ -35,7 +35,7 @@ function errorMessage(error: unknown) {
 export function LoginPage() {
   const navigate = useNavigate();
   const { bootstrapAuth } = useAppContext();
-  const client = useMemo(() => createHttpClient(), []);
+
   const [error, setError] = useState<string | null>(null);
   const { register, handleSubmit, formState: { isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginFormSchema),
@@ -45,7 +45,7 @@ export function LoginPage() {
     setError(null);
 
     try {
-      await client.post<SessionResponse>('/api/v1/auth/login', data, undefined, loginTransport);
+      await httpClient.post<SessionResponse>('/api/v1/auth/login', data, undefined, loginTransport);
       await bootstrapAuth();
       navigate('/chat');
     } catch (caughtError) {

@@ -354,7 +354,7 @@ async function parseErrorResponse(response: Response): Promise<HttpError> {
 
 export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const baseUrl = options.baseUrl ?? '';
-  const fetchFn = options.fetchFn ?? fetch;
+  const getFetchFn = () => options.fetchFn ?? globalThis.fetch;
 
   const dispatch = async <T>(
     path: string,
@@ -369,6 +369,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     }
     const encodedBody = encodeBody(body, contract?.requestEncoder ?? null, bodyAlreadyEncoded);
     const accept = contract ? contract.responseDecoder.mediaType : 'application/json';
+    const fetchFn = getFetchFn();
     const response = await fetchFn(`${baseUrl}${path}`, {
       ...init,
       body: encodedBody,
@@ -409,3 +410,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     delete: (path, init = {}, contract) => dispatch(path, { ...init, method: 'DELETE' }, undefined, contract)
   };
 }
+
+// Optimization: Exporting a singleton instance of the HTTP client to avoid redundant instantiations
+// Measurement: Reduces the number of instantiated HTTP clients across the application to 1, lowering memory footprint
+export const httpClient = createHttpClient();

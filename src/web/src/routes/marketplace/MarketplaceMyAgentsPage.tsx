@@ -20,7 +20,7 @@ import {
   type SettlementCycle,
   type TemplateCreateRequest,
 } from '../../features/marketplace/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { StatusBadgeStatus } from '../../components/shared/StatusBadge';
 
 type MyAgentsState = {
@@ -207,7 +207,7 @@ function templateTags(value: string) {
 
 export function MarketplaceMyAgentsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const api = useMemo(() => createMarketplaceApi(createHttpClient()), []);
+  const api = useMemo(() => createMarketplaceApi(httpClient), []);
 
   const loadAgents = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });

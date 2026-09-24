@@ -4,11 +4,11 @@ import { Link } from 'react-router-dom';
 import { createConsoleApi } from '../../features/console/api';
 import { ConsoleOverviewCard } from '../../features/console/components/ConsoleOverviewCard';
 import { ConsoleSnapshotPanel } from '../../features/console/components/ConsoleSnapshotPanel';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import type { AccessSummary, BillingSummary, ModelSummary, UsageSummary } from '../../types/api';
 
 export function ConsoleHomePage() {
-  const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
+  const consoleApi = useMemo(() => createConsoleApi(httpClient), []);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [billingSummary, setBillingSummary] = useState<BillingSummary | null>(null);
   const [loadError, setLoadError] = useState(false);

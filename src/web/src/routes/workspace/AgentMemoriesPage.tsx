@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { createAgentMemoriesApi, type AgentMemory } from '../../features/agents/memoriesApi';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim() !== '') {
@@ -92,7 +92,7 @@ function ImportanceBadge({ importance }: { importance: number | undefined }) {
 }
 
 export function AgentMemoriesPage() {
-  const memoriesApi = useMemo(() => createAgentMemoriesApi(createHttpClient()), []);
+  const memoriesApi = useMemo(() => createAgentMemoriesApi(httpClient), []);
   const [agentId, setAgentId] = useState('');
   const [content, setContent] = useState('');
   const [createImportance, setCreateImportance] = useState('3');

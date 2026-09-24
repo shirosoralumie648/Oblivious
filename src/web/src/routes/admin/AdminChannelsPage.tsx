@@ -14,7 +14,7 @@ import { DrawerForm } from '../../components/shared/DrawerForm';
 import { SearchBar } from '../../components/shared/SearchBar';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
-import { createHttpClient } from '../../services/http/client';
+import { httpClient } from '../../services/http/client';
 import { channelFormSchema } from '../../lib/formSchemas';
 import type { ChannelCreateRequest, ChannelInfo, ChannelModelUpdatePreview, ChannelProviderInfo, ChannelRuntimeStats, ChannelTestResult, ChannelUpdateRequest } from '../../types/admin';
 
@@ -359,7 +359,7 @@ function formatRateLimitedUntil(value?: string) {
 export function AdminChannelsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [providerOptions, setProviderOptions] = useState<RelayProviderOption[]>(defaultRelayProviderOptions);
-  const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const api = useMemo(() => createAdminApi(httpClient), []);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ChannelForm>({
     resolver: zodResolver(channelFormSchema),
