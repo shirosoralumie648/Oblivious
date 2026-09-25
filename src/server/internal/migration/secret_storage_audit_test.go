@@ -113,7 +113,7 @@ func (db *secretAuditDB) Query(ctx context.Context, query string, args ...any) (
 		"workflows",
 		"channels",
 	} {
-		if rows, ok := db.rows[table]; ok && strings.Contains(query, "FROM "+table) {
+		if rows, ok := db.rows[table]; ok && (strings.Contains(query, "FROM "+table) || strings.Contains(query, "FROM \""+table+"\"")) {
 			return &secretAuditRows{data: rows}, nil
 		}
 	}

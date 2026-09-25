@@ -6,7 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
 )
+
+func quoteIdentifier(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
 
 // Validator 验证旧库和新库数据一致性
 type Validator interface {
