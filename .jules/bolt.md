@@ -1,0 +1,3 @@
+## 2024-09-25 - Prevent O(N) array mapping in DataTable on every re-render
+**Learning:** React re-evaluates variables defined in the render scope on every state change. For generic components like `DataTable` that may process large sets of data, `data.map()` executed outside of `useMemo` runs on every single re-render. Since row selection relies on this derived `selectableRows` array, simply checking/unchecking a checkbox causes the entire data array to be mapped again.
+**Action:** Always memoize derived array or object computations (like `data.map()` or `.filter()`) inside generic table/list components, especially if they are heavily reliant on frequent internal state changes or callbacks (like row selection).
