@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,10 +72,21 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
-  const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
-  const partiallySelected = selectedCount > 0 && !allSelected;
+  // Optimization: Only compute selection state when selectable is enabled, and memoize to avoid O(N) recalculations on every render (e.g. on hover/scroll).
+  // Measurement: Reduces main thread blocking by avoiding mapping/filtering the entire data array on every render cycle when selection is disabled or data hasn't changed.
+  const { selectableRows, allSelected, partiallySelected } = useMemo(() => {
+    if (!selectable) {
+      return { selectableRows: [], allSelected: false, partiallySelected: false };
+    }
+    const rows = data.map((item) => rowId(item, idKey)).filter(Boolean);
+    let count = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (selectedIds.has(rows[i])) count++;
+    }
+    const all = rows.length > 0 && count === rows.length;
+    const partially = count > 0 && !all;
+    return { selectableRows: rows, allSelected: all, partiallySelected: partially };
+  }, [data, idKey, selectable, selectedIds]);
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
