@@ -1,0 +1,3 @@
+## 2026-09-28 - Added missing loading spinners to async buttons in McpServersPanel
+**Learning:** Found several async operation buttons in the MCP servers panel that had a disabled state during `loadingAction` but didn't provide any visual feedback to the user that a background process (like connecting, disconnecting, diagnosing, loading tools, deleting, or executing a tool call) was actively running. Providing visual feedback (spinner) during async actions is critical for good UX.
+**Action:** Used the `RiLoader4Line` icon with `animate-spin` from Remix Icon and swapped it into the buttons in `src/web/src/features/mcp/McpServersPanel.tsx` when `loadingAction` matches the corresponding action state.
