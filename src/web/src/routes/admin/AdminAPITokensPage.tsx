@@ -4,6 +4,7 @@ import { RiCloseCircleLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
@@ -16,6 +17,7 @@ type APITokenState = {
   loading: boolean;
   error: string | null;
   revokingID: string | null;
+  confirmingToken: APITokenEntry | null;
   filters: {
     organizationID: string;
     userID: string;
@@ -31,6 +33,7 @@ type APITokenAction =
   | { type: 'LOAD_SUCCESS'; tokens: APITokenEntry[]; total: number }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'SET_FILTER'; field: keyof APITokenState['filters']; value: string }
+  | { type: 'CONFIRM_REVOKE'; token: APITokenEntry | null }
   | { type: 'REVOKE_START'; tokenID: string }
   | { type: 'REVOKE_END' };
 
@@ -40,6 +43,7 @@ const initialState: APITokenState = {
   loading: true,
   error: null,
   revokingID: null,
+  confirmingToken: null,
   filters: {
     organizationID: '',
     userID: '',
@@ -60,10 +64,12 @@ function reducer(state: APITokenState, action: APITokenAction): APITokenState {
       return { ...state, loading: false, error: action.error };
     case 'SET_FILTER':
       return { ...state, filters: { ...state.filters, [action.field]: action.value } };
+    case 'CONFIRM_REVOKE':
+      return { ...state, confirmingToken: action.token };
     case 'REVOKE_START':
       return { ...state, revokingID: action.tokenID, error: null };
     case 'REVOKE_END':
-      return { ...state, revokingID: null };
+      return { ...state, revokingID: null, confirmingToken: null };
     default:
       return state;
   }
@@ -152,9 +158,6 @@ export function AdminAPITokensPage() {
 
   const revokeToken = useCallback(
     async (token: APITokenEntry) => {
-      if (!window.confirm(`Revoke API token "${token.name}"?`)) {
-        return;
-      }
       dispatch({ type: 'REVOKE_START', tokenID: token.id });
       try {
         await api.revokeAPIToken(token.id);
@@ -218,12 +221,30 @@ export function AdminAPITokensPage() {
             size="sm"
             aria-label={`Revoke ${token.name}`}
             disabled={token.status !== 'active' || state.revokingID === token.id}
-            onClick={() => void revokeToken(token)}
+            onClick={() => dispatch({ type: 'CONFIRM_REVOKE', token })}
           >
             <RiCloseCircleLine className="size-4" aria-hidden="true" />
             Revoke
           </Button>
         )}
+      />
+      <ConfirmDialog
+        open={state.confirmingToken !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'CONFIRM_REVOKE', token: null });
+          }
+        }}
+        title="Revoke API Token"
+        description={`Are you sure you want to revoke the API token "${state.confirmingToken?.name}"?`}
+        confirmLabel="Revoke"
+        onConfirm={() => {
+          if (state.confirmingToken) {
+            void revokeToken(state.confirmingToken);
+          }
+        }}
+        loading={state.revokingID !== null}
+        variant="destructive"
       />
     </div>
   );
