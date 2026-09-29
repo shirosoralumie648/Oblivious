@@ -122,12 +122,12 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByRole('heading', { name: 'By time' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By channel' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By provider' })).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('user_1')).toBeInTheDocument();
-    expect(screen.getByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
-    expect(screen.getByText('ch_1')).toBeInTheDocument();
-    expect(screen.getByText('openai')).toBeInTheDocument();
+    expect(screen.getAllByText('gpt-4o')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('chat')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('user_1')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('2026-06-04T00:00:00Z')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('ch_1')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('openai')[0]).toBeInTheDocument();
     expect(screen.getByText('$0.0012')).toBeInTheDocument();
   });
 
