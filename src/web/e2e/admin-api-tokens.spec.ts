@@ -54,11 +54,9 @@ test('admin API tokens filter relay keys and revoke a scoped token in the browse
   await expect(page.getByText('$0.1288')).toBeVisible();
   await expect(page.getByText('1,234')).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Browser admin key');
-    await dialog.accept();
-  });
   await page.getByRole('button', { name: 'Revoke Browser admin key' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
 
   await expect(page.getByLabel('Revoked')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Revoke Browser admin key' })).toBeDisabled();

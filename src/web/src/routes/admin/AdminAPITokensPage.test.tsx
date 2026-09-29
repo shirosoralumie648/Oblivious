@@ -60,6 +60,10 @@ describe('AdminAPITokensPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke Production key' }));
 
+    // Using ConfirmDialog means we need to find the Revoke button in the modal and click it
+    const modalRevokeButton = await screen.findByRole('button', { name: 'Revoke' });
+    fireEvent.click(modalRevokeButton);
+
     await waitFor(() => expect(revokeAPIToken).toHaveBeenCalledWith('tok_1'));
     await waitFor(() => expect(listAPITokens).toHaveBeenCalledTimes(2));
     confirmSpy.mockRestore();
