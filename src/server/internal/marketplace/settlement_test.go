@@ -594,6 +594,7 @@ func TestSettlementApplyRefundAdjustsOrderAndSettlementOnce(t *testing.T) {
 		BuyerOrganizationID: "buyer_org",
 		BuyerUserID:         "buyer_user",
 		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
 	})
 	if err != nil {
 		t.Fatalf("create paid checkout: %v", err)
@@ -1181,6 +1182,7 @@ func TestSettlementPublisherStatsIncludesSettlementAmounts(t *testing.T) {
 		BuyerOrganizationID: "buyer_org",
 		BuyerUserID:         "buyer_user",
 		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
 	})
 	if err != nil {
 		t.Fatalf("create paid checkout: %v", err)
@@ -1341,6 +1343,7 @@ func createAvailableSettlement(t *testing.T, service *SettlementService, databas
 		BuyerOrganizationID: buyerOrganizationID,
 		BuyerUserID:         buyerUserID,
 		AgentID:             agentID,
+		VersionID:           "version_" + agentID,
 	})
 	if err != nil {
 		t.Fatalf("create paid checkout for %s: %v", agentID, err)
