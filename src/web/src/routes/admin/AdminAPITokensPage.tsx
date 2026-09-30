@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { RiCloseCircleLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
@@ -124,6 +125,7 @@ function statusCell(token: APITokenEntry) {
 
 export function AdminAPITokensPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [tokenToRevoke, setTokenToRevoke] = useState<APITokenEntry | null>(null);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
 
   const loadAPITokens = useCallback(async () => {
@@ -152,9 +154,6 @@ export function AdminAPITokensPage() {
 
   const revokeToken = useCallback(
     async (token: APITokenEntry) => {
-      if (!window.confirm(`Revoke API token "${token.name}"?`)) {
-        return;
-      }
       dispatch({ type: 'REVOKE_START', tokenID: token.id });
       try {
         await api.revokeAPIToken(token.id);
@@ -163,6 +162,7 @@ export function AdminAPITokensPage() {
         dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while revoking this token.' });
       } finally {
         dispatch({ type: 'REVOKE_END' });
+        setTokenToRevoke(null);
       }
     },
     [api, loadAPITokens]
@@ -218,12 +218,30 @@ export function AdminAPITokensPage() {
             size="sm"
             aria-label={`Revoke ${token.name}`}
             disabled={token.status !== 'active' || state.revokingID === token.id}
-            onClick={() => void revokeToken(token)}
+            onClick={() => setTokenToRevoke(token)}
           >
             <RiCloseCircleLine className="size-4" aria-hidden="true" />
             Revoke
           </Button>
         )}
+      />
+
+      <ConfirmDialog
+        open={tokenToRevoke !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTokenToRevoke(null);
+          }
+        }}
+        title="Revoke API Token"
+        description={`Are you sure you want to revoke the API token "${tokenToRevoke?.name}"? This action cannot be undone.`}
+        confirmLabel="Revoke Token"
+        onConfirm={() => {
+          if (tokenToRevoke) {
+            void revokeToken(tokenToRevoke);
+          }
+        }}
+        loading={state.revokingID !== null}
       />
     </div>
   );

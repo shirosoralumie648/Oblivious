@@ -44,7 +44,7 @@ describe('AdminAPITokensPage', () => {
       total: 1,
     });
     revokeAPIToken.mockResolvedValue(undefined);
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
 
     render(<AdminAPITokensPage />);
 
@@ -60,9 +60,12 @@ describe('AdminAPITokensPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke Production key' }));
 
+    expect(screen.getByText('Are you sure you want to revoke the API token "Production key"? This action cannot be undone.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke Token' }));
+
     await waitFor(() => expect(revokeAPIToken).toHaveBeenCalledWith('tok_1'));
     await waitFor(() => expect(listAPITokens).toHaveBeenCalledTimes(2));
-    confirmSpy.mockRestore();
+
   });
 
   it('passes filters to listAPITokens', async () => {
