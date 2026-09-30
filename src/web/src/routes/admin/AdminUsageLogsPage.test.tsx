@@ -179,7 +179,7 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByText('feature_time')).toBeInTheDocument();
     expect(screen.getAllByText('gpt-4o / 2026-06-04T00:00:00Z')[0]).toBeInTheDocument();
     expect(screen.getAllByText('user_1 / workspace_chat')[0]).toBeInTheDocument();
-    expect(screen.getByText('agent_run / 2026-06-04T01:00:00Z')).toBeInTheDocument();
+    expect(screen.getAllByText('agent_run / 2026-06-04T01:00:00Z')[0]).toBeInTheDocument();
   });
 
   it('passes filters to listUsageLogs', async () => {
