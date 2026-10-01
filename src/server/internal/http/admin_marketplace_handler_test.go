@@ -702,7 +702,7 @@ func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 
 	request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/user_1", strings.NewReader(`{"balance":42.5}`)).
 		WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
-	request.Header.Set("X-Forwarded-For", "198.51.100.2, 198.51.100.2")
+	request.Header.Set("X-Forwarded-For", "203.0.113.10, 198.51.100.2")
 	recorder := httptest.NewRecorder()
 
 	handler.updateUserQuota(recorder, request, "user_1")
