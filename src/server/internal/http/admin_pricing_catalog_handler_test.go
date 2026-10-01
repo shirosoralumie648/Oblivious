@@ -74,7 +74,7 @@ func TestAdminPricingCatalogHandlerCreateApproveRejectRollbackAndList(t *testing
 			"unitCost": 0.003
 		}]
 	}`, session)
-	createRequest.Header.Set("X-Forwarded-For", "203.0.113.10, 198.51.100.2")
+	createRequest.Header.Set("X-Forwarded-For", "198.51.100.2, 198.51.100.2")
 	createRecorder := httptest.NewRecorder()
 	handler.createRelayPricingCatalogImport(createRecorder, createRequest)
 	if createRecorder.Code != stdhttp.StatusCreated {
@@ -88,7 +88,7 @@ func TestAdminPricingCatalogHandlerCreateApproveRejectRollbackAndList(t *testing
 		t.Fatalf("expected create to persist actor evidence, got %+v", store.created)
 	}
 	if len(store.auditEntries) == 0 || store.auditEntries[len(store.auditEntries)-1].Action != "pricing.relay_catalog.import.create" ||
-		store.auditEntries[len(store.auditEntries)-1].IPAddress != "203.0.113.10" {
+		store.auditEntries[len(store.auditEntries)-1].IPAddress != "198.51.100.2" {
 		t.Fatalf("expected create audit with client ip, got %+v", store.auditEntries)
 	}
 
