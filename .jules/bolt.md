@@ -1,0 +1,3 @@
+## 2024-06-25 - Prevent unconditional O(N) array mapping in reusable components
+**Learning:** Found that `DataTable` mapped over the entire `data` array unconditionally to calculate `selectableRows` strings, even when `selectable` was disabled. This meant that every re-render of every table on the page (many of which are view-only) performed an O(N) map+filter blocking operation.
+**Action:** When working on reusable components with lists/arrays, wrap heavy data mapping for optional features in `useMemo()` and conditionally short-circuit returning an empty array or `null` if the feature is disabled.
