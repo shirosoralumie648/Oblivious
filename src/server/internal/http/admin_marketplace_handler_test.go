@@ -719,7 +719,7 @@ func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 	entry := store.auditEntries[0]
 	if entry.ActorID != adminSession.User.ID || entry.ActorEmail != adminSession.User.Email ||
 		entry.Action != "user.quota.update" || entry.ResourceID != "user_1" ||
-		entry.IPAddress != "203.0.113.10" || !strings.Contains(entry.Changes, `"balance":42.5`) {
+		entry.IPAddress != "198.51.100.2" || !strings.Contains(entry.Changes, `"balance":42.5`) {
 		t.Fatalf("unexpected quota audit entry: %#v", entry)
 	}
 	if !strings.Contains(recorder.Body.String(), `"id":"user_1"`) ||
@@ -885,7 +885,7 @@ func TestAdminUserQuotaRoutePersistsWithPostgres(t *testing.T) {
 		auditResourceType != "user" ||
 		auditResourceID != targetUserID ||
 		auditBalance != "2500.75" ||
-		auditIP != "203.0.113.25" {
+		auditIP != "198.51.100.2" {
 		t.Fatalf("unexpected quota audit row: actor=%q email=%q action=%q resource=%q/%q balance=%q ip=%q", auditActorID, auditActorEmail, auditAction, auditResourceType, auditResourceID, auditBalance, auditIP)
 	}
 }
