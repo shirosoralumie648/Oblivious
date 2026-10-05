@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
 
 type ConsoleOverviewCardProps = {
@@ -7,7 +8,9 @@ type ConsoleOverviewCardProps = {
   to: string;
 };
 
-export function ConsoleOverviewCard({ title, value, note, to }: ConsoleOverviewCardProps) {
+// Optimization: Prevent unnecessary re-renders of the overview cards when the parent ConsoleHomePage state updates.
+// Measurement: Reduces React re-renders for these cards, slightly improving render performance on dashboard updates.
+export const ConsoleOverviewCard = memo(function ConsoleOverviewCard({ title, value, note, to }: ConsoleOverviewCardProps) {
   return (
     <Link
       aria-label={title}
@@ -21,4 +24,4 @@ export function ConsoleOverviewCard({ title, value, note, to }: ConsoleOverviewC
       <p className="mt-2 text-sm leading-6 text-[#625b4f]">{note}</p>
     </Link>
   );
-}
+});
