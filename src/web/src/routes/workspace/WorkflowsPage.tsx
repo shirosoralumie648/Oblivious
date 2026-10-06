@@ -1552,23 +1552,36 @@ function buildWorkflowReactFlowEdges(activeWorkflowEdges: VisualWorkflowEdge[]):
 }
 
 function buildExecutionDebugSummary(nodeExecutions: WorkflowNodeExecution[]) {
-  const totalDurationMs = nodeExecutions.reduce(
-    (totalDuration, nodeExecution) =>
-      totalDuration +
-      (typeof nodeExecution.durationMs === 'number' && Number.isFinite(nodeExecution.durationMs)
-        ? nodeExecution.durationMs
-        : 0),
-    0
-  );
-  const failedNodeCount = nodeExecutions.filter((nodeExecution) => nodeExecution.status === 'failed').length;
-  const retryingNodeCount = nodeExecutions.filter((nodeExecution) => nodeExecution.status === 'retrying').length;
-  const longestNodeExecution = nodeExecutions.reduce<WorkflowNodeExecution | undefined>((longest, nodeExecution) => {
-    if (!longest) {
-      return nodeExecution;
+  // Optimization: Merged four separate array iterations (.reduce, .filter, .filter, .reduce)
+  // into a single O(N) loop to reduce CPU overhead when rendering workflow execution summaries.
+  // Measurement: Reduces array iterations by 75% per workflow execution parsed.
+  let totalDurationMs = 0;
+  let failedNodeCount = 0;
+  let retryingNodeCount = 0;
+  let longestNodeExecution: WorkflowNodeExecution | undefined = undefined;
+
+  for (const nodeExecution of nodeExecutions) {
+    // Accumulate total duration
+    if (typeof nodeExecution.durationMs === 'number' && Number.isFinite(nodeExecution.durationMs)) {
+      totalDurationMs += nodeExecution.durationMs;
     }
 
-    return (nodeExecution.durationMs ?? -1) > (longest.durationMs ?? -1) ? nodeExecution : longest;
-  }, undefined);
+    // Count statuses
+    if (nodeExecution.status === 'failed') {
+      failedNodeCount++;
+    } else if (nodeExecution.status === 'retrying') {
+      retryingNodeCount++;
+    }
+
+    // Find longest execution
+    if (!longestNodeExecution) {
+      longestNodeExecution = nodeExecution;
+    } else {
+      if ((nodeExecution.durationMs ?? -1) > (longestNodeExecution.durationMs ?? -1)) {
+        longestNodeExecution = nodeExecution;
+      }
+    }
+  }
 
   return {
     failedNodeCount,
