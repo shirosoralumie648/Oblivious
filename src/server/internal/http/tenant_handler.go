@@ -338,8 +338,11 @@ func containsAny(value string, needles ...string) bool {
 }
 
 func clientIP(r *stdhttp.Request) string {
+	// SECURITY: Extract the right-most IP to prevent IP spoofing,
+	// as it's the one appended by our trusted proxy.
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		parts := strings.Split(forwarded, ",")
+		return strings.TrimSpace(parts[len(parts)-1])
 	}
 	return r.RemoteAddr
 }

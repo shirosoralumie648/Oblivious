@@ -581,11 +581,13 @@ func extractIP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	// Check X-Forwarded-For header first (for proxied requests)
+	// Check X-Forwarded-For header first (for proxied requests).
+	// SECURITY: Extract the right-most IP to prevent IP spoofing,
+	// as it's the one appended by our trusted proxy.
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
 		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+			return strings.TrimSpace(ips[len(ips)-1])
 		}
 	}
 	// Fall back to RemoteAddr
