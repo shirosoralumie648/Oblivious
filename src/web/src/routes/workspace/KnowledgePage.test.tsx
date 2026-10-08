@@ -715,6 +715,8 @@ describe('KnowledgePage', () => {
 
     await screen.findByRole('heading', { name: 'Architecture Notes' });
     fireEvent.click(screen.getByRole('button', { name: 'Delete knowledge base' }));
+    await screen.findByRole('dialog');
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
     await waitFor(() => {
       expect(deleteKnowledgeBase).toHaveBeenCalledWith('kb_9');

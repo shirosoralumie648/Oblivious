@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createHttpClient } from '../../services/http/client';
 import type {
@@ -487,6 +488,7 @@ export function KnowledgePage() {
   const [uploadDocumentSourceUrl, setUploadDocumentSourceUrl] = useState('');
   const [uploadDocumentSourcePage, setUploadDocumentSourcePage] = useState('');
   const [isRefreshingDocumentStatus, setIsRefreshingDocumentStatus] = useState(false);
+  const [isDeleteKnowledgeBaseDialogOpen, setIsDeleteKnowledgeBaseDialogOpen] = useState(false);
 
   const resetDocumentEditor = () => {
     setEditingDocumentId(null);
@@ -777,6 +779,7 @@ export function KnowledgePage() {
       setError('Unable to delete knowledge base. Retry the request or check the backend session.');
     } finally {
       setIsDeletingKnowledgeBase(false);
+      setIsDeleteKnowledgeBaseDialogOpen(false);
     }
   };
 
@@ -1206,9 +1209,17 @@ export function KnowledgePage() {
           >
             Save knowledge base
           </button>
-          <button disabled={isDeletingKnowledgeBase} onClick={() => void handleDeleteKnowledgeBase()} type="button">
+          <button disabled={isDeletingKnowledgeBase} onClick={() => setIsDeleteKnowledgeBaseDialogOpen(true)} type="button">
             Delete knowledge base
           </button>
+          <ConfirmDialog
+            open={isDeleteKnowledgeBaseDialogOpen}
+            onOpenChange={setIsDeleteKnowledgeBaseDialogOpen}
+            title="Delete knowledge base"
+            description="Are you sure you want to delete this knowledge base? This action cannot be undone."
+            onConfirm={() => void handleDeleteKnowledgeBase()}
+            loading={isDeletingKnowledgeBase}
+          />
           <p>Knowledge base ID: {selectedKnowledgeBase.id}</p>
           <p>Documents: {selectedKnowledgeBase.documentCount}</p>
           <p>{`Retrieval strategy: ${knowledgeBaseRetrievalMode}`}</p>
