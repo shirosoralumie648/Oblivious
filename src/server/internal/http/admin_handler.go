@@ -1548,10 +1548,12 @@ func splitQueryCSV(r *stdhttp.Request, key string) []string {
 }
 
 func requestClientIP(r *stdhttp.Request) string {
+	// SECURITY: Extract the right-most IP to prevent IP spoofing,
+	// as it's the one appended by our trusted proxy.
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 		parts := strings.Split(forwardedFor, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 
