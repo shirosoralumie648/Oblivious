@@ -1,0 +1,4 @@
+## 2024-10-09 - Fix SQL Injection via Unquoted Identifiers
+**Vulnerability:** SQL injection vulnerability in `migration` tools. Database table names and column names were directly interpolated into SQL query strings (e.g., `fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)`) without proper quoting.
+**Learning:** Using `fmt.Sprintf` directly for SQL identifiers introduces SQL injection vulnerabilities. While parameterization handles values, dynamic identifiers (like tables and columns) need safe quoting using the ANSI standard double quotes.
+**Prevention:** Always quote dynamic database identifiers using standard ANSI SQL double-quoting and escape internal quotes using a helper like `quoteIdentifier` (e.g., `""" + strings.ReplaceAll(s, "\"", "\"\"") + """`) rather than relying on global drivers or string concatenation.
