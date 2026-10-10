@@ -114,7 +114,8 @@ type secretAuditJSONSpec struct {
 }
 
 func auditScalarSecretRows(ctx context.Context, db DB, spec secretAuditScalarSpec) ([]SecretStorageFinding, error) {
-	rows, err := db.Query(ctx, fmt.Sprintf("SELECT %s, %s FROM %s", spec.ID, spec.Column, spec.Table))
+	// SECURITY: Quote interpolated table and column names to prevent SQL injection
+	rows, err := db.Query(ctx, fmt.Sprintf("SELECT %s, %s FROM %s", quoteIdentifier(spec.ID), quoteIdentifier(spec.Column), quoteIdentifier(spec.Table)))
 	if err != nil {
 		return nil, fmt.Errorf("query %s.%s secret storage: %w", spec.Table, spec.Column, err)
 	}
@@ -137,7 +138,8 @@ func auditScalarSecretRows(ctx context.Context, db DB, spec secretAuditScalarSpe
 }
 
 func auditJSONSecretRows(ctx context.Context, db DB, spec secretAuditJSONSpec) ([]SecretStorageFinding, error) {
-	rows, err := db.Query(ctx, fmt.Sprintf("SELECT %s, %s FROM %s", spec.ID, spec.Column, spec.Table))
+	// SECURITY: Quote interpolated table and column names to prevent SQL injection
+	rows, err := db.Query(ctx, fmt.Sprintf("SELECT %s, %s FROM %s", quoteIdentifier(spec.ID), quoteIdentifier(spec.Column), quoteIdentifier(spec.Table)))
 	if err != nil {
 		return nil, fmt.Errorf("query %s.%s secret storage: %w", spec.Table, spec.Column, err)
 	}
