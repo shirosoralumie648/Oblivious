@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { RiPencilLine, RiUserForbidLine, RiUserFollowLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
@@ -252,20 +253,36 @@ export function AdminUsersPage() {
         emptyMessage="No users found -- Users will appear here after they register."
         onRetry={loadUsers}
         renderActions={(user) => (
-          <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
-              <RiPencilLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
-              onClick={() => void handleStatusAction(user)}
-            >
-              {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
-            </Button>
-          </div>
+          <TooltipProvider>
+            <div className="flex justify-end gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
+                    <RiPencilLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Edit User</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
+                    onClick={() => void handleStatusAction(user)}
+                  >
+                    {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{user.status === 'active' ? 'Disable User' : 'Enable User'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         )}
       />
 
