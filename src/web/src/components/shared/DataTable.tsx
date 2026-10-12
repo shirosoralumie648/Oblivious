@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,8 +72,13 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
+  // Optimization: Memoize and avoid computing selected items when table is not selectable to reduce unneeded iterations on re-renders
+  const selectableRows = useMemo(() => {
+    if (!selectable) return [];
+    return data.map((item) => rowId(item, idKey)).filter(Boolean);
+  }, [data, idKey, selectable]);
+  // Measurement: Prevents O(n) iteration across `data` twice on every re-render of unselectable tables (the default `selectable=false`)
+  const selectedCount = selectable ? selectableRows.filter((id) => selectedIds.has(id)).length : 0;
   const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
 
