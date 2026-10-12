@@ -1551,7 +1551,8 @@ func requestClientIP(r *stdhttp.Request) string {
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 		parts := strings.Split(forwardedFor, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			// SECURITY: Extract right-most IP appended by trusted edge proxy to prevent IP spoofing
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 
