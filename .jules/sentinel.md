@@ -1,0 +1,4 @@
+## 2026-04-18 - [CRITICAL] Fix SQL Injection in dynamic identifier formatting
+**Vulnerability:** Found SQL injection vulnerabilities in `src/server/internal/migration/secret_storage_audit.go` and `src/server/internal/migration/validator.go` where `fmt.Sprintf` directly constructs query strings using unquoted column and table names.
+**Learning:** Dynamic generation of table and column identifiers creates injection vectors if inputs become tainted. While `pq.QuoteIdentifier()` seems an obvious fix, it imports external global driver side effects breaking database agnosticism.
+**Prevention:** Implement an ANSI-standard dynamic quoting function (`""" + strings.ReplaceAll(s, "\"", "\"\"") + """`) directly within the package instead of using driver-specific quoting, and consistently apply it when table or column names must be dynamically formatted.
