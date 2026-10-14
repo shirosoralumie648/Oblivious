@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useMemo, useCallback } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,14 +72,24 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
-  const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
-  const partiallySelected = selectedCount > 0 && !allSelected;
+  // Optimization: Memoize selection state calculations and skip O(N) operations entirely when table isn't selectable
+  // Measurement: Eliminates O(N) mapping, filtering, and array iteration on every render (e.g. tooltip hover, data updates) for non-selectable tables, improving render time for tables with many rows.
+  const { selectableRows, allSelected, partiallySelected } = useMemo(() => {
+    if (!selectable) {
+      return { selectableRows: [], allSelected: false, partiallySelected: false };
+    }
+    const rows = data.map((item) => rowId(item, idKey)).filter(Boolean);
+    const selectedCount = rows.filter((id) => selectedIds.has(id)).length;
+    return {
+      selectableRows: rows,
+      allSelected: rows.length > 0 && selectedCount === rows.length,
+      partiallySelected: selectedCount > 0 && selectedCount < rows.length,
+    };
+  }, [data, idKey, selectable, selectedIds]);
 
-  const handleSelectAll = (checked: boolean | 'indeterminate') => {
+  const handleSelectAll = useCallback((checked: boolean | 'indeterminate') => {
     selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
-  };
+  }, [selectableRows, onSelectChange]);
 
   if (error) {
     return (
