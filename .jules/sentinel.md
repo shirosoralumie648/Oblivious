@@ -1,0 +1,4 @@
+## 2024-07-26 - [Fix SQL Injection in database migration routines]
+**Vulnerability:** The migration codebase (`src/server/internal/migration/validator.go` and `src/server/internal/migration/secret_storage_audit.go`) used `fmt.Sprintf` directly to concatenate raw, unsanitized table and column names directly into SQL queries (`SELECT COUNT(*) FROM %s`).
+**Learning:** This introduces SQL injection vulnerabilities, even if in some paths the variables come from internal configurations. The `pq.QuoteIdentifier` utility cannot be used safely everywhere since it can break database agnosticism and has global driver side-effects.
+**Prevention:** Manually and defensively quote identifiers via a custom utility function (e.g. `quoteIdentifier(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }`) to conform to standard ANSI SQL identifier quoting anywhere variables are interpolated into database tables or column spaces.

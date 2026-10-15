@@ -113,7 +113,9 @@ func (db *secretAuditDB) Query(ctx context.Context, query string, args ...any) (
 		"workflows",
 		"channels",
 	} {
-		if rows, ok := db.rows[table]; ok && strings.Contains(query, "FROM "+table) {
+			// Tests may supply unquoted identifiers to the mock but the code under test uses quoteIdentifier,
+			// which wraps table names in double quotes, e.g. "channels". We allow for both forms in the mock query check.
+			if rows, ok := db.rows[table]; ok && (strings.Contains(query, "FROM "+table) || strings.Contains(query, "FROM \""+table+"\"")) {
 			return &secretAuditRows{data: rows}, nil
 		}
 	}
