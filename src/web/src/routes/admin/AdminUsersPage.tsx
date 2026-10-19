@@ -3,7 +3,6 @@ import { RiPencilLine, RiUserForbidLine, RiUserFollowLine } from '@remixicon/rea
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { DrawerForm } from '../../components/shared/DrawerForm';
@@ -209,79 +208,68 @@ export function AdminUsersPage() {
   ];
 
   return (
-    <TooltipProvider>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Users</h1>
       </div>
 
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <SearchBar value={state.search} onChange={(value) => dispatch({ type: 'SET_SEARCH', value })} placeholder="Search users..." />
-          <Input
-            aria-label="Plan ID filter"
-            value={state.planFilter}
-            placeholder="Plan ID"
-            className="min-h-[44px] min-w-[160px]"
-            onChange={(event) => dispatch({ type: 'SET_PLAN', value: event.target.value })}
-          />
-          <select
-            aria-label="Role filter"
-            value={state.roleFilter}
-            onChange={(event) => dispatch({ type: 'SET_ROLE', value: event.target.value })}
-            className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
-          >
-            <option value="all">All roles</option>
-            <option value="admin">Admin</option>
-            <option value="user">User</option>
-          </select>
-          <select
-            aria-label="User status filter"
-            value={state.statusFilter}
-            onChange={(event) => dispatch({ type: 'SET_STATUS', value: event.target.value })}
-            className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
-          >
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="disabled">Disabled</option>
-          </select>
-        </div>
-
-        <DataTable
-          columns={columns}
-          data={state.users}
-          loading={state.loading}
-          error={state.error}
-          emptyMessage="No users found -- Users will appear here after they register."
-          onRetry={loadUsers}
-          renderActions={(user) => (
-            <div className="flex justify-end gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
-                    <RiPencilLine className="size-4" aria-hidden="true" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit user</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
-                    onClick={() => void handleStatusAction(user)}
-                  >
-                    {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{user.status === 'active' ? 'Disable user' : 'Enable user'}</TooltipContent>
-              </Tooltip>
-            </div>
-          )}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <SearchBar value={state.search} onChange={(value) => dispatch({ type: 'SET_SEARCH', value })} placeholder="Search users..." />
+        <Input
+          aria-label="Plan ID filter"
+          value={state.planFilter}
+          placeholder="Plan ID"
+          className="min-h-[44px] min-w-[160px]"
+          onChange={(event) => dispatch({ type: 'SET_PLAN', value: event.target.value })}
         />
+        <select
+          aria-label="Role filter"
+          value={state.roleFilter}
+          onChange={(event) => dispatch({ type: 'SET_ROLE', value: event.target.value })}
+          className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+        >
+          <option value="all">All roles</option>
+          <option value="admin">Admin</option>
+          <option value="user">User</option>
+        </select>
+        <select
+          aria-label="User status filter"
+          value={state.statusFilter}
+          onChange={(event) => dispatch({ type: 'SET_STATUS', value: event.target.value })}
+          className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="disabled">Disabled</option>
+        </select>
+      </div>
 
-        <DrawerForm
+      <DataTable
+        columns={columns}
+        data={state.users}
+        loading={state.loading}
+        error={state.error}
+        emptyMessage="No users found -- Users will appear here after they register."
+        onRetry={loadUsers}
+        renderActions={(user) => (
+          <div className="flex justify-end gap-1">
+            <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
+              <RiPencilLine className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
+              onClick={() => void handleStatusAction(user)}
+            >
+              {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
+            </Button>
+          </div>
+        )}
+      />
+
+      <DrawerForm
         open={state.drawerOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -336,11 +324,10 @@ export function AdminUsersPage() {
             className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
           >
             <option value="active">Active</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </div>
-        </DrawerForm>
-      </div>
-    </TooltipProvider>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
+      </DrawerForm>
+    </div>
   );
 }

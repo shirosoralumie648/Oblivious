@@ -77,20 +77,20 @@ describe('AdminUsageLogsPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Usage Logs' })).toBeInTheDocument();
     expect(await screen.findByText('req_1')).toBeInTheDocument();
-    expect(screen.getByText('user_1')).toBeInTheDocument();
-    expect(screen.getByText('tok_1')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('workspace_chat')).toBeInTheDocument();
-    expect(screen.getByText('relay_billing')).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('openai / ch_1')).toBeInTheDocument();
-    expect(screen.getByLabelText('Success')).toBeInTheDocument();
-    expect(screen.getByText('$0.4200')).toBeInTheDocument();
-    expect(screen.getByText('42 ms')).toBeInTheDocument();
-    expect(screen.getByText('120')).toBeInTheDocument();
-    expect(screen.getByText('550e8400-e29b-41d4-a716-446655440000')).toBeInTheDocument();
-    expect(screen.getByText('relay POST /v1/chat/completions')).toBeInTheDocument();
-    expect(screen.getByText('CH $0.4200 / 41 ms')).toBeInTheDocument();
+    expect(await screen.findByText('user_1')).toBeInTheDocument();
+    expect(await screen.findByText('tok_1')).toBeInTheDocument();
+    expect(await screen.findByText('chat')).toBeInTheDocument();
+    expect(await screen.findByText('workspace_chat')).toBeInTheDocument();
+    expect(await screen.findByText('relay_billing')).toBeInTheDocument();
+    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
+    expect(await screen.findByText('openai / ch_1')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Success')).toBeInTheDocument();
+    expect(await screen.findByText('$0.4200')).toBeInTheDocument();
+    expect(await screen.findByText('42 ms')).toBeInTheDocument();
+    expect(await screen.findByText('120')).toBeInTheDocument();
+    expect(await screen.findByText('550e8400-e29b-41d4-a716-446655440000')).toBeInTheDocument();
+    expect(await screen.findByText('relay POST /v1/chat/completions')).toBeInTheDocument();
+    expect(await screen.findByText('CH $0.4200 / 41 ms')).toBeInTheDocument();
   });
 
   it('renders usage analytics panels for model, feature, user, time, channel, and provider dimensions', async () => {
@@ -116,19 +116,19 @@ describe('AdminUsageLogsPage', () => {
     render(<AdminUsageLogsPage />);
 
     expect(await screen.findByRole('heading', { name: 'Usage Analytics' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By model' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By feature' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By user' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By time' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By channel' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By provider' })).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('user_1')).toBeInTheDocument();
-    expect(screen.getByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
-    expect(screen.getByText('ch_1')).toBeInTheDocument();
-    expect(screen.getByText('openai')).toBeInTheDocument();
-    expect(screen.getByText('$0.0012')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By model' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By feature' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By user' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By time' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By channel' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By provider' })).toBeInTheDocument();
+    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
+    expect(await screen.findByText('chat')).toBeInTheDocument();
+    expect(await screen.findByText('user_1')).toBeInTheDocument();
+    expect(await screen.findByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
+    expect(await screen.findByText('ch_1')).toBeInTheDocument();
+    expect(await screen.findByText('openai')).toBeInTheDocument();
+    expect(await screen.findByText('$0.0012')).toBeInTheDocument();
   });
 
   it('renders usage analytics cross dimensions for multidimensional analysis', async () => {
