@@ -1,0 +1,3 @@
+## 2025-01-08 - Adding tooltips for icon-only buttons
+**Learning:** In the current design system, tooltips for icon-only action buttons in data tables require wrapping the root component or context in `<TooltipProvider>` and using `<Tooltip>`, `<TooltipTrigger asChild>`, and `<TooltipContent>` around the buttons to provide clear accessible labels while remaining visually coherent.
+**Action:** Always import and apply `@/components/ui/tooltip` around icon-only buttons like "Edit" or "Enable/Disable" inside tables, ensuring the parent is wrapped in `<TooltipProvider>` so that visual and keyboard accessibility is maintained.
