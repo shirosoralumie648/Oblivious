@@ -113,7 +113,10 @@ func (db *secretAuditDB) Query(ctx context.Context, query string, args ...any) (
 		"workflows",
 		"channels",
 	} {
-		if rows, ok := db.rows[table]; ok && strings.Contains(query, "FROM "+table) {
+		if rows, ok := db.rows[table]; ok && strings.Contains(query, "FROM \""+table+"\"") {
+			return &secretAuditRows{data: rows}, nil
+		} else if rows, ok := db.rows[table]; ok && strings.Contains(query, "FROM "+table) {
+			// Fallback for queries that don't quote identifiers (e.g. static ones like in auditWorkflowNodeExecutionSecrets)
 			return &secretAuditRows{data: rows}, nil
 		}
 	}

@@ -1,0 +1,4 @@
+## 2024-05-31 - [SQL Injection in migration tooling]
+**Vulnerability:** Found SQL injection vulnerabilities in `src/server/internal/migration/secret_storage_audit.go` and `src/server/internal/migration/validator.go` where table and column names were directly concatenated into queries using `fmt.Sprintf("SELECT ... FROM %s")`.
+**Learning:** Table names and column names cannot be parameterized in standard SQL queries. They need to be safely escaped if they come from dynamic input.
+**Prevention:** Use standard string manipulation (e.g. `strings.ReplaceAll(identifier, "\"", "\"\"")` and wrapping in double quotes) to safely escape dynamic SQL identifiers (tables/columns) instead of direct string formatting, or do not allow untrusted dynamic inputs for identifiers. Do NOT use `pq.QuoteIdentifier` as it registers the postgres driver globally.
