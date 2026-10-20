@@ -4,6 +4,7 @@ import { RiAddLine, RiDeleteBinLine, RiExternalLinkLine } from '@remixicon/react
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -541,23 +542,35 @@ export function MarketplaceMyAgentsPage() {
           error={null}
           emptyMessage="No published agents -- Publish your first agent to start the review process."
           renderActions={(agent) => (
-            <div className="flex justify-end gap-1">
-              <Button type="button" variant="ghost" size="icon" aria-label={`Open agent ${agent.name}`} asChild>
-                <Link to={`/marketplace/agents/${agent.id}`}>
-                  <RiExternalLinkLine className="size-4" aria-hidden="true" />
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Delete agent ${agent.name}`}
-                disabled={state.deletingAgentID === agent.id}
-                onClick={() => dispatch({ type: 'SET_DELETE_AGENT', agent })}
-              >
-                <RiDeleteBinLine className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
+            <TooltipProvider>
+              <div className="flex justify-end gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Open agent ${agent.name}`} asChild>
+                      <Link to={`/marketplace/agents/${agent.id}`}>
+                        <RiExternalLinkLine className="size-4" aria-hidden="true" />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open agent</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Delete agent ${agent.name}`}
+                      disabled={state.deletingAgentID === agent.id}
+                      onClick={() => dispatch({ type: 'SET_DELETE_AGENT', agent })}
+                    >
+                      <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete agent</TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
           )}
         />
       </section>
@@ -571,16 +584,23 @@ export function MarketplaceMyAgentsPage() {
           error={null}
           emptyMessage="No installed agents -- Install agents from the marketplace to use them in your workspace."
           renderActions={(install) => (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Uninstall ${install.agentName ?? install.agentID ?? install.id}`}
-              disabled={state.uninstallingID === install.id}
-              onClick={() => void handleUninstall(install)}
-            >
-              <RiDeleteBinLine className="size-4" aria-hidden="true" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Uninstall ${install.agentName ?? install.agentID ?? install.id}`}
+                    disabled={state.uninstallingID === install.id}
+                    onClick={() => void handleUninstall(install)}
+                  >
+                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Uninstall agent</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         />
       </section>
