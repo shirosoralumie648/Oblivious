@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useCallback, useMemo } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,8 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
+const EMPTY_SET = new Set<string>();
+
 export function DataTable<T>({
   columns,
   data,
@@ -67,19 +69,29 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
-  const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
-  const partiallySelected = selectedCount > 0 && !allSelected;
+  // Optimization: Memoize selectable rows and selection calculations to avoid O(N) operations on every render.
+  // Measurement: Reduces CPU time during re-renders by preventing redundant filtering and mapping of table data.
+  const { selectableRows, allSelected, partiallySelected } = useMemo(() => {
+    const rows = data.map((item) => rowId(item, idKey)).filter(Boolean);
+    const count = rows.filter((id) => selectedIds.has(id)).length;
+    return {
+      selectableRows: rows,
+      allSelected: rows.length > 0 && count === rows.length,
+      partiallySelected: count > 0 && count < rows.length,
+    };
+  }, [data, idKey, selectedIds]);
 
-  const handleSelectAll = (checked: boolean | 'indeterminate') => {
-    selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
-  };
+  const handleSelectAll = useCallback(
+    (checked: boolean | 'indeterminate') => {
+      selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
+    },
+    [selectableRows, onSelectChange]
+  );
 
   if (error) {
     return (
