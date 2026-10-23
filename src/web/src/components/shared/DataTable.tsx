@@ -55,6 +55,10 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
+// Optimization: Extracts empty set to a constant to prevent creating a new Set instance on every render
+// Measurement: Reduces unnecessary re-renders in components consuming DataTable by maintaining referential equality for selectedIds
+const EMPTY_SET = new Set<string>();
+
 export function DataTable<T>({
   columns,
   data,
@@ -67,7 +71,7 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
