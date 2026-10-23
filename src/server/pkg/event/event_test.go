@@ -31,6 +31,7 @@ func TestConsumerSubscribe(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	done := make(chan struct{})
 	received := make(chan bool, 1)
 
 	go func() {
@@ -40,8 +41,9 @@ func TestConsumerSubscribe(t *testing.T) {
 			return nil
 		})
 		if err != nil && err != context.Canceled {
-			t.Logf("Subscribe error: %v", err)
+			// Log skipped as the test might have already completed, avoiding "panic: Log in goroutine after TestConsumerSubscribe has completed"
 		}
+		close(done)
 	}()
 
 	producer := NewProducer(brokers, topic)
@@ -59,4 +61,5 @@ func TestConsumerSubscribe(t *testing.T) {
 	case <-ctx.Done():
 		t.Log("Test completed")
 	}
+	<-done
 }
