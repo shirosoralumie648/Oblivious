@@ -309,16 +309,16 @@ export function AdminRoutesPage() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button type="button" variant="ghost" size="icon" aria-label={`Edit route ${model}`} onClick={() => dispatch({ type: 'OPEN_EDIT', route })}>
-                <RiPencilLine className="size-4" aria-hidden="true" />
-              </Button>
+                    <RiPencilLine className="size-4" aria-hidden="true" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Edit route</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button type="button" variant="ghost" size="icon" aria-label={`Delete route ${model}`} onClick={() => dispatch({ type: 'CONFIRM_DELETE', route })}>
-                <RiDeleteBinLine className="size-4" aria-hidden="true" />
-              </Button>
+                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Delete route</TooltipContent>
               </Tooltip>
@@ -377,14 +377,14 @@ export function AdminRoutesPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                      type="button"
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label={`Remove channel target ${number}`}
-                      onClick={() => dispatch({ type: 'REMOVE_CHANNEL', index })}
-                    >
-                      <RiDeleteBinLine className="size-3" aria-hidden="true" />
-                    </Button>
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label={`Remove channel target ${number}`}
+                          onClick={() => dispatch({ type: 'REMOVE_CHANNEL', index })}
+                        >
+                          <RiDeleteBinLine className="size-3" aria-hidden="true" />
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent>Remove target</TooltipContent>
                     </Tooltip>
