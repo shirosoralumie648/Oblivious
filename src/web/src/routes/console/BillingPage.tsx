@@ -20,8 +20,8 @@ export function BillingPage() {
   const [isStartingTopUpCheckout, setIsStartingTopUpCheckout] = useState(false);
   const [isStartingSubscriptionCheckout, setIsStartingSubscriptionCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
-  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
-  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('stripe');
+  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('');
+  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('');
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const paymentProviders = useMemo(
     () => normalizedBillingCheckoutProviders(billingSummary?.paymentProviders),
@@ -72,13 +72,9 @@ export function BillingPage() {
     if (paymentProviders.length === 0) {
       return;
     }
-    if (!paymentProviders.includes(topUpProvider)) {
-      setTopUpProvider(paymentProviders[0]);
-    }
-    if (!paymentProviders.includes(subscriptionProvider)) {
-      setSubscriptionProvider(paymentProviders[0]);
-    }
-  }, [paymentProviders, subscriptionProvider, topUpProvider]);
+    setTopUpProvider((prev) => (prev !== '' && paymentProviders.includes(prev) ? prev : paymentProviders[0]));
+    setSubscriptionProvider((prev) => (prev !== '' && paymentProviders.includes(prev) ? prev : paymentProviders[0]));
+  }, [paymentProviders]);
 
   useEffect(() => {
     if (packages.length === 0) {
@@ -114,7 +110,7 @@ export function BillingPage() {
       const checkout = await consoleApi.createBillingCheckout({
         amount,
         kind: 'topup',
-        provider: topUpProvider
+        provider: topUpProvider || paymentProviders[0]
       });
       setTopUpCheckoutUrl(checkout.url);
     } catch {
@@ -215,7 +211,7 @@ export function BillingPage() {
               <p>No subscription packages available.</p>
             )}
             {subscriptionCheckoutError ? <p role="alert">{subscriptionCheckoutError}</p> : null}
-            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider)}</a> : null}
+            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider || paymentProviders[0] || 'stripe')}</a> : null}
           </section>
           <section aria-label="Quota top-up checkout">
             <h2>Add balance</h2>
@@ -247,7 +243,7 @@ export function BillingPage() {
               </button>
             </form>
             {topUpCheckoutError ? <p role="alert">{topUpCheckoutError}</p> : null}
-            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider)}</a> : null}
+            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider || paymentProviders[0] || 'stripe')}</a> : null}
           </section>
           {billingSummary.nextInvoice ? (
             <p>{`Next invoice: ${billingSummary.nextInvoice.status} - $${billingSummary.nextInvoice.amountUsd.toFixed(4)} - due ${formatInvoiceDueDate(billingSummary.nextInvoice.dueAt)}`}</p>
