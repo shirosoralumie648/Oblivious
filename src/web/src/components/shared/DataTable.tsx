@@ -35,6 +35,8 @@ export type DataTableProps<T> = {
   className?: string;
 };
 
+const EMPTY_SET = new Set<string>();
+
 function getValue<T>(item: T, key: string): ReactNode {
   if (typeof item === 'object' && item !== null && key in item) {
     const value = (item as Record<string, unknown>)[key];
@@ -67,7 +69,7 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
