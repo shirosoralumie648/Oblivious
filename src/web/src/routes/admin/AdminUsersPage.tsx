@@ -3,6 +3,7 @@ import { RiPencilLine, RiUserForbidLine, RiUserFollowLine } from '@remixicon/rea
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { DrawerForm } from '../../components/shared/DrawerForm';
@@ -208,8 +209,9 @@ export function AdminUsersPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <TooltipProvider>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Users</h1>
       </div>
 
@@ -253,18 +255,28 @@ export function AdminUsersPage() {
         onRetry={loadUsers}
         renderActions={(user) => (
           <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
-              <RiPencilLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
-              onClick={() => void handleStatusAction(user)}
-            >
-              {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Edit user ${user.email}`} onClick={() => dispatch({ type: 'OPEN_EDIT', user })}>
+                  <RiPencilLine className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit User</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`${user.status === 'active' ? 'Disable' : 'Enable'} user ${user.email}`}
+                  onClick={() => void handleStatusAction(user)}
+                >
+                  {user.status === 'active' ? <RiUserForbidLine className="size-4" aria-hidden="true" /> : <RiUserFollowLine className="size-4" aria-hidden="true" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{user.status === 'active' ? 'Disable User' : 'Enable User'}</TooltipContent>
+            </Tooltip>
           </div>
         )}
       />
@@ -329,5 +341,6 @@ export function AdminUsersPage() {
         </div>
       </DrawerForm>
     </div>
+    </TooltipProvider>
   );
 }
