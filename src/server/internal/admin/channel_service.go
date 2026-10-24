@@ -577,8 +577,6 @@ func diffModelSets(currentModels, upstreamModels []string) ([]string, []string, 
 }
 
 // extractIP extracts the client IP address from an HTTP request.
-// SECURITY: Extracts the right-most IP from X-Forwarded-For (appended by the trusted edge proxy)
-// to prevent IP spoofing, as the left-most IPs are user-controlled.
 func extractIP(r *http.Request) string {
 	if r == nil {
 		return ""
