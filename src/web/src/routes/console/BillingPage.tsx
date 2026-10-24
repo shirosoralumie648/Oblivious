@@ -20,8 +20,8 @@ export function BillingPage() {
   const [isStartingTopUpCheckout, setIsStartingTopUpCheckout] = useState(false);
   const [isStartingSubscriptionCheckout, setIsStartingSubscriptionCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
-  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
-  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('stripe');
+  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('');
+  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('');
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const paymentProviders = useMemo(
     () => normalizedBillingCheckoutProviders(billingSummary?.paymentProviders),
@@ -72,13 +72,9 @@ export function BillingPage() {
     if (paymentProviders.length === 0) {
       return;
     }
-    if (!paymentProviders.includes(topUpProvider)) {
-      setTopUpProvider(paymentProviders[0]);
-    }
-    if (!paymentProviders.includes(subscriptionProvider)) {
-      setSubscriptionProvider(paymentProviders[0]);
-    }
-  }, [paymentProviders, subscriptionProvider, topUpProvider]);
+    setTopUpProvider((prev) => (prev !== '' && paymentProviders.includes(prev) ? prev : paymentProviders[0]));
+    setSubscriptionProvider((prev) => (prev !== '' && paymentProviders.includes(prev) ? prev : paymentProviders[0]));
+  }, [paymentProviders]);
 
   useEffect(() => {
     if (packages.length === 0) {
