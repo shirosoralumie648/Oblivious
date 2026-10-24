@@ -63,7 +63,7 @@ func TestServiceCreateRelayPricingCatalogImportBuildsDiffAndNormalizesEntries(t 
 				Currency:  "USD",
 			},
 		},
-	}, "203.0.113.10")
+	}, "198.51.100.2")
 	if err != nil {
 		t.Fatalf("create pricing catalog import: %v", err)
 	}

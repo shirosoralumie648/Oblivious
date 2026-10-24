@@ -1547,11 +1547,14 @@ func splitQueryCSV(r *stdhttp.Request, key string) []string {
 	return items
 }
 
+// requestClientIP extracts the client IP address from an HTTP request.
+// SECURITY: Extracts the right-most IP from X-Forwarded-For (appended by the trusted edge proxy)
+// to prevent IP spoofing, as the left-most IPs are user-controlled.
 func requestClientIP(r *stdhttp.Request) string {
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 		parts := strings.Split(forwardedFor, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 
