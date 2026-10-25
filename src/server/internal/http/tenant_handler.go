@@ -337,9 +337,12 @@ func containsAny(value string, needles ...string) bool {
 	return false
 }
 
+// SECURITY: Extract the right-most IP from X-Forwarded-For to prevent IP spoofing,
+// as the trusted edge proxy appends the true client IP to the end of the list.
 func clientIP(r *stdhttp.Request) string {
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		parts := strings.Split(forwarded, ",")
+		return strings.TrimSpace(parts[len(parts)-1])
 	}
 	return r.RemoteAddr
 }

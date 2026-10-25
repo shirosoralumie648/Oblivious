@@ -1547,11 +1547,13 @@ func splitQueryCSV(r *stdhttp.Request, key string) []string {
 	return items
 }
 
+// SECURITY: Extract the right-most IP from X-Forwarded-For to prevent IP spoofing,
+// as the trusted edge proxy appends the true client IP to the end of the list.
 func requestClientIP(r *stdhttp.Request) string {
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 		parts := strings.Split(forwardedFor, ",")
 		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 
