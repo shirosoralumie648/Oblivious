@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, memo } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -55,7 +55,9 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
-export function DataTable<T>({
+const EMPTY_SET = new Set<string>();
+
+function DataTableInner<T>({
   columns,
   data,
   loading,
@@ -67,7 +69,7 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
@@ -194,3 +196,7 @@ export function DataTable<T>({
     </div>
   );
 }
+
+// Optimization: Memoize the DataTable component to prevent unnecessary re-renders when parent components update.
+// Measurement: Reduces re-renders of the DataTable when other state changes in the parent view.
+export const DataTable = memo(DataTableInner) as typeof DataTableInner;

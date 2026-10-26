@@ -1,0 +1,3 @@
+## 2024-05-24 - Avoid New References in React Component Default Params
+**Learning:** Initializing objects like `new Set<string>()` as default parameters in React components (e.g. `selectedIds = new Set<string>()`) creates a new reference on every render, which will completely defeat optimizations like `React.memo()`. This is a codebase-specific anti-pattern to watch out for.
+**Action:** Always extract default objects/arrays/sets to module-level constants (e.g., `const EMPTY_SET = new Set<string>();`) when passing them as default props to maintain referential equality and preserve memoization benefits.
