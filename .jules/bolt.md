@@ -1,0 +1,3 @@
+## 2024-10-28 - React.memo on Generic Components with Default Props
+**Learning:** Using inline object/Set instantiation for default parameters (e.g. `selectedIds = new Set<string>()`) defeats `React.memo` by creating a new reference on every render. Also, wrapping a generic function component with `React.memo` strips the generic type inference unless re-asserted.
+**Action:** Extract default object/Set parameters to module-level constants (e.g., `const EMPTY_SET = new Set<string>()`) and use a type assertion when exporting the memoized generic component (`export const DataTable = React.memo(DataTableInner) as typeof DataTableInner;`).
