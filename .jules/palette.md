@@ -1,0 +1,3 @@
+## 2024-10-29 - Add tooltips to icon-only buttons
+**Learning:** Sighted users may struggle to understand icon-only buttons if their meaning is not universally obvious, despite having proper `aria-label`s for screen readers. Using the design system's `<Tooltip>` component provides a standard way to expose these labels on hover.
+**Action:** When adding tooltips in lists or data tables with multiple items, wrap the highest logical parent component (e.g., the page wrapper) with a single `<TooltipProvider>` rather than wrapping individual rows/components. Then use `<Tooltip>`, `<TooltipTrigger asChild>`, and `<TooltipContent>` on each icon button.
