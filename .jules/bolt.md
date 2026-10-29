@@ -1,0 +1,3 @@
+## 2024-10-29 - Generic Component Memoization & Reference Equality
+**Learning:** In this codebase, inline object/Set instantiation for default props (e.g., `selectedIds = new Set<string>()`) creates new references on every render, defeating memoization. Furthermore, generic functional components (like `DataTable<T>`) lose their generic type inference when wrapped in `React.memo`.
+**Action:** Extract default objects/Sets to module-level constants (e.g., `const EMPTY_SET = new Set<string>();`) to maintain referential equality. When memoizing generic components, always use a type assertion on the export (e.g., `export const DataTable = memo(DataTableInner) as typeof DataTableInner;`) to preserve the generic signature.
