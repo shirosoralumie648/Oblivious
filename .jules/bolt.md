@@ -1,0 +1,3 @@
+## 2024-11-20 - React.memo generic props losing inference
+**Learning:** When using `React.memo` to memoize generic components like `<DataTable<T>>`, the returned type drops the generic parameter making type inferences fail downstream. Additionally, using `new Set<string>()` as a default prop for `selectedIds` defeats `React.memo` by breaking referential equality on every re-render.
+**Action:** Extract default values like `new Set<string>()` to a module-scoped constant (`EMPTY_SET`). Ensure to typecast the memoized component as `typeof ComponentInner` to preserve the generic typings: `export const DataTable = React.memo(DataTableInner) as typeof DataTableInner;`.
