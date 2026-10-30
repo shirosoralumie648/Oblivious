@@ -1,3 +1,4 @@
+import React from 'react';
 import type { ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
@@ -55,7 +56,9 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
-export function DataTable<T>({
+const EMPTY_SET = new Set<string>();
+
+function DataTableInner<T>({
   columns,
   data,
   loading,
@@ -67,7 +70,7 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
@@ -194,3 +197,6 @@ export function DataTable<T>({
     </div>
   );
 }
+
+
+export const DataTable = React.memo(DataTableInner) as typeof DataTableInner;
