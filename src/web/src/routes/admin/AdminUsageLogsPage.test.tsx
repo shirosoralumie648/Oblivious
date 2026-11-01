@@ -116,19 +116,19 @@ describe('AdminUsageLogsPage', () => {
     render(<AdminUsageLogsPage />);
 
     expect(await screen.findByRole('heading', { name: 'Usage Analytics' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By model' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By feature' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By user' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By time' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By channel' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'By provider' })).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('user_1')).toBeInTheDocument();
-    expect(screen.getByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
-    expect(screen.getByText('ch_1')).toBeInTheDocument();
-    expect(screen.getByText('openai')).toBeInTheDocument();
-    expect(screen.getByText('$0.0012')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By model' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By feature' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By user' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By time' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By channel' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By provider' })).toBeInTheDocument();
+    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
+    expect(await screen.findByText('chat')).toBeInTheDocument();
+    expect(await screen.findByText('user_1')).toBeInTheDocument();
+    expect(await screen.findByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
+    expect(await screen.findByText('ch_1')).toBeInTheDocument();
+    expect(await screen.findByText('openai')).toBeInTheDocument();
+    expect(await screen.findByText('$0.0012')).toBeInTheDocument();
   });
 
   it('renders usage analytics cross dimensions for multidimensional analysis', async () => {
