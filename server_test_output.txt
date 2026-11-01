@@ -1,0 +1,109 @@
+?   	oblivious/server/api/proto/observability/v1	[no test files]
+?   	oblivious/server/cmd/admin	[no test files]
+ok  	oblivious/server/cmd/agent	0.037s
+?   	oblivious/server/cmd/billing	[no test files]
+?   	oblivious/server/cmd/channel	[no test files]
+ok  	oblivious/server/cmd/chat	0.036s
+?   	oblivious/server/cmd/gateway	[no test files]
+ok  	oblivious/server/cmd/grpc-smoke	0.050s
+?   	oblivious/server/cmd/marketplace	[no test files]
+ok  	oblivious/server/cmd/migrate	0.036s
+?   	oblivious/server/cmd/observability	[no test files]
+?   	oblivious/server/cmd/rag	[no test files]
+ok  	oblivious/server/cmd/relay	0.034s
+ok  	oblivious/server/cmd/release-contract	0.101s
+ok  	oblivious/server/cmd/release-http-surface	18.256s
+ok  	oblivious/server/cmd/release-migration-surface	0.066s
+ok  	oblivious/server/cmd/server	0.156s
+ok  	oblivious/server/cmd/task	0.037s
+ok  	oblivious/server/cmd/workflow	0.035s
+ok  	oblivious/server/internal/admin	0.070s
+ok  	oblivious/server/internal/agent	1.816s
+?   	oblivious/server/internal/agent/approval	[no test files]
+?   	oblivious/server/internal/agent/memory	[no test files]
+ok  	oblivious/server/internal/agent/runtime	0.030s
+ok  	oblivious/server/internal/agent/tools	0.037s
+ok  	oblivious/server/internal/auth	0.006s
+?   	oblivious/server/internal/billing	[no test files]
+?   	oblivious/server/internal/billing/concurrency	[no test files]
+?   	oblivious/server/internal/billing/pricing	[no test files]
+?   	oblivious/server/internal/billing/ratelimit	[no test files]
+ok  	oblivious/server/internal/buildinfo	0.505s
+ok  	oblivious/server/internal/channel	0.395s
+ok  	oblivious/server/internal/channel/adapter	0.007s
+?   	oblivious/server/internal/channel/message	[no test files]
+ok  	oblivious/server/internal/chat	2.060s
+ok  	oblivious/server/internal/config	0.027s
+ok  	oblivious/server/internal/console	0.034s
+?   	oblivious/server/internal/db	[no test files]
+?   	oblivious/server/internal/gateway	[no test files]
+?   	oblivious/server/internal/grpc/agentv1	[no test files]
+?   	oblivious/server/internal/grpc/billingv1	[no test files]
+?   	oblivious/server/internal/grpc/ragv1	[no test files]
+?   	oblivious/server/internal/grpc/relayv1	[no test files]
+?   	oblivious/server/internal/grpc/taskv1	[no test files]
+?   	oblivious/server/internal/grpc/workflowv1	[no test files]
+ok  	oblivious/server/internal/http	31.932s
+ok  	oblivious/server/internal/knowledge	0.034s
+?   	oblivious/server/internal/knowledge/chunking	[no test files]
+?   	oblivious/server/internal/knowledge/citation	[no test files]
+ok  	oblivious/server/internal/knowledge/deepdoc	0.016s
+ok  	oblivious/server/internal/knowledge/document	0.012s
+ok  	oblivious/server/internal/knowledge/embedding	0.007s
+ok  	oblivious/server/internal/knowledge/retrieval	0.015s
+ok  	oblivious/server/internal/marketplace	0.044s
+ok  	oblivious/server/internal/mcp	0.404s
+ok  	oblivious/server/internal/mcp/websearch	0.047s
+ok  	oblivious/server/internal/memory	0.019s
+ok  	oblivious/server/internal/metrics	0.015s
+ok  	oblivious/server/internal/migration	0.020s
+ok  	oblivious/server/internal/migrations	0.168s
+ok  	oblivious/server/internal/notification	0.004s
+ok  	oblivious/server/internal/observability	0.051s
+?   	oblivious/server/internal/observability/alerting	[no test files]
+?   	oblivious/server/internal/observability/metrics	[no test files]
+ok  	oblivious/server/internal/outboundpolicy	0.007s
+ok  	oblivious/server/internal/payment	0.004s
+?   	oblivious/server/internal/queue	[no test files]
+ok  	oblivious/server/internal/quota	0.031s
+?   	oblivious/server/internal/rag	[no test files]
+ok  	oblivious/server/internal/relay	12.785s
+ok  	oblivious/server/internal/relay/affinity	0.310s
+ok  	oblivious/server/internal/relay/balancer	0.009s
+ok  	oblivious/server/internal/relay/cache	0.008s
+ok  	oblivious/server/internal/relay/channel	0.021s
+?   	oblivious/server/internal/relay/channel_new	[no test files]
+ok  	oblivious/server/internal/relay/handler	0.094s
+ok  	oblivious/server/internal/relay/handler_new	0.024s
+ok  	oblivious/server/internal/relay/health	0.011s
+ok  	oblivious/server/internal/relay/ratelimit	0.006s
+?   	oblivious/server/internal/relay/types	[no test files]
+ok  	oblivious/server/internal/releasecontract	37.815s
+ok  	oblivious/server/internal/schedule	0.143s
+ok  	oblivious/server/internal/secretbox	0.004s
+ok  	oblivious/server/internal/stripe	0.045s
+ok  	oblivious/server/internal/surfacereport	0.224s
+ok  	oblivious/server/internal/task	0.031s
+?   	oblivious/server/internal/task/scheduler	[no test files]
+ok  	oblivious/server/internal/tenant	0.007s
+ok  	oblivious/server/internal/usage	0.031s
+ok  	oblivious/server/internal/userprefs	0.004s
+ok  	oblivious/server/internal/workflow	0.065s
+ok  	oblivious/server/internal/workflow/executor	0.004s
+?   	oblivious/server/internal/workflow/failure	[no test files]
+ok  	oblivious/server/internal/workflow/sandbox	0.847s
+?   	oblivious/server/internal/workflow/trigger	[no test files]
+?   	oblivious/server/internal/workflow/version	[no test files]
+ok  	oblivious/server/internal/ws	1.080s
+ok  	oblivious/server/pkg/agent	0.032s
+ok  	oblivious/server/pkg/billing	0.009s
+ok  	oblivious/server/pkg/config	0.016s
+ok  	oblivious/server/pkg/event	0.014s
+?   	oblivious/server/pkg/event/proto	[no test files]
+?   	oblivious/server/pkg/events	[no test files]
+?   	oblivious/server/pkg/metrics	[no test files]
+ok  	oblivious/server/pkg/rag	0.008s
+ok  	oblivious/server/pkg/relay	0.291s
+?   	oblivious/server/pkg/relay/proto	[no test files]
+ok  	oblivious/server/pkg/task	0.013s
+ok  	oblivious/server/pkg/workflow	0.035s
