@@ -4,6 +4,7 @@ import { RiAddLine, RiDeleteBinLine, RiPencilLine } from '@remixicon/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
@@ -246,8 +247,9 @@ export function AdminPlansPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <TooltipProvider>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Plans</h1>
         <Button type="button" className="min-h-[44px]" onClick={() => dispatch({ type: 'OPEN_ADD' })}>
           <RiAddLine className="size-4" aria-hidden="true" />
@@ -288,12 +290,22 @@ export function AdminPlansPage() {
         onRetry={loadPlans}
         renderActions={(plan) => (
           <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Edit plan ${plan.name}`} onClick={() => dispatch({ type: 'OPEN_EDIT', plan })}>
-              <RiPencilLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Deactivate plan ${plan.name}`} onClick={() => dispatch({ type: 'CONFIRM_DEACTIVATE', plan })}>
-              <RiDeleteBinLine className="size-4" aria-hidden="true" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Edit plan ${plan.name}`} onClick={() => dispatch({ type: 'OPEN_EDIT', plan })}>
+                  <RiPencilLine className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit plan</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Deactivate plan ${plan.name}`} onClick={() => dispatch({ type: 'CONFIRM_DEACTIVATE', plan })}>
+                  <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Deactivate plan</TooltipContent>
+            </Tooltip>
           </div>
         )}
       />
@@ -382,5 +394,6 @@ export function AdminPlansPage() {
         variant="destructive"
       />
     </div>
+    </TooltipProvider>
   );
 }
