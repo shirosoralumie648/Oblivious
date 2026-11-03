@@ -215,7 +215,7 @@ export function BillingPage() {
               <p>No subscription packages available.</p>
             )}
             {subscriptionCheckoutError ? <p role="alert">{subscriptionCheckoutError}</p> : null}
-            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider !)}</a> : null}
+            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider!)}</a> : null}
           </section>
           <section aria-label="Quota top-up checkout">
             <h2>Add balance</h2>
@@ -247,7 +247,7 @@ export function BillingPage() {
               </button>
             </form>
             {topUpCheckoutError ? <p role="alert">{topUpCheckoutError}</p> : null}
-            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider !)}</a> : null}
+            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider!)}</a> : null}
           </section>
           {billingSummary.nextInvoice ? (
             <p>{`Next invoice: ${billingSummary.nextInvoice.status} - $${billingSummary.nextInvoice.amountUsd.toFixed(4)} - due ${formatInvoiceDueDate(billingSummary.nextInvoice.dueAt)}`}</p>
