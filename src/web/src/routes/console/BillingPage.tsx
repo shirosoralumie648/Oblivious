@@ -203,7 +203,7 @@ export function BillingPage() {
                 >
                   {paymentProviders.map((provider) => (
                     <option key={provider} value={provider}>
-                      {billingCheckoutProviderLabel(provider)}
+                      {billingCheckoutProviderLabel(provider!)}
                     </option>
                   ))}
                 </select>
@@ -215,7 +215,7 @@ export function BillingPage() {
               <p>No subscription packages available.</p>
             )}
             {subscriptionCheckoutError ? <p role="alert">{subscriptionCheckoutError}</p> : null}
-            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider!)}</a> : null}
+            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider)}</a> : null}
           </section>
           <section aria-label="Quota top-up checkout">
             <h2>Add balance</h2>
@@ -238,7 +238,7 @@ export function BillingPage() {
               >
                 {paymentProviders.map((provider) => (
                   <option key={provider} value={provider}>
-                    {billingCheckoutProviderLabel(provider)}
+                    {billingCheckoutProviderLabel(provider!)}
                   </option>
                 ))}
               </select>
@@ -247,7 +247,7 @@ export function BillingPage() {
               </button>
             </form>
             {topUpCheckoutError ? <p role="alert">{topUpCheckoutError}</p> : null}
-            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider!)}</a> : null}
+            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider)}</a> : null}
           </section>
           {billingSummary.nextInvoice ? (
             <p>{`Next invoice: ${billingSummary.nextInvoice.status} - $${billingSummary.nextInvoice.amountUsd.toFixed(4)} - due ${formatInvoiceDueDate(billingSummary.nextInvoice.dueAt)}`}</p>
@@ -322,8 +322,8 @@ function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
   }
 }
 
-function checkoutLinkLabel(provider: BillingCheckoutProvider) {
-  return provider === 'stripe' ? 'Continue to checkout' : `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
+function checkoutLinkLabel(provider: BillingCheckoutProvider | null) {
+  if (!provider || provider === 'stripe') return 'Continue to checkout'; return `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
 }
 
 function formatPackageOptionLabel(packageOption: PackageOption) {
