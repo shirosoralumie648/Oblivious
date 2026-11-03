@@ -20,8 +20,8 @@ export function BillingPage() {
   const [isStartingTopUpCheckout, setIsStartingTopUpCheckout] = useState(false);
   const [isStartingSubscriptionCheckout, setIsStartingSubscriptionCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
-  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
-  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('stripe');
+  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider | null>(null);
+  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider | null>(null);
   const [selectedPackageId, setSelectedPackageId] = useState('');
   const paymentProviders = useMemo(
     () => normalizedBillingCheckoutProviders(billingSummary?.paymentProviders),
@@ -72,10 +72,10 @@ export function BillingPage() {
     if (paymentProviders.length === 0) {
       return;
     }
-    if (!paymentProviders.includes(topUpProvider)) {
+    if (topUpProvider === null || !paymentProviders.includes(topUpProvider)) {
       setTopUpProvider(paymentProviders[0]);
     }
-    if (!paymentProviders.includes(subscriptionProvider)) {
+    if (subscriptionProvider === null || !paymentProviders.includes(subscriptionProvider)) {
       setSubscriptionProvider(paymentProviders[0]);
     }
   }, [paymentProviders, subscriptionProvider, topUpProvider]);
@@ -114,7 +114,7 @@ export function BillingPage() {
       const checkout = await consoleApi.createBillingCheckout({
         amount,
         kind: 'topup',
-        provider: topUpProvider
+        provider: topUpProvider!
       });
       setTopUpCheckoutUrl(checkout.url);
     } catch {
@@ -145,7 +145,7 @@ export function BillingPage() {
       const checkout = await consoleApi.createBillingCheckout({
         kind: 'subscription',
         packageId: selectedPackage.id,
-        provider: subscriptionProvider
+        provider: subscriptionProvider!
       });
       setSubscriptionCheckoutUrl(checkout.url);
     } catch {
@@ -199,11 +199,11 @@ export function BillingPage() {
                   id="billing-subscription-provider"
                   onChange={(event) => setSubscriptionProvider(event.target.value as BillingCheckoutProvider)}
                   disabled={!hasPaymentProviders}
-                  value={subscriptionProvider}
+                  value={subscriptionProvider || ""}
                 >
                   {paymentProviders.map((provider) => (
                     <option key={provider} value={provider}>
-                      {billingCheckoutProviderLabel(provider)}
+                      {billingCheckoutProviderLabel(provider!)}
                     </option>
                   ))}
                 </select>
@@ -234,11 +234,11 @@ export function BillingPage() {
                 id="billing-top-up-provider"
                 onChange={(event) => setTopUpProvider(event.target.value as BillingCheckoutProvider)}
                 disabled={!hasPaymentProviders}
-                value={topUpProvider}
+                value={topUpProvider || ""}
               >
                 {paymentProviders.map((provider) => (
                   <option key={provider} value={provider}>
-                    {billingCheckoutProviderLabel(provider)}
+                    {billingCheckoutProviderLabel(provider!)}
                   </option>
                 ))}
               </select>
@@ -322,8 +322,8 @@ function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
   }
 }
 
-function checkoutLinkLabel(provider: BillingCheckoutProvider) {
-  return provider === 'stripe' ? 'Continue to checkout' : `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
+function checkoutLinkLabel(provider: BillingCheckoutProvider | null) {
+  if (!provider || provider === 'stripe') return 'Continue to checkout'; return `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
 }
 
 function formatPackageOptionLabel(packageOption: PackageOption) {
