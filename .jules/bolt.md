@@ -1,0 +1,3 @@
+## 2024-05-24 - React.memo on Generic Components with Default Prop Instantiations
+**Learning:** When using `React.memo` on generic components like `DataTable<T>`, default parameter instantiations like `selectedIds = new Set<string>()` create new object references on every render, which silently defeats the memoization. Additionally, `React.memo` strips generic type inference, requiring a type assertion.
+**Action:** Always extract default object/Set parameters to a module-level constant (e.g., `const EMPTY_SET = new Set<string>()`) to preserve referential equality, and re-assert the type with `as typeof ComponentName` when exporting memoized generics.

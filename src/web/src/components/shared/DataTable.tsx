@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -55,7 +55,9 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
-export function DataTable<T>({
+const EMPTY_SET = new Set<string>();
+
+function DataTableInner<T>({
   columns,
   data,
   loading,
@@ -67,13 +69,14 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
+  // PERFORMANCE: Memoize row ID calculations to avoid O(N) re-calculation on every render
+  const selectableRows = React.useMemo(() => data.map((item) => rowId(item, idKey)).filter(Boolean), [data, idKey]);
+  const selectedCount = React.useMemo(() => selectableRows.filter((id) => selectedIds.has(id)).length, [selectableRows, selectedIds]);
   const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
 
@@ -194,3 +197,7 @@ export function DataTable<T>({
     </div>
   );
 }
+
+// PERFORMANCE: Memoize DataTable to prevent unnecessary re-renders when parent components update.
+// We use a module-level EMPTY_SET for default parameters to maintain referential equality.
+export const DataTable = React.memo(DataTableInner) as typeof DataTableInner;
