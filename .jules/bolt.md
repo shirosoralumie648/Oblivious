@@ -1,0 +1,3 @@
+## 2024-11-04 - Object reference equality in React rendering defaults
+**Learning:** Default prop values in React components that instantiate new reference types (like `new Set<string>()`, `[]`, or `{}`) break memoization or create unnecessary work. In this codebase, `DataTable.tsx` has `selectedIds = new Set<string>()`, which allocates a new object reference on every render when `selectedIds` is omitted, causing cascading renders if `DataTable` or its children were wrapped in `React.memo`, or triggering unnecessary effect re-evaluations downstream.
+**Action:** Extract default reference types into module-level constants (e.g., `const EMPTY_SET = new Set<string>();`) to preserve object reference equality across renders.
