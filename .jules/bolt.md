@@ -1,0 +1,3 @@
+## 2024-11-07 - React.memo Generic Types and Default Parameters
+**Learning:** Using `React.memo` on generic components strips their type inference unless re-asserted (e.g., `as typeof InnerComponent`). Furthermore, providing inline default references like `new Set<string>()` in component props defeats memoization entirely because they generate new references on every render.
+**Action:** Always extract default object/Set initializations to module-level constants (e.g., `EMPTY_SET`) to maintain referential equality, and use `as typeof Component` when memoizing generics in TypeScript.
