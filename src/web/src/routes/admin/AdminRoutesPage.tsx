@@ -3,6 +3,7 @@ import { RiAddLine, RiDeleteBinLine, RiPencilLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
@@ -284,10 +285,11 @@ export function AdminRoutesPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="font-heading text-2xl font-semibold text-foreground">Model Routes</h1>
-        <Button type="button" className="min-h-[44px]" onClick={() => dispatch({ type: 'OPEN_ADD' })}>
+    <TooltipProvider>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-heading text-2xl font-semibold text-foreground">Model Routes</h1>
+          <Button type="button" className="min-h-[44px]" onClick={() => dispatch({ type: 'OPEN_ADD' })}>
           <RiAddLine className="size-4" aria-hidden="true" />
           Add Route
         </Button>
@@ -304,12 +306,26 @@ export function AdminRoutesPage() {
           const model = route.model ?? route.modelPattern ?? route.id;
           return (
             <div className="flex justify-end gap-1">
-              <Button type="button" variant="ghost" size="icon" aria-label={`Edit route ${model}`} onClick={() => dispatch({ type: 'OPEN_EDIT', route })}>
-                <RiPencilLine className="size-4" aria-hidden="true" />
-              </Button>
-              <Button type="button" variant="ghost" size="icon" aria-label={`Delete route ${model}`} onClick={() => dispatch({ type: 'CONFIRM_DELETE', route })}>
-                <RiDeleteBinLine className="size-4" aria-hidden="true" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Edit route ${model}`} onClick={() => dispatch({ type: 'OPEN_EDIT', route })}>
+                    <RiPencilLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Edit route
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Delete route ${model}`} onClick={() => dispatch({ type: 'CONFIRM_DELETE', route })}>
+                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Delete route
+                </TooltipContent>
+              </Tooltip>
             </div>
           );
         }}
@@ -437,6 +453,7 @@ export function AdminRoutesPage() {
         onConfirm={() => void handleDeleteConfirm()}
         variant="destructive"
       />
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
