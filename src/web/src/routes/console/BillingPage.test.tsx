@@ -176,6 +176,9 @@ describe('BillingPage', () => {
     expect(screen.queryByRole('option', { name: 'WeChat Pay' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Payment provider')).toHaveValue('alipay');
 
+    await waitFor(() => {
+      expect(screen.getByLabelText('Payment provider')).toHaveValue('alipay');
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Start top-up checkout' }));
 
     await waitFor(() =>
