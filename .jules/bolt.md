@@ -1,0 +1,3 @@
+## 2024-06-25 - React.memo and default parameter referential equality
+**Learning:** Using inline object or Set instantiation (e.g. `selectedIds = new Set<string>()`) for default parameters in generic or memoized functional components creates a new reference on every render, defeating `React.memo` optimization and potentially triggering unnecessary re-renders.
+**Action:** Extract these to module-level constants (e.g. `const EMPTY_SET = new Set<string>();`) to maintain referential equality across renders, and explicitly cast the exported component type if `React.memo` drops generic inferences (`export const Component = React.memo(Inner) as typeof Inner;`).
