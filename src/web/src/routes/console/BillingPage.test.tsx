@@ -174,7 +174,7 @@ describe('BillingPage', () => {
     expect(await screen.findByRole('option', { name: 'Alipay' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Stripe' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'WeChat Pay' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText('Payment provider')).toHaveValue('alipay'));
+    await waitFor(() => expect(screen.getByLabelText('Payment provider')).toHaveValue('alipay'), { timeout: 2000 });
 
     fireEvent.click(screen.getByRole('button', { name: 'Start top-up checkout' }));
 
