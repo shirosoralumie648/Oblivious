@@ -78,7 +78,7 @@ export function BillingPage() {
     if (!paymentProviders.includes(subscriptionProvider)) {
       setSubscriptionProvider(paymentProviders[0]);
     }
-  }, [paymentProviders]);
+  }, [paymentProviders, topUpProvider, subscriptionProvider]);
 
   useEffect(() => {
     if (packages.length === 0) {
