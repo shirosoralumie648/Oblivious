@@ -55,6 +55,8 @@ function rowId<T>(item: T, idKey: string) {
   return '';
 }
 
+const EMPTY_SET = new Set<string>();
+
 export function DataTable<T>({
   columns,
   data,
@@ -67,7 +69,7 @@ export function DataTable<T>({
   onRetry,
   renderActions,
   selectable = false,
-  selectedIds = new Set<string>(),
+  selectedIds = EMPTY_SET,
   onSelectChange,
   idKey = 'id',
   className,
